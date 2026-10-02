@@ -214,12 +214,17 @@ const services = [
         log('В .env нет адреса туннеля (API_PUBLIC_URL) — туннель не запущен.');
         return null;
       }
-      return start('ngrok', 'ngrok', [
-        'http',
-        `--url=${url.replace(/^https?:\/\//, '')}`,
-        String(API_PORT),
-        '--log=stdout',
-      ]);
+      // Ключ берём из .env, а не из ngrok.yml: процессы, запущенные из
+      // приложения Claude, видят AppData в своей «песочнице», и файл,
+      // созданный там, Windows при входе не видит (ERR_NGROK_4018)
+      const authtoken = readRootEnv().NGROK_AUTHTOKEN;
+      if (!authtoken) log('В .env нет NGROK_AUTHTOKEN — туннель возьмёт ключ из ngrok.yml.');
+      return start(
+        'ngrok',
+        'ngrok',
+        ['http', `--url=${url.replace(/^https?:\/\//, '')}`, String(API_PORT), '--log=stdout'],
+        authtoken ? { env: { ...ipv4Env(), NGROK_AUTHTOKEN: authtoken } } : {},
+      );
     },
   },
   {

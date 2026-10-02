@@ -803,8 +803,13 @@ export interface ListingFilters {
   freshBefore?: string;
 }
 
-function listingQuery(cityId: string, filters: ListingFilters, cursor: string | null): string {
-  const params = new URLSearchParams({ limit: '20' });
+function listingQuery(
+  cityId: string,
+  filters: ListingFilters,
+  cursor: string | null,
+  limit = 20,
+): string {
+  const params = new URLSearchParams({ limit: String(limit) });
   // Город — запасной центр для сервера; при точке с радиусом он не сужает выдачу
   if (cityId) params.set('cityId', cityId);
 
@@ -855,6 +860,32 @@ export function useListings(cityId: string | null, filters: ListingFilters, enab
     // Выдаче нужен центр: город или точка места поиска
     enabled: enabled && (Boolean(cityId) || filters.latitude !== undefined),
     staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Сколько объявлений найдётся при таких фильтрах — для кнопки «Показать 1 248
+ * объявлений» на экране фильтров.
+ *
+ * Тот же маршрут, что у ленты, но с одной карточкой на странице: сервер
+ * считает число с теми же условиями (радиус, характеристики, цена в своей
+ * единице), поэтому цифра на кнопке совпадёт с тем, что человек увидит. Отдельного
+ * «дешёвого» счётчика не заводим: подсчёт уже идёт индексами, а второй путь
+ * с теми же условиями однажды разойдётся с лентой.
+ */
+export function useListingCount(cityId: string | null, filters: ListingFilters, enabled = true) {
+  return useQuery({
+    queryKey: ['listing-count', cityId, JSON.stringify(filters)],
+    queryFn: async () => {
+      const page = await apiFetch<PaginatedResponse<ListingDto>>(
+        `/listings?${listingQuery(cityId ?? '', filters, null, 1)}`,
+      );
+      return page.total ?? 0;
+    },
+    enabled: enabled && (Boolean(cityId) || filters.latitude !== undefined),
+    staleTime: 30 * 1000,
+    // Пока считается новое число, на кнопке остаётся прежнее, а не «Ищем…»
+    placeholderData: (previous) => previous,
   });
 }
 

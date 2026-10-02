@@ -6,6 +6,7 @@ import {
   TRANSACTION_SEARCH_LABELS,
   attributeValueLabel,
   plural,
+  resolveCardLayout,
   type ListingAttribute,
   type ListingCategoryDto,
 } from '@dagestan/shared';
@@ -103,6 +104,8 @@ export default function ListingsListScreen() {
   const feed = useListings(cityId, filters, area.ready);
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);
   const total = feed.data?.pages[0]?.total;
+  // Квартиры, вакансии и услуги читают, а не разглядывают — им нужен список
+  const layout = resolveCardLayout(category);
 
   const chips = useMemo(() => describeFilters(extraFilters, fields), [extraFilters, fields]);
 
@@ -154,7 +157,10 @@ export default function ListingsListScreen() {
 
         <Pressable
           onPress={() =>
-            router.push({ pathname: '/listings/filters', params: slug ? { category: slug } : {} })
+            router.push({
+              pathname: '/listings/filters',
+              params: { ...(slug ? { category: slug } : {}), ...(searching ? { q: query } : {}) },
+            })
           }
           accessibilityRole="button"
           accessibilityLabel="Фильтры"
@@ -285,14 +291,17 @@ export default function ListingsListScreen() {
       <FlatList
         data={items}
         keyExtractor={(listing) => listing.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
+        // Число колонок нельзя менять на лету — FlatList требует новый key
+        key={layout}
+        numColumns={layout === 'list' ? 1 : 2}
+        columnWrapperStyle={layout === 'list' ? undefined : styles.row}
         ListHeaderComponent={header}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
           <ListingCard
             listing={item}
+            layout={layout}
             onOpen={() => router.push({ pathname: '/listings/[id]', params: { id: item.id } })}
             onToggleFavorite={() => toggleListing(item)}
           />

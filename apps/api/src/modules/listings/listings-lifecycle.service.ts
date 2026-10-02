@@ -488,13 +488,17 @@ export class ListingsLifecycleService {
     };
 
     const catalogue = await this.categories.catalogue();
-    const rows = await this.prisma.listing.findMany({
-      where,
-      take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-      orderBy: [{ bumpedAt: 'desc' }, { id: 'asc' }],
-      select: MY_LISTING_SELECT,
-    });
+    // Счёт — один раз, с первой страницей: «Мои объявления · 4» на главном экране
+    const [rows, total] = await Promise.all([
+      this.prisma.listing.findMany({
+        where,
+        take: query.limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+        orderBy: [{ bumpedAt: 'desc' }, { id: 'asc' }],
+        select: MY_LISTING_SELECT,
+      }),
+      query.cursor ? Promise.resolve(undefined) : this.prisma.listing.count({ where }),
+    ]);
 
     const hasMore = rows.length > query.limit;
     const items = hasMore ? rows.slice(0, query.limit) : rows;
@@ -509,6 +513,7 @@ export class ListingsLifecycleService {
       ),
       nextCursor: hasMore ? (items[items.length - 1]?.id ?? null) : null,
       hasMore,
+      ...(total === undefined ? {} : { total }),
     };
   }
 

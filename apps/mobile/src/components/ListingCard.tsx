@@ -1,4 +1,11 @@
-import { LISTING_PRICE_UNIT_SUFFIX, formatDistance, type ListingDto } from '@dagestan/shared';
+import {
+  LISTING_PRICE_UNIT_SUFFIX,
+  formatDistance,
+  formatListingAge,
+  formatViewsShort,
+  type ListingCardLayout,
+  type ListingDto,
+} from '@dagestan/shared';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -14,6 +21,11 @@ interface ListingCardProps {
   onToggleFavorite?: () => void;
   /** Нейтральная пометка поверх фото: «Продано», «Снято с публикации» */
   statusLabel?: string | null;
+  /**
+   * Вид карточки: плитка для сетки или строка для списка. Выбирает экран по
+   * категории (resolveCardLayout): квартиру и вакансию читают, а не разглядывают
+   */
+  layout?: ListingCardLayout;
 }
 
 /**
@@ -32,36 +44,63 @@ export function ListingCard({
   onOpen,
   onToggleFavorite,
   statusLabel = null,
+  layout = 'grid',
 }: ListingCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const photo = listing.cover?.thumbnailUrl ?? listing.cover?.url ?? null;
   const price = formatPrice(listing);
+  const facts = splitFacts(listing.attributesSummary);
+  const isList = layout === 'list';
+
+  const image = (
+    <View style={isList ? styles.imageBoxList : styles.imageBox}>
+      <RemoteImage
+        uri={photo}
+        style={styles.image}
+        containerStyle={styles.placeholder}
+        fallback={<Icon name="image" size={28} color="rgba(255,255,255,0.5)" />}
+      />
+      {statusLabel && (
+        <View style={styles.status}>
+          <Text style={styles.statusText}>{statusLabel}</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const meta = (
+    <View style={styles.metaBlock}>
+      <View style={styles.footer}>
+        <Icon name="location" size={12} color={colors.textFaint} />
+        <Text style={styles.meta} numberOfLines={1}>
+          {placeLine(listing)}
+        </Text>
+      </View>
+      <View style={styles.whenRow}>
+        <Text style={[styles.when, styles.whenText]} numberOfLines={1}>
+          {formatListingAge(listing.bumpedAt)}
+        </Text>
+        <Icon name="eye" size={12} color={colors.textFaint} />
+        <Text style={styles.when} accessibilityLabel={`Просмотров: ${listing.viewsCount}`}>
+          {formatViewsShort(listing.viewsCount)}
+        </Text>
+      </View>
+    </View>
+  );
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isList && styles.cardList]}>
       <Pressable
         onPress={onOpen}
         accessibilityRole="button"
         accessibilityLabel={`${listing.title}. ${price}. ${listing.attributesSummary}`}
-        style={({ pressed }) => [pressed && styles.pressed]}
+        style={({ pressed }) => [isList && styles.pressableList, pressed && styles.pressed]}
       >
-        <View style={styles.imageBox}>
-          <RemoteImage
-            uri={photo}
-            style={styles.image}
-            containerStyle={styles.placeholder}
-            fallback={<Icon name="image" size={28} color="rgba(255,255,255,0.5)" />}
-          />
-          {statusLabel && (
-            <View style={styles.status}>
-              <Text style={styles.statusText}>{statusLabel}</Text>
-            </View>
-          )}
-        </View>
+        {image}
 
-        <View style={styles.body}>
+        <View style={[styles.body, isList && styles.bodyList]}>
           <Text style={styles.price} numberOfLines={1}>
             {price}
           </Text>
@@ -69,34 +108,32 @@ export function ListingCard({
             {listing.title}
           </Text>
 
-          {listing.attributesSummary.length > 0 && (
-            <Text style={styles.summary} numberOfLines={1}>
-              {listing.attributesSummary}
-            </Text>
-          )}
+          {/* Ключевые характеристики: в списке — отдельными «таблетками», в
+              плитке — одной строкой. Из JSON-ключей сюда ничего не попадает:
+              строку собрал сервер по полям с showInCard */}
+          {facts.length > 0 &&
+            (isList ? (
+              <View style={styles.facts}>
+                {facts.slice(0, 4).map((fact) => (
+                  <View key={fact} style={styles.fact}>
+                    <Text style={styles.factText} numberOfLines={1}>
+                      {fact}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.summary} numberOfLines={2}>
+                {listing.attributesSummary}
+              </Text>
+            ))}
 
-          {/* Место и время — разными строками. В одну они не помещаются на
-              узкой плитке, а обрезанное «Махачкала · 3 к…» бесполезно */}
-          <View style={styles.footer}>
-            <Icon name="location" size={12} color={colors.textFaint} />
-            <Text style={styles.meta} numberOfLines={1}>
-              {placeLine(listing)}
-            </Text>
-          </View>
-          <View style={styles.whenRow}>
-            <Text style={[styles.when, styles.whenText]} numberOfLines={1}>
-              {formatWhen(listing.bumpedAt)}
-            </Text>
-            <Icon name="eye" size={12} color={colors.textFaint} />
-            <Text style={styles.when} accessibilityLabel={`Просмотров: ${listing.viewsCount}`}>
-              {formatViews(listing.viewsCount)}
-            </Text>
-          </View>
+          {meta}
         </View>
       </Pressable>
 
       {onToggleFavorite && (
-        <View style={styles.favorite}>
+        <View style={isList ? styles.favoriteList : styles.favorite}>
           <FavoriteButton
             isFavorite={listing.isFavorite}
             onToggle={onToggleFavorite}
@@ -107,6 +144,14 @@ export function ListingCard({
       )}
     </View>
   );
+}
+
+/** «2 комн. · 54 м² · 3/9 эт.» → отдельные характеристики. */
+function splitFacts(summary: string): string[] {
+  return summary
+    .split(' · ')
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -121,11 +166,7 @@ export function placeLine(listing: ListingDto): string {
 }
 
 /** «38», «1,2 тыс» — на узкой плитке длинное число не помещается. */
-export function formatViews(count: number): string {
-  if (count < 1000) return String(count);
-  const thousands = count / 1000;
-  return `${thousands < 10 ? thousands.toFixed(1).replace('.', ',') : Math.round(thousands)} тыс`;
-}
+export const formatViews = formatViewsShort;
 
 /** «2 890 000 ₽», «25 000 ₽/мес» или «Цена договорная». */
 export function formatPrice(listing: ListingDto): string {
@@ -168,7 +209,10 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     // ни подложки, ни ярлыка. Платное влияет только на место в выдаче
     pressed: { opacity: 0.85 },
 
+    cardList: { flexGrow: 0, flexBasis: 'auto', width: '100%' },
+    pressableList: { flexDirection: 'row' },
     imageBox: { width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surfaceMuted },
+    imageBoxList: { width: 132, minHeight: 132, backgroundColor: colors.surfaceMuted },
     image: { width: '100%', height: '100%' },
     placeholder: {
       width: '100%',
@@ -179,18 +223,37 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
 
     body: { padding: spacing.md, gap: 2 },
+    bodyList: { flex: 1, minWidth: 0 },
     price: { ...typography.subheading, color: colors.text, fontSize: 17 },
     // Две строки под заголовок всегда: иначе соседние карточки в ряду
     // расходятся по высоте и сетка выглядит рваной
     title: { ...typography.body, color: colors.text, fontSize: 14, lineHeight: 18, minHeight: 36 },
     summary: { ...typography.caption, color: colors.textMuted },
-    footer: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+    // Тонкая черта отделяет «что это» (цена, название, параметры) от «где и когда»
+    metaBlock: {
+      marginTop: spacing.xs,
+      paddingTop: spacing.xs,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: 1,
+    },
+    facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 },
+    fact: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceMuted,
+      maxWidth: '100%',
+    },
+    factText: { ...typography.caption, color: colors.text },
+    footer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     meta: { ...typography.caption, color: colors.textFaint, flexShrink: 1 },
     when: { ...typography.label, color: colors.textFaint, marginTop: 1 },
     whenRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     whenText: { flex: 1 },
 
     favorite: { position: 'absolute', top: spacing.sm, right: spacing.sm },
+    favoriteList: { position: 'absolute', top: spacing.sm, left: 132 - 38 - spacing.sm },
     // Пометка состояния, а не реклама: одинаковая у всех, без цвета акцента
     status: {
       position: 'absolute',

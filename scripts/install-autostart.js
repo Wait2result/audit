@@ -47,6 +47,8 @@ fs.mkdirSync(path.join(ROOT, '.dev-logs'), { recursive: true });
 fs.writeFileSync(LAUNCHER, script, 'utf8');
 console.log(`Автозапуск включён: ${LAUNCHER}`);
 
-// И сразу запустить — тем же способом, каким это сделает Windows при входе
-spawn('wscript.exe', [LAUNCHER], { detached: true, stdio: 'ignore' }).unref();
+// И сразу запустить — через Проводник, как это сделает Windows при входе.
+// Не напрямую: процесс, запущенный из приложения Claude (или другого
+// «контейнера»), закрывается вместе с ним, а запущенный Проводником — нет
+spawn('explorer.exe', [LAUNCHER], { detached: true, stdio: 'ignore' }).unref();
 console.log('Сторож запущен. Состояние: npm run dev:status');

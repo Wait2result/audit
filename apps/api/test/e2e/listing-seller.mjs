@@ -186,6 +186,24 @@ const another = (
   )
 ).body;
 await call('POST', `/listings/${another.id}/favorite`, null, buyer.token);
+
+// Счётчик «Мои объявления» на главном экране: total — на первой странице, не на следующих
+const mineFirst = await call('GET', '/my/listings?limit=1&status=approved', null, seller.token);
+check(
+  typeof mineFirst.body?.total === 'number' && mineFirst.body.total >= 1,
+  'мои объявления: total на первой странице',
+  `total = ${mineFirst.body?.total}`,
+);
+const mineNext = await call(
+  'GET',
+  `/my/listings?limit=1&status=approved&cursor=${mineFirst.body?.nextCursor ?? ''}`,
+  null,
+  seller.token,
+);
+check(
+  mineFirst.body?.nextCursor ? mineNext.body?.total === undefined : true,
+  'мои объявления: на следующих страницах total не пересчитывается',
+);
 const summary = await call('GET', `/favorites/summary?cityId=${cityId}`, null, buyer.token);
 check(
   summary.body?.listings === 1 && summary.body?.places === 0 && summary.body?.dishes === 0,

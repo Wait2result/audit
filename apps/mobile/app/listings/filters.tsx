@@ -3,7 +3,9 @@ import {
   RENT_PERIOD_LABELS,
   TRANSACTION_SEARCH_LABELS,
   allowedPriceUnits,
+  groupFilterFields,
   isAttributeVisible,
+  plural,
   type ListingAttribute,
   type ListingCategoryDto,
   type ListingPriceUnit,
@@ -11,21 +13,30 @@ import {
   type ListingTransactionType,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { useDictionary, useListingCategories } from '../../src/api/queries';
+import {
+  useDictionary,
+  useListingCategories,
+  useListingCount,
+  type ListingFilters,
+} from '../../src/api/queries';
 import { Button } from '../../src/components/Button';
 import { FilterChip } from '../../src/components/FilterChip';
 import { FormHeader } from '../../src/components/FormHeader';
+import { Icon } from '../../src/components/Icon';
 import { Screen } from '../../src/components/Screen';
 import { SearchableSelect } from '../../src/components/SearchableSelect';
 import { TextField } from '../../src/components/TextField';
+import { useDebouncedValue } from '../../src/hooks/use-debounced-value';
+import { useListingArea } from '../../src/hooks/use-listing-area';
+import { useCityStore } from '../../src/store/city-store';
 import {
   useListingFilterStore,
   type ExtraListingFilters,
 } from '../../src/store/listing-filter-store';
-import { spacing, typography, useThemeColors } from '../../src/theme';
+import { radius, spacing, typography, useThemeColors } from '../../src/theme';
 
 /**
  * Фильтры каталога объявлений (Этап 7).
@@ -45,7 +56,11 @@ export default function ListingFiltersScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
-  const params = useLocalSearchParams<{ category?: string }>();
+  // q — текст поиска, с которым открыли экран: число на кнопке должно
+  // считаться с ним, иначе оно разойдётся с тем, что человек увидит
+  const params = useLocalSearchParams<{ category?: string; q?: string }>();
+  const cityId = useCityStore((s) => s.cityId);
+  const area = useListingArea();
 
   const categories = useListingCategories();
   // Фильтры хранятся по категории: у автомобилей свои, у телефонов свои
@@ -61,10 +76,16 @@ export default function ListingFiltersScreen() {
   const [rentPeriod, setRentPeriod] = useState(saved.rentPeriod);
   const [onlyWithPhoto, setOnlyWithPhoto] = useState(Boolean(saved.onlyWithPhoto));
   const [attributes, setAttributes] = useState<Record<string, unknown>>(saved.attributes ?? {});
+  const [showExtra, setShowExtra] = useState(false);
 
   const fields = useMemo(
     () => filterFields(categories.data ?? [], params.category),
     [categories.data, params.category],
+  );
+  // Видимые поля раскладываем по блокам: главное сразу, остальное по кнопке
+  const groups = useMemo(
+    () => groupFilterFields(fields.filter((field) => isAttributeVisible(field, attributes))),
+    [fields, attributes],
   );
   // Сделки, которые бывают в выбранной категории (или во всех её подкатегориях)
   const transactions = useMemo(
@@ -94,6 +115,50 @@ export default function ListingFiltersScreen() {
     });
   };
 
+  // То, что человек выбрал на экране сейчас, ещё не сохранённое: по нему же
+  // считается число на кнопке и оно же сохраняется по нажатию
+  const draft = useMemo<ExtraListingFilters>(
+    () => ({
+      ...(priceFrom ? { priceFrom: Number(priceFrom) } : {}),
+      ...(priceTo ? { priceTo: Number(priceTo) } : {}),
+      ...(transactionType ? { transactionType } : {}),
+      ...(transactionType === 'rent' && rentPeriod ? { rentPeriod } : {}),
+      // Единица нужна серверу только вместе с ценой; без неё он сравнил бы
+      // «в сутки» с «в месяц»
+      ...((priceFrom || priceTo) && activeUnit && priceUnits.length > 1
+        ? { priceUnit: activeUnit }
+        : {}),
+      ...(onlyWithPhoto ? { onlyWithPhoto: true } : {}),
+      ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+    }),
+    [
+      priceFrom,
+      priceTo,
+      transactionType,
+      rentPeriod,
+      activeUnit,
+      priceUnits,
+      onlyWithPhoto,
+      attributes,
+    ],
+  );
+
+  // Счёт: те же условия, что у выдачи (категория, текст, место) плюс черновик.
+  // Задержка — чтобы не считать на каждую набранную цифру цены
+  const countFilters = useMemo<ListingFilters>(
+    () => ({
+      ...(params.category ? { category: params.category } : {}),
+      ...(params.q && params.q.length >= 2 ? { search: params.q } : {}),
+      ...area.filters,
+      ...draft,
+    }),
+    [params.category, params.q, area.filters, draft],
+  );
+  const debouncedFilters = useDebouncedValue(countFilters, 400);
+  const count = useListingCount(cityId, debouncedFilters, area.ready);
+  const found = count.data;
+  const settling = debouncedFilters !== countFilters || count.isFetching;
+
   // Экран открывается из выдачи; если открыт по ссылке — «назад» ведёт в
   // выдачу этой категории, а не в корень приложения
   const leave = () => {
@@ -106,21 +171,7 @@ export default function ListingFiltersScreen() {
   };
 
   const save = () => {
-    const next: ExtraListingFilters = {
-      ...(priceFrom ? { priceFrom: Number(priceFrom) } : {}),
-      ...(priceTo ? { priceTo: Number(priceTo) } : {}),
-      ...(transactionType ? { transactionType } : {}),
-      ...(transactionType === 'rent' && rentPeriod ? { rentPeriod } : {}),
-      // Единица нужна серверу только вместе с ценой; без неё он сравнил бы
-      // «в сутки» с «в месяц»
-      ...((priceFrom || priceTo) && activeUnit && priceUnits.length > 1
-        ? { priceUnit: activeUnit }
-        : {}),
-      ...(onlyWithPhoto ? { onlyWithPhoto: true } : {}),
-      ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
-    };
-
-    apply(scope, next);
+    apply(scope, draft);
     leave();
   };
 
@@ -135,13 +186,37 @@ export default function ListingFiltersScreen() {
     resetStore(scope);
   };
 
+  const hasAny = Object.keys(draft).length > 0;
+  const applyLabel =
+    found === undefined
+      ? 'Показать объявления'
+      : found === 0
+        ? 'Ничего не найдено'
+        : `Показать ${found.toLocaleString('ru-RU')} ${plural(found, 'объявление', 'объявления', 'объявлений')}`;
+
+  const footer = (
+    <View style={styles.footerRow}>
+      {hasAny && (
+        <Button label="Сбросить" variant="secondary" onPress={reset} style={styles.footerReset} />
+      )}
+      <Button
+        label={applyLabel}
+        onPress={save}
+        // Пока число пересчитывается, кнопка остаётся рабочей: прежнее число
+        // чуть устарело, но «Показать» работает всегда, кроме явного нуля
+        disabled={found === 0 && !settling}
+        style={styles.footerApply}
+        accessibilityLabel={applyLabel}
+      />
+    </View>
+  );
+
   return (
-    <Screen scroll>
+    <Screen scroll footer={footer}>
       <FormHeader title="Фильтры" description="Уточните, что именно ищете" onBack={leave} />
 
       {transactions.length > 1 && (
-        <View style={styles.block}>
-          <Text style={styles.blockTitle}>Что вы ищете</Text>
+        <FilterSection title="Операция">
           <View style={styles.chips}>
             {transactions.map((value) => (
               <FilterChip
@@ -168,13 +243,10 @@ export default function ListingFiltersScreen() {
               ))}
             </View>
           )}
-        </View>
+        </FilterSection>
       )}
 
-      <View style={styles.block}>
-        <Text style={styles.blockTitle}>
-          Цена, {activeUnit ? PRICE_UNIT_LABELS[activeUnit] : '₽'}
-        </Text>
+      <FilterSection title={`Цена, ${activeUnit ? PRICE_UNIT_LABELS[activeUnit] : '₽'}`}>
         {priceUnits.length > 1 && (
           <View style={styles.chips}>
             {priceUnits.map((unit) => (
@@ -207,35 +279,123 @@ export default function ListingFiltersScreen() {
             />
           </View>
         </View>
-      </View>
+      </FilterSection>
 
-      {fields
-        .filter((field) => isAttributeVisible(field, attributes))
-        .map((field) => (
-          <AttributeFilter
-            key={field.key}
-            attribute={field}
-            value={attributes[field.key]}
-            parent={field.parentKey ? attributes[field.parentKey] : undefined}
-            onChange={(value) => setAttribute(field.key, value)}
+      {groups.main.length > 0 && (
+        <FilterSection title="Основные параметры">
+          {groups.main.map((field) => (
+            <AttributeFilter
+              key={field.key}
+              attribute={field}
+              value={attributes[field.key]}
+              parent={field.parentKey ? attributes[field.parentKey] : undefined}
+              onChange={(value) => setAttribute(field.key, value)}
+            />
+          ))}
+        </FilterSection>
+      )}
+
+      {groups.condition.length > 0 && (
+        <FilterSection title="Состояние">
+          {groups.condition.map((field) => (
+            <AttributeFilter
+              key={field.key}
+              attribute={field}
+              value={attributes[field.key]}
+              onChange={(value) => setAttribute(field.key, value)}
+              hideTitle
+            />
+          ))}
+        </FilterSection>
+      )}
+
+      {groups.seller.length > 0 && (
+        <FilterSection title="Продавец">
+          {groups.seller.map((field) => (
+            <AttributeFilter
+              key={field.key}
+              attribute={field}
+              value={attributes[field.key]}
+              onChange={(value) => setAttribute(field.key, value)}
+              hideTitle
+            />
+          ))}
+        </FilterSection>
+      )}
+
+      <FilterSection title="Местоположение">
+        <Pressable
+          onPress={() => router.push('/listings/location')}
+          accessibilityRole="button"
+          accessibilityLabel={`Где искать: ${area.summary}`}
+          style={({ pressed }) => [styles.areaRow, pressed && styles.pressed]}
+        >
+          <Icon name="location" size={18} color={colors.primary} />
+          <Text style={styles.areaText} numberOfLines={1}>
+            {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
+          </Text>
+          <Text style={styles.areaChange}>Изменить</Text>
+        </Pressable>
+      </FilterSection>
+
+      <FilterSection title="Дополнительно">
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>Только с фотографией</Text>
+          <Switch
+            value={onlyWithPhoto}
+            onValueChange={setOnlyWithPhoto}
+            trackColor={{ true: colors.primary, false: colors.border }}
+            accessibilityLabel="Только с фотографией"
           />
-        ))}
+        </View>
 
-      <View style={[styles.block, styles.switchRow]}>
-        <Text style={styles.blockTitle}>Только с фотографией</Text>
-        <Switch
-          value={onlyWithPhoto}
-          onValueChange={setOnlyWithPhoto}
-          trackColor={{ true: colors.primary, false: colors.border }}
-          accessibilityLabel="Только с фотографией"
-        />
-      </View>
+        {groups.extra.length > 0 && (
+          <Pressable
+            onPress={() => setShowExtra((value) => !value)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showExtra }}
+            style={({ pressed }) => [styles.moreRow, pressed && styles.pressed]}
+          >
+            <Text style={styles.moreLabel}>
+              {showExtra ? 'Скрыть параметры' : `Ещё параметры (${groups.extra.length})`}
+            </Text>
+            <View style={showExtra ? styles.flipped : undefined}>
+              <Icon name="chevron-down" size={16} color={colors.primary} />
+            </View>
+          </Pressable>
+        )}
 
-      <Button label="Показать объявления" onPress={save} style={styles.apply} />
-      <Pressable onPress={reset} accessibilityRole="button" style={styles.resetRow}>
-        <Text style={styles.resetLabel}>Сбросить фильтры</Text>
-      </Pressable>
+        {showExtra &&
+          groups.extra.map((field) => (
+            <AttributeFilter
+              key={field.key}
+              attribute={field}
+              value={attributes[field.key]}
+              parent={field.parentKey ? attributes[field.parentKey] : undefined}
+              onChange={(value) => setAttribute(field.key, value)}
+            />
+          ))}
+      </FilterSection>
     </Screen>
+  );
+}
+
+/**
+ * Блок экрана фильтров: заголовок и карточка с полями. Карточка — как
+ * остальные поверхности приложения (полупрозрачная, с тонкой границей), а не
+ * отдельный стиль для раздела.
+ */
+function FilterSection({ title, children }: { title: string; children: ReactNode }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle} accessibilityRole="header">
+        {title}
+      </Text>
+      <View style={styles.sectionCard}>{children}</View>
+    </View>
   );
 }
 
@@ -245,12 +405,15 @@ function AttributeFilter({
   value,
   parent,
   onChange,
+  hideTitle = false,
 }: {
   attribute: ListingAttribute;
   value: unknown;
   /** Значение поля-родителя: марка для модели */
   parent?: unknown;
   onChange: (value: unknown) => void;
+  /** Название блока уже написано в заголовке секции («Состояние») */
+  hideTitle?: boolean;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -341,7 +504,7 @@ function AttributeFilter({
 
   return (
     <View style={styles.block}>
-      <Text style={styles.blockTitle}>{attribute.label}</Text>
+      {!hideTitle && <Text style={styles.blockTitle}>{attribute.label}</Text>}
       <View style={styles.chips}>
         {options.map((option) => {
           const active =
@@ -548,14 +711,47 @@ function dedupe(fields: ListingAttribute[]): ListingAttribute[] {
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
-    block: { marginTop: spacing.xl, gap: spacing.sm },
+    pressed: { opacity: 0.85 },
+    section: { marginTop: spacing.xl, gap: spacing.sm },
+    sectionTitle: { ...typography.heading, color: colors.text, fontSize: 18 },
+    sectionCard: {
+      gap: spacing.lg,
+      padding: spacing.lg,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    block: { gap: spacing.sm },
     blockTitle: { ...typography.subheading, color: colors.text, fontSize: 15 },
     hint: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
     row: { flexDirection: 'row', gap: spacing.md },
     half: { flex: 1 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    apply: { marginTop: spacing.xxl },
-    resetRow: { alignSelf: 'center', paddingVertical: spacing.lg },
-    resetLabel: { ...typography.body, color: colors.textMuted },
+    switchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      minHeight: 44,
+    },
+    switchLabel: { ...typography.body, color: colors.text, flexShrink: 1 },
+    areaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 44,
+    },
+    areaText: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
+    areaChange: { ...typography.caption, color: colors.primary },
+    moreRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      minHeight: 44,
+    },
+    flipped: { transform: [{ rotate: '180deg' }] },
+    moreLabel: { ...typography.body, color: colors.primary, fontWeight: '600' },
+    footerRow: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.sm },
+    footerReset: { flexShrink: 0 },
+    footerApply: { flex: 1 },
   });

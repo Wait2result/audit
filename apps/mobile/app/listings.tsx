@@ -1,14 +1,30 @@
+import { ModerationStatus, plural } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { useListingCategories, useListings, type ListingFilters } from '../src/api/queries';
+import {
+  useFavoritesSummary,
+  useListingCategories,
+  useListings,
+  useMyListings,
+  type ListingFilters,
+} from '../src/api/queries';
 import { Icon, type IconName } from '../src/components/Icon';
 import { ListingCard } from '../src/components/ListingCard';
 import { ListingSearchBox } from '../src/components/ListingSearchBox';
 import { Screen } from '../src/components/Screen';
 import { useFavoriteActions } from '../src/hooks/use-favorite-actions';
 import { useListingArea } from '../src/hooks/use-listing-area';
+import { useAuthStore } from '../src/store/auth-store';
 import { useCityStore } from '../src/store/city-store';
 import {
   countFilters,
@@ -27,12 +43,10 @@ import { sectionIcon } from '../src/utils/listing-icons';
  * смысл. Показывать «коробку передач» рядом с плитками разделов — значит
  * требовать решений до того, как человек выбрал, что ищет.
  *
- * Разделов на первом экране девять плюс «Ещё»: сотня подкатегорий живёт на
- * своём экране и открывается по нажатию на раздел.
+ * Разделы идут одной горизонтальной лентой с «Все» в конце: сетка плиток
+ * съедала полэкрана, а до объявлений нужно добираться быстро. Сотня
+ * подкатегорий живёт на своём экране и открывается по нажатию на раздел.
  */
-
-/** Сколько разделов показать до кнопки «Ещё» */
-const VISIBLE_SECTIONS = 9;
 
 const EMPTY_FILTERS: ExtraListingFilters = {};
 
@@ -53,13 +67,19 @@ export default function ListingsScreen() {
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  const [allSections, setAllSections] = useState(false);
 
   // Фильтры общего каталога — свой набор, отдельный от категорий
   const extraFilters = useListingFilterStore((s) => s.byScope[''] ?? EMPTY_FILTERS);
   const activeFilterCount = countFilters(extraFilters);
 
   const categories = useListingCategories();
+
+  // Счётчики на карточках быстрых переходов — только вошедшему: гостю считать нечего
+  const user = useAuthStore((state) => state.user);
+  const favoriteSummary = useFavoritesSummary(cityId, Boolean(user));
+  const mine = useMyListings({ status: ModerationStatus.APPROVED });
+  const favoriteCount = user ? favoriteSummary.data?.listings : undefined;
+  const mineCount = user ? mine.data?.pages[0]?.total : undefined;
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), 350);
@@ -91,8 +111,13 @@ export default function ListingsScreen() {
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);
 
   const roots = categories.data ?? [];
-  const shown = allSections ? roots : roots.slice(0, VISIBLE_SECTIONS);
-  const hasMoreSections = roots.length > VISIBLE_SECTIONS;
+
+  // Один блок вместо россыпи секций: ближайшее, если выбран радиус, иначе общее
+  const feedTitle = searching
+    ? 'Найденное'
+    : area.radiusKm === null
+      ? 'Популярные'
+      : 'Рядом с вами';
 
   const header = (
     <View>
@@ -125,7 +150,9 @@ export default function ListingsScreen() {
         </View>
 
         <Pressable
-          onPress={() => router.push('/listings/filters')}
+          onPress={() =>
+            router.push({ pathname: '/listings/filters', params: searching ? { q: query } : {} })
+          }
           accessibilityRole="button"
           accessibilityLabel={`Фильтры${activeFilterCount > 0 ? `, выбрано ${activeFilterCount}` : ''}`}
           style={({ pressed }) => [
@@ -155,38 +182,35 @@ export default function ListingsScreen() {
       >
         <Icon name="location" size={16} color={colors.primary} />
         <Text style={styles.areaLabel} numberOfLines={1}>
-          {area.label}
+          {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
         </Text>
-        <Text style={styles.areaRadius}>
-          {area.radiusKm === null ? 'весь Дагестан' : `${area.radiusKm} км`}
-        </Text>
-        <Icon name="chevron-down" size={14} color={colors.primary} />
+        <Text style={styles.areaChange}>Изменить</Text>
       </Pressable>
 
-      {/* Быстрые переходы — только к тому, что уже работает. Сохранённые
-          поиски и сообщения появятся здесь вместе со своими экранами */}
       <View style={styles.shortcuts}>
-        <Pressable
+        <Shortcut
+          icon="heart"
+          label="Избранное"
+          count={favoriteCount}
           onPress={() => router.push('/listings/favorites')}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
-        >
-          <Icon name="heart" size={15} color={colors.primary} />
-          <Text style={styles.shortcutLabel}>Избранное</Text>
-        </Pressable>
-        <Pressable
+        />
+        <Shortcut
+          icon="tag"
+          label="Мои объявления"
+          count={mineCount}
           onPress={() => router.push('/my-listings')}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
-        >
-          <Icon name="tag" size={15} color={colors.primary} />
-          <Text style={styles.shortcutLabel}>Мои объявления</Text>
-        </Pressable>
+        />
       </View>
 
       {!searching && (
-        <View style={styles.categoriesGrid}>
-          {shown.map((section) => (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesScroll}
+          contentContainerStyle={styles.categoriesContent}
+          accessibilityLabel="Категории"
+        >
+          {roots.map((section) => (
             <SectionButton
               key={section.id}
               icon={sectionIcon(section.slug)}
@@ -196,19 +220,16 @@ export default function ListingsScreen() {
               }
             />
           ))}
-
-          {hasMoreSections && (
-            <SectionButton
-              icon="grid"
-              label={allSections ? 'Скрыть' : 'Ещё'}
-              onPress={() => setAllSections((value) => !value)}
-            />
-          )}
-        </View>
+          <SectionButton
+            icon="grid"
+            label="Все"
+            onPress={() => router.push('/listings/categories')}
+          />
+        </ScrollView>
       )}
 
       <View style={styles.listHeader}>
-        <Text style={styles.sectionTitle}>{searching ? 'Найденное' : 'Популярные'}</Text>
+        <Text style={styles.sectionTitle}>{feedTitle}</Text>
 
         {!searching && (
           <Pressable
@@ -292,11 +313,50 @@ function SectionButton({
       style={styles.categoryCell}
     >
       <View style={styles.categoryIcon}>
-        <Icon name={icon} size={24} color={colors.textMuted} />
+        <Icon name={icon} size={28} color={colors.primary} />
       </View>
       <Text style={styles.categoryLabel} numberOfLines={2}>
         {label}
       </Text>
+    </Pressable>
+  );
+}
+
+/** Компактная карточка быстрого перехода: иконка, название и сколько внутри. */
+function Shortcut({
+  icon,
+  label,
+  count,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  count: number | undefined;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={
+        count === undefined
+          ? label
+          : `${label}: ${count} ${plural(count, 'объявление', 'объявления', 'объявлений')}`
+      }
+      style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
+    >
+      <View style={styles.shortcutIcon}>
+        <Icon name={icon} size={18} color={colors.primary} />
+      </View>
+      <View style={styles.shortcutText}>
+        <Text style={styles.shortcutLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        {count !== undefined && <Text style={styles.shortcutCount}>{count}</Text>}
+      </View>
     </Pressable>
   );
 }
@@ -354,17 +414,27 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 6,
-      minHeight: 40,
+      gap: spacing.sm,
+      minHeight: 52,
+      paddingHorizontal: spacing.md,
       borderRadius: radius.md,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
     },
+    shortcutIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceMuted,
+    },
+    shortcutText: { flex: 1, minWidth: 0 },
     shortcutLabel: { ...typography.caption, color: colors.text, fontWeight: '600' },
+    shortcutCount: { ...typography.label, color: colors.textMuted },
     areaLabel: { ...typography.body, color: colors.text, fontWeight: '600', flexShrink: 1 },
-    areaRadius: { ...typography.caption, color: colors.primary },
+    areaChange: { ...typography.caption, color: colors.primary },
     searchRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -398,18 +468,14 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     filterBadgeText: { ...typography.label, color: colors.textOnPrimary },
 
-    categoriesGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      marginTop: spacing.lg,
-      rowGap: spacing.md,
-    },
-    // Пять в ряд: столько плиток помещается на узком телефоне, не сжимаясь
-    categoryCell: { width: '20%', alignItems: 'center', gap: 6 },
+    // Лента выходит за поля экрана: так видно, что прокручивается дальше
+    categoriesScroll: { marginHorizontal: -spacing.lg },
+    categoriesContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
+    categoryCell: { width: 88, alignItems: 'center', gap: 6 },
     categoryIcon: {
-      width: 52,
-      height: 52,
-      borderRadius: radius.lg,
+      width: 64,
+      height: 64,
+      borderRadius: radius.xl,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surface,
@@ -417,11 +483,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       borderColor: colors.border,
     },
     categoryLabel: {
-      ...typography.label,
-      color: colors.textMuted,
+      ...typography.caption,
+      color: colors.text,
       textAlign: 'center',
-      fontSize: 10,
-      lineHeight: 12,
+      fontSize: 12,
+      lineHeight: 15,
     },
 
     listHeader: {
