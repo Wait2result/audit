@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+coverage
+.next
+*.md
+package-lock.json
+
+# Генерируется Next.js при каждой сборке
+apps/web/next-env.d.ts
+apps/web/.next/
+
+# Генерируется Expo при каждом запуске
+apps/mobile/expo-env.d.ts

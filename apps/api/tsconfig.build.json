@@ -1,0 +1,19 @@
+{
+  // Конфигурация ТОЛЬКО для сборки рабочей версии.
+  //
+  // Отличается от основной тем, что берёт исключительно папку src: тесты и
+  // скрипт заполнения базы в готовый сервер попадать не должны. Благодаря
+  // rootDir: "src" собранный сервер запускается как dist/main.js,
+  // а не dist/src/main.js.
+  //
+  // Проверка типов (npm run typecheck) по-прежнему использует основной
+  // tsconfig.json и охватывает и тесты, и prisma.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "incremental": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "prisma", "**/*.spec.ts"]
+}

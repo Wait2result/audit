@@ -1,0 +1,95 @@
+# Зависимости
+node_modules/
+.pnp/
+.pnp.js
+
+# Сборка
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Переменные окружения — НИКОГДА не попадают в git.
+# В репозитории лежит только .env.example без реальных значений.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Секреты и ключи
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+secrets/
+
+# Логи
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Тесты и покрытие
+coverage/
+.nyc_output/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+*.orig.*
+android/
+ios/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Локальные данные Docker
+infra/docker/data/
+backups/
+
+# Редакторы и ОС
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Клиент Prisma генерируется из schema.prisma командой npm run db:generate
+apps/api/src/generated/
+
+# Генерируется Next.js
+next-env.d.ts
+
+# QR-код для входа в Expo Go — генерируется заново при каждом запуске
+expo-qr.png
+
+# Логи от start-dev*.bat
+_debug_out.txt
+_debug_err.txt
+
+# Журналы сторожа разработки
+.dev-logs/
+
+# ─── Добавлено при подготовке к аудиту ───
+# Любые варианты .env (development/production/test/backup), кроме шаблона
+.env.*
+!.env.example
+.env.backup
+*.env.backup
+.cache/
+# Нативные каталоги Expo (на случай prebuild) — артефакты сборки
+android/.gradle/
+android/app/build/
+android/.cxx/
+ios/Pods/
+ios/build/
+# Локальные настройки Claude Code (личные, не нужны для аудита)
+.claude/settings.local.json

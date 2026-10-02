@@ -1,0 +1,72 @@
+import type { IconName } from '../components/Icon';
+
+/**
+ * Иконки разделов и подкатегорий объявлений (Этап 7).
+ *
+ * Живут в приложении, а не в базе, по двум причинам. Иконка — это рисунок в
+ * коде, а не файл: картинку для каждой из сотни подкатегорий владельцу
+ * пришлось бы рисовать и загружать вручную. И новая подкатегория без иконки
+ * должна открываться, а не падать — поэтому есть запасная по разделу.
+ *
+ * Если владелец загрузит категории свою картинку в панели, показывается она:
+ * иконка здесь — это разумное умолчание, а не запрет.
+ */
+
+/** Иконка раздела верхнего уровня. */
+const SECTION_ICONS: Record<string, IconName> = {
+  transport: 'car',
+  realty: 'realty',
+  electronics: 'smartphone',
+  home: 'sofa',
+  personal: 'shirt',
+  services: 'tools',
+  job: 'briefcase',
+  animals: 'paw',
+  hobby: 'leaf',
+  business: 'grid',
+};
+
+/** Иконки подкатегорий, которым «своя» лучше общей по разделу. */
+const SUBCATEGORY_ICONS: Record<string, IconName> = {
+  'transport-cars': 'car',
+  'transport-moto': 'car',
+  'transport-trucks': 'car',
+  'transport-parts': 'tools',
+  'transport-tires': 'tools',
+  'realty-flats': 'realty',
+  'realty-houses': 'realty',
+  'realty-land': 'map',
+  'realty-commercial': 'briefcase',
+  'realty-daily': 'clock',
+  'realty-long': 'clock',
+  'electronics-phones': 'smartphone',
+  'electronics-tablets': 'smartphone',
+  'electronics-watches': 'clock',
+  'home-furniture': 'sofa',
+  'home-tools': 'tools',
+  'home-plants': 'leaf',
+  'personal-clothes': 'shirt',
+  'personal-shoes': 'shirt',
+  'job-vacancies': 'briefcase',
+  'job-resume': 'person',
+  'animals-goods': 'tag',
+  'hobby-books': 'news',
+  'hobby-music': 'tag',
+};
+
+/** Иконка раздела по коду. Неизвестный раздел получает нейтральный ярлык. */
+export function sectionIcon(slug: string): IconName {
+  return SECTION_ICONS[slug] ?? 'tag';
+}
+
+/**
+ * Иконка подкатегории. Своей нет — берётся иконка раздела: код подкатегории
+ * всегда начинается с кода раздела («transport-cars»).
+ */
+export function subcategoryIcon(slug: string): IconName {
+  const own = SUBCATEGORY_ICONS[slug];
+  if (own) return own;
+
+  const section = slug.split('-')[0] ?? '';
+  return SECTION_ICONS[section] ?? 'tag';
+}

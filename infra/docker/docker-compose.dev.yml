@@ -1,0 +1,97 @@
+# Локальное окружение для разработки.
+# Поднимает всё, что нужно бэкенду: база данных, кеш/очереди, файловое хранилище.
+# Запуск:    npm run infra:up
+# Остановка: npm run infra:down
+# Полный сброс (СТИРАЕТ ЛОКАЛЬНЫЕ ДАННЫЕ): npm run infra:reset
+#
+# ВАЖНО: этот файл — ТОЛЬКО для разработки на вашем компьютере.
+# Пароли здесь заведомо простые и известные. Для production используется
+# отдельный файл docker-compose.prod.yml с секретами из переменных окружения.
+
+name: dagestan-dev
+
+services:
+  # ── База данных ─────────────────────────────────────────────────────────────
+  # PostgreSQL с расширением PostGIS (география: «найти всё в радиусе 3 км»).
+  postgres:
+    image: postgis/postgis:17-3.5-alpine
+    container_name: dagestan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dagestan
+      POSTGRES_PASSWORD: dagestan_dev_password
+      POSTGRES_DB: dagestan_dev
+      # Локаль и сортировка для корректной работы с русским текстом
+      POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=ru-RU'
+      LANG: ru_RU.utf8
+    ports:
+      # Наружу торчит только localhost — из интернета база недоступна.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U dagestan -d dagestan_dev']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Кеш, счётчики лимитов, очереди задач ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: dagestan-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Файловое хранилище (эмуляция S3 локально) ───────────────────────────────
+  # В production вместо этого будет арендованное S3-хранилище.
+  # Код работает с обоими одинаково — меняются только настройки в .env.
+  minio:
+    # Официальные образы MinIO (Docker Hub и quay.io) теперь требуют логин,
+    # поэтому берём открытую сборку MinIO от Chainguard — тот же сервер
+    image: cgr.dev/chainguard/minio:latest
+    container_name: dagestan-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: dagestan_dev
+      MINIO_ROOT_PASSWORD: dagestan_dev_password
+    ports:
+      - '127.0.0.1:9000:9000' # S3 API
+      - '127.0.0.1:9001:9001' # веб-интерфейс: http://localhost:9001
+    volumes:
+      - minio_data:/data
+
+  # Одноразовый контейнер: создаёт нужные «корзины» (bucket) в MinIO и выходит.
+  minio-init:
+    image: bitnamilegacy/minio-client:latest
+    container_name: dagestan-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 dagestan_dev dagestan_dev_password; do sleep 2; done;
+      mc mb --ignore-existing local/dagestan-media;
+      mc mb --ignore-existing local/dagestan-private;
+      mc anonymous set download local/dagestan-media;
+      echo 'MinIO buckets готовы';
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

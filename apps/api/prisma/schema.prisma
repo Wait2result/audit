@@ -1,0 +1,1699 @@
+// ═══════════════════════════════════════════════════════════════════════════
+//  Схема базы данных платформы «Дагестан» — ЯДРО (Этап 1)
+//
+//  Здесь описана структура таблиц. Из этого файла Prisma:
+//    1. генерирует SQL-миграции (скрипты изменения базы),
+//    2. генерирует типизированный код для работы с базой.
+//
+//  Сквозные правила (действуют для всех таблиц, включая будущие):
+//    • id           — UUID, а не порядковый номер. Порядковый номер выдаёт
+//                     злоумышленнику информацию: «заказ №1043» — сразу видно,
+//                     сколько у сервиса заказов, и можно перебирать чужие.
+//    • createdAt/updatedAt — когда запись создана и изменена.
+//    • deletedAt    — «мягкое удаление»: запись скрывается, но физически
+//                     остаётся. Нужно для разбора жалоб и споров.
+//    • cityId       — у всего контента. Новый город = новая строка в City,
+//                     без изменения кода (пункт 2 ТЗ).
+//
+//  Модули следующих этапов (рестораны, заказы, поездки, недвижимость, чаты)
+//  добавляются в эту же схему, не ломая существующее.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Генератор prisma-client (современный, начиная с Prisma 7) создаёт клиент
+// прямо в исходниках проекта, в формате ESM — том же, что использует весь
+// остальной серверный код.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+  runtime      = "nodejs"
+}
+
+// Адрес базы данных задаётся в prisma.config.ts (требование Prisma 7),
+// а не здесь. Расширения PostgreSQL (postgis, pg_trgm, unaccent, pgcrypto)
+// создаются первой миграцией — см. prisma/migrations.
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ПЕРЕЧИСЛЕНИЯ
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum UserStatus {
+  /// Телефон подтверждён не до конца, регистрация не завершена
+  pending
+  active
+  /// Заблокирован администрацией
+  blocked
+  /// Удалён по запросу пользователя, персональные данные обезличены
+  deleted
+}
+
+enum OtpPurpose {
+  registration
+  password_reset
+  phone_change
+}
+
+enum DevicePlatform {
+  ios
+  android
+  web
+}
+
+enum MediaType {
+  image
+  video
+  document
+}
+
+/// Статус проверки пользовательского контента. Используется всеми рубриками.
+enum ModerationStatus {
+  draft
+  pending
+  approved
+  rejected
+  suspended
+  archived
+}
+
+/// Тип значения в таблице настроек — чтобы значения читались корректно.
+enum SettingValueType {
+  string
+  number
+  boolean
+  json
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ГЕОГРАФИЯ
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Города. Первый этап: Махачкала, Каспийск, Дербент.
+/// Добавление нового города — одна строка здесь. Переписывать код не нужно.
+model City {
+  id        String  @id @default(uuid()) @db.Uuid
+  /// Название для показа пользователю
+  name      String  @db.VarChar(120)
+  /// Латинский идентификатор для ссылок: makhachkala, kaspiysk, derbent
+  slug      String  @unique @db.VarChar(120)
+  /// Регион — задел на выход за пределы Дагестана
+  region    String  @default("Республика Дагестан") @db.VarChar(160)
+  latitude  Float
+  longitude Float
+  /// Часовой пояс в формате IANA. Критично для расписаний сеансов и поездок.
+  timezone  String  @default("Europe/Moscow") @db.VarChar(60)
+  /// Выключенный город не показывается в приложении, но данные не теряются
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  districts District[]
+  users     User[]
+  cinemas   Cinema[]
+  newsItems NewsItem[]
+  places    Place[]
+  listings  Listing[]
+
+  @@index([isActive, sortOrder])
+  @@map("cities")
+}
+
+/// Районы города. Нужны для фильтров недвижимости и заведений.
+model District {
+  id     String @id @default(uuid()) @db.Uuid
+  cityId String @map("city_id") @db.Uuid
+  name   String @db.VarChar(120)
+  slug   String @db.VarChar(120)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  city     City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  places   Place[]
+  listings Listing[]
+
+  @@unique([cityId, slug])
+  @@index([cityId])
+  @@map("districts")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  КИНО (Этап 4)
+//
+//  Сеансы и фильмы не хранятся здесь — это не наши данные, а ежедневно
+//  меняющееся зеркало систем самих кинотеатров (см. docs/ADR/0004). Они
+//  запрашиваются на лету и кешируются в Redis. В базе — только сам
+//  кинотеатр: редко меняющийся справочник, которым управляет админ.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Cinema {
+  id     String @id @default(uuid()) @db.Uuid
+  cityId String @map("city_id") @db.Uuid
+
+  name    String  @db.VarChar(160)
+  address String  @db.VarChar(300)
+  phone   String? @db.VarChar(20)
+
+  /// Сайт кинотеатра — на него ведёт кнопка «Купить билет» (выбор места —
+  /// на стороне кинотеатра, мы билеты не продаём)
+  websiteUrl String @map("website_url") @db.VarChar(300)
+
+  /// Данные для обращения к недокументированному API Kinoplan — платформе,
+  /// на которой работает сайт этого кинотеатра. См. docs/ADR/0004.
+  kinoplanToken    String @unique @map("kinoplan_token") @db.VarChar(120)
+  kinoplanCinemaId Int    @map("kinoplan_cinema_id")
+  kinoplanCityId   Int    @map("kinoplan_city_id")
+
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@index([cityId, isActive, sortOrder])
+  @@map("cinemas")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  НОВОСТИ (Этап 5)
+//
+//  Новости не пишутся у нас, а собираются из внешних лент (RSS) и
+//  классифицируются по правилам. В базе хранятся потому, что лента источника
+//  держит лишь последние записи, а нужны «показать ещё», повторное открытие
+//  статьи и подсчёт подтверждений несколькими агентствами.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Лента, в которой новость видна. «city» — только в городе cityId,
+/// «dagestan» — во всех городах, «russia» и «world» — федеральные.
+enum NewsScope {
+  city
+  dagestan
+  russia
+  world
+}
+
+model NewsItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Идентификатор источника из news.sources.ts: ria-dagestan, tass …
+  source     String @db.VarChar(40)
+  /// guid записи в ленте источника. Вместе с source не даёт завести дубль.
+  externalId String @map("external_id") @db.VarChar(600)
+  url        String @db.VarChar(1000)
+
+  title String  @db.VarChar(500)
+  /// Заключающая мысль — короткий лид из источника
+  lead  String? @db.Text
+  /// Полный текст абзацами, разделёнными пустой строкой. Хранится только у
+  /// источников, чья лента отдаёт его для перепечатки.
+  body  String? @db.Text
+
+  imageUrl String? @map("image_url") @db.VarChar(1000)
+
+  /// Пусто у записей, которые лишь подтверждают чужие новости и не показываются
+  scope  NewsScope?
+  cityId String?    @map("city_id") @db.Uuid
+
+  sourceCategory String? @map("source_category") @db.VarChar(120)
+  /// Баллы значимости по правилам классификатора
+  score          Float   @default(0)
+  /// Сколько независимых агентств сообщили об этом событии
+  corroboration  Int     @default(1)
+
+  publishedAt DateTime @map("published_at")
+  /// Ручной выключатель: автоматическая публикация должна иметь аварийную кнопку
+  isHidden    Boolean  @default(false) @map("is_hidden")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  city City? @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  @@unique([source, externalId])
+  @@index([scope, cityId, publishedAt])
+  @@index([publishedAt])
+  @@map("news_items")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ЗАВЕДЕНИЯ И МЕНЮ (Этап 6)
+//
+//  Каталог наполняется вручную: заведение заводит сотрудник платформы, а
+//  дальше им управляет само заведение — из приложения, под своим аккаунтом
+//  (см. PlaceMember). См. docs/ADR/0006-заведения-и-заказы.md.
+//
+//  Все деньги здесь — целые копейки. Дробные числа с плавающей точкой дают
+//  0.1 + 0.2 = 0.30000000000000004, и на суммах заказов это превращается
+//  в расхождения в отчётах.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PlaceType {
+  restaurant
+  cafe
+  fast_food
+  bakery
+  shop
+  supermarket
+}
+
+/// Уровень доступа к заведению.
+/// manager — всё, включая цены и настройки; staff — только стоп-лист и заказы.
+enum PlaceMemberRole {
+  manager
+  staff
+}
+
+model Place {
+  id           String    @id @default(uuid()) @db.Uuid
+  cityId       String    @map("city_id") @db.Uuid
+  districtId   String?   @map("district_id") @db.Uuid
+  type         PlaceType
+  name         String    @db.VarChar(160)
+  description  String?   @db.Text
+  address      String    @db.VarChar(300)
+  latitude     Float?
+  longitude    Float?
+  phone        String?   @db.VarChar(20)
+  /// Кухни и теги: «кавказская», «пекарня». Список фильтров строится из
+  /// данных, поэтому новая кухня не требует правки кода.
+  cuisines     String[]
+  /// Средний чек в копейках
+  averageCheck Int?      @map("average_check")
+  /// Обложка карточки. Остальные фотографии — в media по ownerType = place.
+  coverMediaId String?   @map("cover_media_id") @db.Uuid
+
+  /// Приём заказов. По умолчанию выключен: витрина работает, кнопки заказа
+  /// нет, пока заведение не готово их принимать и смотреть за лентой.
+  ordersEnabled    Boolean @default(false) @map("orders_enabled")
+  hasDelivery      Boolean @default(false) @map("has_delivery")
+  hasPickup        Boolean @default(true) @map("has_pickup")
+  /// Стоимость доставки в копейках
+  deliveryFee      Int     @default(0) @map("delivery_fee")
+  /// Сумма заказа, начиная с которой доставка бесплатна
+  freeDeliveryFrom Int?    @map("free_delivery_from")
+  /// Минимальная сумма заказа на доставку
+  minOrderAmount   Int     @default(0) @map("min_order_amount")
+  /// Обычный срок доставки в минутах — показывается в карточке
+  deliveryMinutes  Int?    @map("delivery_minutes")
+
+  /// Рейтинг считается заранее при каждом отзыве: списки заведений грузятся
+  /// часто, и пересчитывать среднее по всем отзывам на каждый запрос дорого.
+  ratingAverage Float @default(0) @map("rating_average")
+  ratingCount   Int   @default(0) @map("rating_count")
+
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  city         City            @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  district     District?       @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  members      PlaceMember[]
+  schedules    PlaceSchedule[]
+  categories   MenuCategory[]
+  items        MenuItem[]
+  orders       Order[]
+  reviews      PlaceReview[]
+  favorites    FavoritePlace[]
+  promoBanners PromoBanner[]
+
+  @@index([cityId, type, isActive, sortOrder])
+  @@map("places")
+}
+
+/// Отзыв о заведении.
+///
+/// Оставить отзыв можно только после выполненного заказа в этом заведении.
+/// Иначе рейтинг превращается в оружие: конкуренту достаточно нескольких
+/// аккаунтов, чтобы утопить соседнюю шашлычную, ни разу у неё не купив.
+/// Отзыв один на человека и заведение — повторный заказ правит существующий,
+/// а не добавляет вторую оценку.
+model PlaceReview {
+  id      String  @id @default(uuid()) @db.Uuid
+  placeId String  @map("place_id") @db.Uuid
+  userId  String  @map("user_id") @db.Uuid
+  /// Оценка 1..5. Ограничение проверяется схемой запроса и базой.
+  rating  Int
+  text    String? @db.VarChar(1000)
+
+  /// Ответ заведения — виден всем рядом с отзывом
+  reply     String?   @db.VarChar(1000)
+  repliedAt DateTime? @map("replied_at")
+
+  /// Скрыт модератором платформы: остаётся в базе, но не показывается
+  /// и не участвует в рейтинге
+  isHidden Boolean @default(false) @map("is_hidden")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  place Place @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([placeId, userId])
+  @@index([placeId, isHidden, createdAt])
+  @@map("place_reviews")
+}
+
+/// Избранные заведения.
+///
+/// Отдельная таблица под заведения, а не одна «универсальная» на все рубрики:
+/// общая таблица с типом и идентификатором строкой лишает базу возможности
+/// проверять, что объект вообще существует. Появятся избранные новости или
+/// объявления — будут свои таблицы.
+model FavoritePlace {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  placeId   String   @map("place_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  place Place @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, placeId])
+  @@index([userId, createdAt])
+  @@map("favorite_places")
+}
+
+/// Плитка категории на витрине доставки: «Традиционная», «Гриль», «Пицца».
+///
+/// Отдельной связи с заведениями нет: категория подбирает их правилами —
+/// по словам кухонь и по виду заведения. Иначе при добавлении каждой плитки
+/// пришлось бы вручную переприсваивать сотни заведений, а заведение,
+/// поменявшее кухню, выпадало бы из категории молча.
+///
+/// Живёт в базе, а не в коде, потому что список плиток меняет владелец
+/// из панели, а не разработчик релизом приложения.
+model PlaceCategory {
+  id   String @id @default(uuid()) @db.Uuid
+  /// Устойчивый код для ссылок и файлов: traditional, grill, pizza
+  slug String @unique @db.VarChar(40)
+  name String @db.VarChar(60)
+
+  /// Картинка плитки. Загружается в панели через обычный модуль медиа.
+  imageMediaId String? @map("image_media_id") @db.Uuid
+
+  /// Слова кухонь: заведение подходит, если одна из его кухонь содержит
+  /// любое из этих слов. Сравнение по вхождению и без учёта регистра —
+  /// кухни заполняют руками, и «дагестанская кухня» должна попасть
+  /// в категорию со словом «дагестанская».
+  cuisines String[]
+  /// Либо если вид заведения — один из этих
+  types    PlaceType[]
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([isActive, sortOrder])
+  @@map("place_categories")
+}
+
+/// Где показывается промо-баннер: на главной странице или на витрине доставки.
+enum PromoPlacement {
+  home
+  delivery
+}
+
+/// Промо-карточка в карусели — на главной или на витрине доставки.
+///
+/// Раньше карточки были зашиты в код приложения: однотонная подложка,
+/// текст и кнопка «Смотреть» без картинки. Теперь изображение и переход
+/// задаёт владелец из панели — обычная загрузка через модуль медиа и выбор
+/// заведения из списка. Карточка без картинки и без заведения — обычное
+/// информационное объявление, такое тоже допустимо.
+model PromoBanner {
+  id        String         @id @default(uuid()) @db.Uuid
+  placement PromoPlacement
+  title     String         @db.VarChar(120)
+  subtitle  String?        @db.VarChar(200)
+
+  /// Картинка карточки. Загружается в панели через обычный модуль медиа.
+  imageMediaId String? @map("image_media_id") @db.Uuid
+
+  /// Заведение, куда ведёт нажатие. Пусто — карточка просто информационная.
+  targetPlaceId String? @map("target_place_id") @db.Uuid
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  targetPlace Place? @relation(fields: [targetPlaceId], references: [id], onDelete: SetNull)
+
+  @@index([placement, isActive, sortOrder])
+  @@map("promo_banners")
+}
+
+/// Избранные блюда.
+///
+/// Отдельно от избранных заведений: это разные вещи. Человек может любить
+/// конкретный хинкал, а само заведение не отмечать, и наоборот. Блюдо в
+/// избранном не пропадает, когда его убрали в стоп-лист: оно просто
+/// показывается с пометкой «сегодня закончилось».
+model FavoriteMenuItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  menuItemId String   @map("menu_item_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, menuItemId])
+  @@index([userId, createdAt])
+  @@map("favorite_menu_items")
+}
+
+/// Кто из пользователей приложения управляет заведением.
+/// Это не роль платформы (те живут в RBAC), а доступ к одному объекту:
+/// сотрудник заведения — обычный пользователь приложения.
+model PlaceMember {
+  id          String          @id @default(uuid()) @db.Uuid
+  placeId     String          @map("place_id") @db.Uuid
+  userId      String          @map("user_id") @db.Uuid
+  role        PlaceMemberRole
+  /// Кто из сотрудников платформы выдал доступ — для разбора спорных случаев
+  grantedById String?         @map("granted_by_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  place Place @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([placeId, userId])
+  @@index([userId])
+  @@map("place_members")
+}
+
+/// Часы работы: одна строка на день недели.
+///
+/// Время — минуты от полуночи. Закрытие в 02:00 — это closesMinute = 1560
+/// (больше 1440): так «работает за полночь» становится обычным сравнением
+/// чисел, без разбора особых случаев.
+model PlaceSchedule {
+  id           String  @id @default(uuid()) @db.Uuid
+  placeId      String  @map("place_id") @db.Uuid
+  /// 1 — понедельник … 7 — воскресенье (как в ISO)
+  weekday      Int
+  isClosed     Boolean @default(false) @map("is_closed")
+  opensMinute  Int     @default(540) @map("opens_minute")
+  closesMinute Int     @default(1320) @map("closes_minute")
+
+  place Place @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@unique([placeId, weekday])
+  @@map("place_schedules")
+}
+
+model MenuCategory {
+  id        String  @id @default(uuid()) @db.Uuid
+  placeId   String  @map("place_id") @db.Uuid
+  name      String  @db.VarChar(120)
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  place Place      @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  items MenuItem[]
+
+  @@index([placeId, sortOrder])
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  /// Заведение продублировано здесь намеренно: проверка «все позиции заказа
+  /// из одного заведения» делается одним запросом, без обхода категорий.
+  placeId      String  @map("place_id") @db.Uuid
+  categoryId   String  @map("category_id") @db.Uuid
+  name         String  @db.VarChar(160)
+  description  String? @db.VarChar(500)
+  /// Цена в копейках
+  price        Int
+  /// «450 г», «0,5 л» — у блюд и товаров единицы разные, поэтому строка
+  portion      String? @db.VarChar(40)
+  imageMediaId String? @map("image_media_id") @db.Uuid
+  /// Стоп-лист: позиция в меню есть, но сегодня закончилась
+  isAvailable  Boolean @default(true) @map("is_available")
+  isActive     Boolean @default(true) @map("is_active")
+  sortOrder    Int     @default(0) @map("sort_order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  place     Place              @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  category  MenuCategory       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  groups    MenuOptionGroup[]
+  favorites FavoriteMenuItem[]
+
+  @@index([placeId, categoryId, sortOrder])
+  @@map("menu_items")
+}
+
+/// Группа выбора у позиции: «Размер», «Добавки».
+/// minChoices = 1 делает выбор обязательным, maxChoices > 1 разрешает
+/// отметить несколько вариантов.
+model MenuOptionGroup {
+  id         String @id @default(uuid()) @db.Uuid
+  itemId     String @map("item_id") @db.Uuid
+  name       String @db.VarChar(120)
+  minChoices Int    @default(0) @map("min_choices")
+  maxChoices Int    @default(1) @map("max_choices")
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  deletedAt DateTime? @map("deleted_at")
+
+  item    MenuItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  options MenuOption[]
+
+  @@index([itemId, sortOrder])
+  @@map("menu_option_groups")
+}
+
+model MenuOption {
+  id          String  @id @default(uuid()) @db.Uuid
+  groupId     String  @map("group_id") @db.Uuid
+  name        String  @db.VarChar(120)
+  /// Надбавка к цене в копейках, может быть нулевой
+  priceDelta  Int     @default(0) @map("price_delta")
+  isAvailable Boolean @default(true) @map("is_available")
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  deletedAt DateTime? @map("deleted_at")
+
+  group MenuOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, sortOrder])
+  @@map("menu_options")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ЗАКАЗЫ (Этап 6)
+//
+//  Онлайн-оплаты нет: юрлица, онлайн-кассы по 54-ФЗ и договора с платёжным
+//  сервисом пока нет, поэтому заказ оплачивается при получении. Поля под
+//  безналичную оплату заложены заранее.
+//
+//  У заказа нет мягкого удаления: это финансовая история, её не стирают.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum OrderStatus {
+  /// Заказ оформлен, заведение его ещё не видело
+  new
+  accepted
+  preparing
+  on_the_way
+  ready_for_pickup
+  completed
+  cancelled
+}
+
+enum FulfillmentType {
+  delivery
+  pickup
+}
+
+enum PaymentMethod {
+  cash_on_delivery
+  card_on_delivery
+}
+
+model Order {
+  id     String @id @default(uuid()) @db.Uuid
+  /// Короткий номер для разговора по телефону: «заказ 1042»
+  number Int    @default(autoincrement())
+
+  userId  String @map("user_id") @db.Uuid
+  placeId String @map("place_id") @db.Uuid
+  cityId  String @map("city_id") @db.Uuid
+
+  fulfillment   FulfillmentType
+  status        OrderStatus     @default(new)
+  paymentMethod PaymentMethod   @map("payment_method")
+
+  /// Снимок контактов: профиль может измениться, заказ — нет
+  customerName   String  @map("customer_name") @db.VarChar(120)
+  customerPhone  String  @map("customer_phone") @db.VarChar(20)
+  address        String? @db.VarChar(300)
+  addressComment String? @map("address_comment") @db.VarChar(300)
+  comment        String? @db.VarChar(500)
+
+  /// Все суммы в копейках и все посчитаны сервером
+  itemsTotal  Int @map("items_total")
+  deliveryFee Int @map("delivery_fee")
+  total       Int
+
+  /// Повторная отправка той же формы не создаёт второй заказ
+  idempotencyKey String  @unique @map("idempotency_key") @db.VarChar(100)
+  cancelReason   String? @map("cancel_reason") @db.VarChar(300)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  place   Place                @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  items   OrderItem[]
+  history OrderStatusHistory[]
+
+  @@index([userId, createdAt])
+  @@index([placeId, status, createdAt])
+  @@map("orders")
+}
+
+/// Снимок позиции на момент заказа.
+///
+/// Название, цена и выбранные опции копируются в заказ. Иначе завтрашнее
+/// подорожание задним числом изменило бы вчерашний чек.
+model OrderItem {
+  id         String  @id @default(uuid()) @db.Uuid
+  orderId    String  @map("order_id") @db.Uuid
+  menuItemId String? @map("menu_item_id") @db.Uuid
+
+  name      String @db.VarChar(160)
+  /// Цена за единицу с учётом выбранных опций, в копейках
+  unitPrice Int    @map("unit_price")
+  quantity  Int
+  /// [{ "group": "Соус", "option": "Наршараб", "priceDelta": 5000 }]
+  options   Json?
+  lineTotal Int    @map("line_total")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id      String      @id @default(uuid()) @db.Uuid
+  orderId String      @map("order_id") @db.Uuid
+  status  OrderStatus
+  comment String?     @db.VarChar(300)
+  /// Кто сменил: сотрудник заведения, сотрудник платформы или сам клиент
+  actorId String?     @map("actor_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ПОЛЬЗОВАТЕЛИ
+// ═══════════════════════════════════════════════════════════════════════════
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Телефон в международном формате E.164: +79280000000.
+  /// Единственный логин в системе. Уникален.
+  phone String @unique @db.VarChar(20)
+
+  /// Хеш пароля (argon2id). Сам пароль нигде и никогда не хранится.
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+
+  firstName String  @map("first_name") @db.VarChar(60)
+  lastName  String? @map("last_name") @db.VarChar(60)
+  email     String? @unique @db.VarChar(255)
+  avatarId  String? @map("avatar_id") @db.Uuid
+
+  /// Дата рождения — нужна для возрастных ограничений (фильмы 18+)
+  birthDate DateTime? @map("birth_date") @db.Date
+
+  status UserStatus @default(pending)
+
+  /// Синяя галочка: личность и документы проверены сервисом (пункт 17 ТЗ).
+  /// НЕ означает гарантию безопасности человека — только факт проверки данных.
+  isVerified Boolean   @default(false) @map("is_verified")
+  verifiedAt DateTime? @map("verified_at")
+
+  /// Выбранный город. Хранится, чтобы не спрашивать при каждом запуске.
+  cityId String? @map("city_id") @db.Uuid
+
+  /// Средний рейтинг (считается заранее, чтобы списки грузились быстро)
+  ratingAverage Float @default(0) @map("rating_average")
+  ratingCount   Int   @default(0) @map("rating_count")
+
+  /// Двухфакторная авторизация. Обязательна для сотрудников (пункт 4 ТЗ).
+  /// Секрет хранится в зашифрованном виде.
+  totpSecretEncrypted String?   @map("totp_secret_encrypted")
+  totpEnabledAt       DateTime? @map("totp_enabled_at")
+
+  /// Согласие с условиями и политикой конфиденциальности (требование 152-ФЗ)
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  /// Версия документа, с которой согласился пользователь
+  termsVersion    String?   @map("terms_version") @db.VarChar(20)
+
+  lastLoginAt DateTime? @map("last_login_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  city              City?                   @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  roles             UserRole[]
+  devices           UserDevice[]
+  refreshTokens     RefreshToken[]
+  blocksReceived    UserBlock[]             @relation("BlockedUser")
+  blocksIssued      UserBlock[]             @relation("BlockedByUser")
+  violations        UserViolation[]
+  auditLogs         AdminAuditLog[]
+  uploadedMedia     Media[]                 @relation("MediaUploader")
+  notificationPrefs NotificationPreference?
+  placeMemberships  PlaceMember[]
+  orders            Order[]
+  placeReviews      PlaceReview[]
+  favoritePlaces    FavoritePlace[]
+  favoriteDishes    FavoriteMenuItem[]
+  listings          Listing[]               @relation("ListingSeller")
+  favoriteListings  FavoriteListing[]
+  listingReports    ListingReport[]         @relation("ListingReporter")
+
+  @@index([status])
+  @@index([cityId])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// Устройства пользователя. Нужны для push-уведомлений (пункт 31 ТЗ).
+model UserDevice {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  /// Постоянный идентификатор установки приложения
+  deviceId   String         @map("device_id") @db.VarChar(200)
+  platform   DevicePlatform
+  model      String?        @db.VarChar(120)
+  osVersion  String?        @map("os_version") @db.VarChar(60)
+  appVersion String?        @map("app_version") @db.VarChar(40)
+
+  /// Токен для отправки push. Провайдер зависит от платформы:
+  /// APNs (iOS), FCM (Android с Google), RuStore (Android без Google).
+  pushToken    String? @map("push_token") @db.VarChar(500)
+  pushProvider String? @map("push_provider") @db.VarChar(20)
+
+  lastActiveAt DateTime @default(now()) @map("last_active_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([pushToken])
+  @@map("user_devices")
+}
+
+/// Долгоживущие токены сессий.
+///
+/// Хранится ТОЛЬКО хеш токена: если базу украдут, войти по её содержимому
+/// будет нельзя. Поле replacedById реализует «обнаружение кражи»: при обновлении
+/// сессии старый токен помечается использованным. Если кто-то попытается
+/// применить его повторно — значит, токен украден, и вся цепочка сессий гасится.
+model RefreshToken {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  tokenHash String @unique @map("token_hash") @db.VarChar(255)
+  /// Идентификатор семейства токенов: одна цепочка — один вход с устройства
+  familyId  String @map("family_id") @db.Uuid
+
+  deviceId  String? @map("device_id") @db.VarChar(200)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+  ipAddress String? @map("ip_address") @db.VarChar(64)
+
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedReason String?   @map("revoked_reason") @db.VarChar(120)
+  replacedById  String?   @map("replaced_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Коды подтверждения из SMS.
+///
+/// Хранится хеш кода, а не сам код: сотрудник с доступом к базе не должен
+/// иметь возможности войти в чужой аккаунт, подсмотрев код.
+model OtpCode {
+  id      String     @id @default(uuid()) @db.Uuid
+  phone   String     @db.VarChar(20)
+  purpose OtpPurpose
+
+  codeHash String @map("code_hash") @db.VarChar(255)
+
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+
+  ipAddress String? @map("ip_address") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  РОЛИ И ПРАВА (RBAC, пункт 28 ТЗ)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Машинное имя: super_admin, moderator, partner …
+  name        String  @unique @db.VarChar(60)
+  label       String  @db.VarChar(120)
+  description String? @db.VarChar(500)
+  /// Системную роль нельзя удалить через панель управления
+  isSystem    Boolean @default(false) @map("is_system")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Машинное имя вида users:block
+  name        String  @unique @db.VarChar(80)
+  label       String  @db.VarChar(160)
+  /// Группа для удобной выдачи прав в интерфейсе: users, finance, system …
+  category    String  @db.VarChar(40)
+  description String? @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  roles RolePermission[]
+
+  @@index([category])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  /// Кто выдал роль — для журнала аудита
+  grantedById String?  @map("granted_by_id") @db.Uuid
+  grantedAt   DateTime @default(now()) @map("granted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  БЛОКИРОВКИ И НАРУШЕНИЯ
+// ═══════════════════════════════════════════════════════════════════════════
+
+model UserBlock {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  reason      String    @db.VarChar(500)
+  /// Пусто — блокировка бессрочная
+  expiresAt   DateTime? @map("expires_at")
+  blockedById String?   @map("blocked_by_id") @db.Uuid
+  liftedAt    DateTime? @map("lifted_at")
+  liftedById  String?   @map("lifted_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User  @relation("BlockedUser", fields: [userId], references: [id], onDelete: Cascade)
+  blockedBy User? @relation("BlockedByUser", fields: [blockedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, liftedAt])
+  @@map("user_blocks")
+}
+
+/// История нарушений: попытки увести общение из приложения (пункт 18 ТЗ),
+/// спам, оскорбления, фейковые объявления.
+model UserViolation {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  /// Тип нарушения: contact_sharing, spam, fraud, abuse …
+  kind     String @db.VarChar(60)
+  severity Int    @default(1)
+  details  Json?
+
+  /// К какому объекту относится нарушение (сообщение, объявление, отзыв)
+  targetType String? @map("target_type") @db.VarChar(40)
+  targetId   String? @map("target_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([kind])
+  @@map("user_violations")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ЖУРНАЛ ДЕЙСТВИЙ АДМИНИСТРАТОРОВ (пункт 4 ТЗ)
+//
+//  Записи только добавляются и никогда не изменяются. Это то, что позволяет
+//  ответить на вопрос «кто удалил объявление и когда» через полгода.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model AdminAuditLog {
+  id      String  @id @default(uuid()) @db.Uuid
+  /// Кто. Пусто, если действие выполнила система по расписанию.
+  actorId String? @map("actor_id") @db.Uuid
+
+  /// Что сделал: user.block, news.publish, settings.update …
+  action String @db.VarChar(80)
+
+  /// Над чем
+  targetType String? @map("target_type") @db.VarChar(40)
+  targetId   String? @map("target_id") @db.Uuid
+
+  /// Значения до и после изменения
+  before Json?
+  after  Json?
+
+  ipAddress String? @map("ip_address") @db.VarChar(64)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+  requestId String? @map("request_id") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@map("admin_audit_log")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  МЕДИАФАЙЛЫ (пункт 34 ТЗ)
+//
+//  Сами файлы лежат в S3-хранилище. В базе — только ссылки и описание.
+//  Одна таблица обслуживает фото ресторанов, квартир, новостей и всего
+//  остального: ownerType и ownerId указывают, к чему файл относится.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Media {
+  id String @id @default(uuid()) @db.Uuid
+
+  type MediaType @default(image)
+
+  /// Путь к файлу внутри хранилища
+  storageKey String  @map("storage_key") @db.VarChar(500)
+  /// Приватные файлы (документы водителей) отдаются только по временной ссылке
+  isPrivate  Boolean @default(false) @map("is_private")
+
+  mimeType  String @map("mime_type") @db.VarChar(120)
+  sizeBytes Int    @map("size_bytes")
+  width     Int?
+  height    Int?
+  /// Длительность видео в секундах
+  duration  Int?
+
+  /// Готовые уменьшенные копии: { "thumb": "...", "medium": "..." }
+  variants Json?
+
+  /// Описание для незрячих пользователей
+  alt String? @db.VarChar(300)
+
+  /// К какому объекту относится файл
+  ownerType String? @map("owner_type") @db.VarChar(40)
+  ownerId   String? @map("owner_id") @db.Uuid
+  /// Порядок в галерее объекта. Нужен объявлениям: первая фотография —
+  /// обложка, и человек сам решает, какая из десяти будет первой.
+  sortOrder Int     @default(0) @map("sort_order")
+
+  uploadedById String? @map("uploaded_by_id") @db.Uuid
+
+  /// Файл загружен, но ещё не привязан к объекту. Такие удаляются по расписанию.
+  isOrphan Boolean @default(true) @map("is_orphan")
+
+  /// Результат проверки содержимого (модерация изображений)
+  moderationStatus ModerationStatus @default(pending) @map("moderation_status")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  uploadedBy User? @relation("MediaUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([ownerType, ownerId])
+  @@index([uploadedById])
+  @@index([isOrphan, createdAt])
+  @@map("media")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ОБЪЯВЛЕНИЯ (Этап 7)
+//
+//  Доска объявлений со всеми категориями: недвижимость, транспорт, работа,
+//  услуги, вещи, животные. Объявления публикуют сами пользователи.
+//  Решения и их обоснование — docs/ADR/0008-объявления.md.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Единица цены. «120 000 ₽» и «25 000 ₽/мес» — разные величины, и
+/// сравнивать их одним фильтром нельзя. Поэтому единица хранится, а не
+/// угадывается по категории: посуточная аренда и долгосрочная живут в
+/// одной категории «Квартиры», а цены у них различаются в тридцать раз.
+enum ListingPriceUnit {
+  /// Цена целиком: вещь, автомобиль, продажа квартиры
+  total
+  /// В месяц: аренда, зарплата
+  per_month
+  /// В сутки: посуточная аренда
+  per_day
+  /// В час: услуги, подработка
+  per_hour
+  /// За штуку, метр, тонну: стройматериалы, услуги «за единицу»
+  per_unit
+}
+
+/// Что делает продавец. «Куплю»/«Сниму» типами объявления не являются:
+/// намерение покупателя — это фильтр поиска, а не запись в базе.
+enum ListingTransactionType {
+  sale
+  rent
+  /// Отдам бесплатно
+  free
+  /// Вязка животных
+  mating
+}
+
+/// Срок аренды — только у `rent`. Определяет единицу цены: посуточно —
+/// «в сутки», надолго — «в месяц».
+enum ListingRentPeriod {
+  daily
+  monthly
+}
+
+/// Как категория показывает карточки: сетка для вещей, список для жилья и вакансий.
+enum ListingCardLayout {
+  grid
+  list
+}
+
+/// Насколько точна точка объявления (ADR-0010).
+enum ListingLocationAccuracy {
+  /// Выбран адрес с номером дома
+  house
+  /// Выбрана улица
+  street
+  /// Выбран только населённый пункт — точка в его центре
+  settlement
+  /// Точку поставили на карте руками
+  point
+}
+
+/// Что из адреса видят другие.
+enum ListingAddressVisibility {
+  /// Адрес с домом и точная точка — для магазинов, СТО, кафе
+  exact
+  /// Населённый пункт и улица без дома, точка округлена — частные продавцы
+  approximate
+}
+
+/// Состояние вещи. Только для товарных категорий: у квартиры и вакансии пусто.
+enum ListingCondition {
+  new
+  used
+}
+
+/// Почему объявление ушло в архив. Нужно, чтобы отличить «продал» (успех
+/// сервиса) от «истёк срок» (никто не позвонил) — это разные цифры.
+enum ListingArchiveReason {
+  /// Продано или сдано
+  sold
+  /// Автор снял сам, не объясняя причину
+  withdrawn
+  /// Истёк срок размещения
+  expired
+}
+
+/// Причина жалобы на объявление. Названия причин — в packages/shared,
+/// база хранит только код.
+enum ListingReportReason {
+  /// Мошенничество: предоплата, «перевод за бронь», подменённые фотографии
+  fraud
+  /// Запрещено к продаже: оружие, лекарства, алкоголь, документы
+  prohibited
+  /// Размещено не в той категории
+  wrong_category
+  /// Уже продано или цена ненастоящая
+  irrelevant
+  /// Дубль того же объявления
+  duplicate
+  /// Оскорбления, непристойное содержание
+  offensive
+  /// Спам и реклама вместо объявления
+  spam
+  other
+}
+
+enum ListingReportStatus {
+  /// Ждёт решения сотрудника
+  new
+  /// Жалоба подтвердилась, меры приняты
+  resolved
+  /// Жалоба не подтвердилась
+  rejected
+}
+
+/// Дерево категорий объявлений: «Транспорт» → «Легковые автомобили».
+///
+/// Живёт в базе, а не в коде, по той же причине, что и плитки витрины
+/// заведений: добавить «Стройматериалы» не должно означать выпуск новой
+/// версии приложения в магазинах.
+///
+/// Но НАБОР ХАРАКТЕРИСТИК категории в базе не хранится — только ключ набора
+/// (attributeSet). Сами поля описаны в packages/shared: по ним строится и
+/// форма подачи в приложении, и проверка на сервере, и условия фильтра.
+/// Редактор полей в панели означал бы, что одно неверное нажатие ломает
+/// форму подачи у всех и делает недоступными уже сохранённые характеристики.
+model ListingCategory {
+  id       String  @id @default(uuid()) @db.Uuid
+  parentId String? @map("parent_id") @db.Uuid
+
+  /// Устойчивый код для ссылок: realty-flats-sale, transport-cars
+  slug String @unique @db.VarChar(60)
+  name String @db.VarChar(80)
+  /// Как назвать один объект в заголовке формы: «Квартира», «Автомобиль».
+  /// Пусто — форма скажет «Объявление».
+  itemLabel String? @map("item_label") @db.VarChar(60)
+
+  /// Картинка плитки. Загружается в панели через обычный модуль медиа.
+  imageMediaId String? @map("image_media_id") @db.Uuid
+  /// Код иконки приложения, если своей картинки нет
+  iconKey      String? @map("icon_key") @db.VarChar(40)
+
+  /// Какие сделки бывают в категории: sale, rent, free, mating. Пусто —
+  /// сделки нет (вещи, работа, услуги), и transactionType у объявлений пуст.
+  allowedTransactions String[]                @default([]) @map("allowed_transactions")
+  defaultTransaction  ListingTransactionType? @map("default_transaction")
+  defaultRentPeriod   ListingRentPeriod?      @map("default_rent_period")
+
+  /// Допустимые единицы цены. Какие из них подходят конкретной сделке —
+  /// решает PriceConfig в packages/shared: «сдам надолго» — только в месяц.
+  allowedPriceUnits String[] @default(["total"]) @map("allowed_price_units")
+  /// Единица цены, которую форма предлагает по умолчанию: у аренды и работы —
+  /// в месяц, у вещей — целиком.
+  defaultPriceUnit  ListingPriceUnit @default(total) @map("default_price_unit")
+
+  cardLayout ListingCardLayout @default(grid) @map("card_layout")
+
+  /// Ярлык: категория-ссылка на другую с готовым фильтром
+  /// ({ "category": "realty-flats", "transactionType": "rent", "rentPeriod": "daily" }).
+  /// У ярлыка объявлений нет — они лежат в целевой категории.
+  shortcutFilter Json? @map("shortcut_filter")
+
+  /// Категория снята: её объявления перенесены в указанную, а сама она
+  /// открывается только по старой ссылке и ведёт туда же.
+  deprecatedToId String? @map("deprecated_to_id") @db.Uuid
+
+  /// Можно ли размещать объявление прямо здесь. У «Транспорта» нельзя —
+  /// только в подкатегории, иначе половина машин окажется вне фильтров.
+  isLeaf Boolean @default(true) @map("is_leaf")
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  /// Удаление родителя запрещено: у категории с объявлениями внутри нет
+  /// безопасного «каскадом». Сначала перенос объявлений, потом удаление.
+  parent         ListingCategory?           @relation("ListingCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children       ListingCategory[]          @relation("ListingCategoryTree")
+  deprecatedTo   ListingCategory?           @relation("ListingCategoryDeprecated", fields: [deprecatedToId], references: [id], onDelete: SetNull)
+  deprecatedFrom ListingCategory[]          @relation("ListingCategoryDeprecated")
+  attributes     ListingCategoryAttribute[]
+  listings       Listing[]
+
+  @@index([parentId, sortOrder])
+  @@index([isActive, sortOrder])
+  @@map("listing_categories")
+}
+
+/// Определение поля характеристики: «коробка передач», «площадь», «марка».
+///
+/// Одно определение — один источник для формы подачи, фильтров, проверки на
+/// сервере, поискового текста и строки под заголовком карточки. Заполняется
+/// из packages/shared при первом запуске, дальше правится из панели с
+/// ограничениями: ключ с данными не удаляется, перечисление с данными не
+/// сужается.
+model ListingAttributeDefinition {
+  key   String @id @db.VarChar(60)
+  label String @db.VarChar(80)
+  /// string | number | boolean | enum | multiEnum | date | brand | model
+  type  String @db.VarChar(20)
+
+  shortLabel String? @map("short_label") @db.VarChar(40)
+  unit       String? @db.VarChar(20)
+  min        Float?
+  max        Float?
+  /// Во сколько раз значение увеличивается при хранении: площадь — в десятых
+  scale      Int?
+  /// [{ "value": "auto", "label": "Автомат" }] для enum и multiEnum
+  options    Json?
+  /// Вид справочника для brand и model: car_brand, car_model
+  dictionaryKind String? @map("dictionary_kind") @db.VarChar(40)
+  /// Поле-родитель: у модели — марка
+  parentKey      String? @map("parent_key") @db.VarChar(60)
+  /// Колонка таблицы объявлений, если значение хранится в ней: rooms, year…
+  column         String? @db.VarChar(20)
+  /// Показывать только при значении другого поля: { "key": "brand", "values": ["apple"] }
+  visibleWhen    Json?   @map("visible_when")
+
+  /// range | select | multiselect | toggle | none
+  filter        String  @db.VarChar(20)
+  searchable    Boolean @default(true)
+  filterable    Boolean @default(true)
+  sortable      Boolean @default(false)
+  showInCard    Boolean @default(false) @map("show_in_card")
+  showInDetails Boolean @default(true) @map("show_in_details")
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  bindings ListingCategoryAttribute[]
+
+  @@map("listing_attribute_definitions")
+}
+
+/// Поле в категории: какое определение, обязательно ли, с какой подписью.
+/// Переопределяется только то, что честно различается: «Год выпуска» у
+/// машины и «Год постройки» у дома — одно поле `year`.
+model ListingCategoryAttribute {
+  id           String @id @default(uuid()) @db.Uuid
+  categoryId   String @map("category_id") @db.Uuid
+  attributeKey String @map("attribute_key") @db.VarChar(60)
+
+  required       Boolean @default(false)
+  label          String? @db.VarChar(80)
+  dictionaryKind String? @map("dictionary_kind") @db.VarChar(40)
+  min            Float?
+  max            Float?
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  category  ListingCategory            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  attribute ListingAttributeDefinition @relation(fields: [attributeKey], references: [key], onDelete: Restrict)
+
+  @@unique([categoryId, attributeKey])
+  @@index([attributeKey])
+  @@map("listing_category_attributes")
+}
+
+/// Справочник значений: марки, модели, бренды. Модель ссылается на марку
+/// через parentValue. Пустая строка вместо null у parentValue — чтобы
+/// уникальность (kind, parent, value) работала и у записей без родителя.
+model ListingDictionaryEntry {
+  id          String  @id @default(uuid()) @db.Uuid
+  kind        String  @db.VarChar(40)
+  value       String  @db.VarChar(80)
+  label       String  @db.VarChar(120)
+  parentValue String  @default("") @map("parent_value") @db.VarChar(80)
+  sortOrder   Int     @default(0) @map("sort_order")
+  isActive    Boolean @default(true) @map("is_active")
+  /// Другие написания для поиска: «тойота», «тайота»
+  aliases     String[] @default([])
+  /// Дополнительные признаки: { "faceId": true } у моделей телефонов
+  meta        Json?
+
+  @@unique([kind, parentValue, value])
+  @@index([kind, parentValue, sortOrder])
+  @@map("listing_dictionary_entries")
+}
+
+/// Объявление на доске.
+///
+/// Публикуется сразу, без предварительной проверки (решение владельца):
+/// премодерация при потоке частных объявлений означает очередь, которую
+/// некому разбирать, и мёртвую доску. Плата за это — мусор и мошенники
+/// появляются первыми, и снимать их приходится задним числом, по жалобам.
+///
+/// Характеристики разделены надвое намеренно. В колонках — то, по чему
+/// фильтруют ДИАПАЗОНОМ (цена, комнаты, площадь, этаж, год, пробег): такой
+/// фильтр по полю Json база не индексирует, и на десятках тысяч строк он
+/// превращается в полный перебор. В attributes — перечислимое («коробка:
+/// автомат», «балкон: есть»): добавление такого поля не требует миграции,
+/// а фильтр по нему — сравнение на равенство.
+model Listing {
+  id         String  @id @default(uuid()) @db.Uuid
+  cityId     String  @map("city_id") @db.Uuid
+  districtId String? @map("district_id") @db.Uuid
+  categoryId String  @map("category_id") @db.Uuid
+  /// Автор. Объявления удалённого пользователя удаляются вместе с ним.
+  sellerId   String  @map("seller_id") @db.Uuid
+
+  title       String @db.VarChar(120)
+  description String @db.Text
+
+  /// Что делает продавец. Пусто у категорий без сделки (вещи, работа).
+  transactionType ListingTransactionType? @map("transaction_type")
+  rentPeriod      ListingRentPeriod?      @map("rent_period")
+
+  /// Цена в копейках. Пусто — «цена не указана» или «договорная».
+  price        Int?
+  /// Верхняя граница вилки: «зарплата 60 000 — 90 000». Обычно пусто.
+  priceMax     Int?             @map("price_max")
+  /// Единица определяется сделкой (PriceConfig): «сдам надолго» — только в месяц
+  priceUnit    ListingPriceUnit @default(total) @map("price_unit")
+  isNegotiable Boolean          @default(false) @map("is_negotiable")
+  /// Цена за м² в копейках — считается при записи для продажи с площадью
+  pricePerSqm  Int?             @map("price_per_sqm")
+
+  condition ListingCondition?
+
+  /// Комнат. 0 — студия: отдельного признака для неё не нужно.
+  rooms       Int?
+  /// Площадь в ДЕСЯТЫХ квадратного метра: 54,5 м² — это 545. Дробные числа
+  /// в фильтрах сравниваются неточно, целые — точно.
+  areaTotal   Int? @map("area_total")
+  floor       Int?
+  floorsTotal Int? @map("floors_total")
+  /// Год выпуска (автомобиль) или постройки (дом)
+  year        Int?
+  /// Пробег в километрах
+  mileage     Int?
+
+  /// Остальные характеристики категории: { "gearbox": "auto", "balcony": true }.
+  /// Ключи и допустимые значения задаёт справочник определений, всё прочее
+  /// отбрасывается при сохранении — иначе сюда попадёт что угодно. Это
+  /// копия для показа; для фильтра те же значения лежат в attributeValues.
+  attributes Json @default("{}")
+
+  /// Поисковый текст: марка, модель, значения перечислений, категория,
+  /// город и район — словами. По нему и по заголовку с описанием строится
+  /// search_vector (триггером в базе) и работает поиск.
+  searchText   String                  @default("") @map("search_text") @db.Text
+  searchVector Unsupported("tsvector")? @map("search_vector")
+  /// Точка для радиуса — geography, чтобы ST_DWithin считал метры честно
+  geom         Unsupported("geography(Point,4326)")?
+
+  /// Правлено после публикации — в очередь повторной проверки панели
+  needsReview   Boolean   @default(false) @map("needs_review")
+  /// Когда автор отправил снятое на повторную проверку
+  resubmittedAt DateTime? @map("resubmitted_at")
+
+  /// «Адрес или ориентир» — как его видно в форме: подсказка геокодера или
+  /// то, что человек дописал сам («у рынка»).
+  address String? @db.VarChar(300)
+
+  /// Точка на карте — основа поиска по радиусу (ADR-0010). Обязательна для
+  /// новых объявлений; у старых, поданных без неё, пусто, и в круг они
+  /// попадают по центру своего города. Точку не придумываем: если её нельзя
+  /// честно определить по адресу, её нет.
+  latitude  Float?
+  longitude Float?
+
+  // Части адреса. Их определяет геокодер по точке или по выбранной
+  // подсказке — человек их не вводит и районы не выбирает. У села нет
+  // города (city пусто, settlement — само село), у города нет settlement
+  /// «Россия»
+  country          String?                    @db.VarChar(80)
+  /// «Республика Дагестан»
+  region           String?                    @db.VarChar(160)
+  /// Административный район или городской округ: «Карабудахкентский район»
+  districtName     String?                    @map("district") @db.VarChar(160)
+  /// Район внутри города: «Советский район». По нему же выставляется districtId
+  cityDistrict     String?                    @map("city_district") @db.VarChar(160)
+  /// Город или посёлок городского типа
+  cityName         String?                    @map("city") @db.VarChar(160)
+  /// Село, посёлок, хутор
+  settlement       String?                    @db.VarChar(160)
+  street           String?                    @db.VarChar(200)
+  houseNumber      String?                    @map("house_number") @db.VarChar(40)
+  /// Полный адрес от геокодера
+  formattedAddress String?                    @map("formatted_address") @db.VarChar(500)
+  /// Насколько точна точка: дом, улица, центр населённого пункта или ручная
+  locationAccuracy ListingLocationAccuracy?   @map("location_accuracy")
+  /// Что из адреса видят другие. Координаты для поиска хранятся всегда
+  addressVisibility ListingAddressVisibility  @default(approximate) @map("address_visibility")
+
+  /// Телефон для связи. Отдельно от телефона аккаунта: человек может
+  /// продавать с рабочего номера. В списке НЕ отдаётся — только по нажатию
+  /// «Показать номер», иначе номера соберёт первый же скрипт.
+  /// Хранится в E.164 («+79501234567») — по нему звонят и сравнивают.
+  contactPhone String  @map("contact_phone") @db.VarChar(20)
+  /// Тот же номер по частям — под будущие международные номера: код страны
+  /// без «+» («7») и номер без него («9501234567»)
+  contactPhoneCountryCode String? @map("contact_phone_country_code") @db.VarChar(4)
+  contactPhoneNational    String? @map("contact_phone_national") @db.VarChar(15)
+  contactName  String? @map("contact_name") @db.VarChar(60)
+  allowChat    Boolean @default(true) @map("allow_chat")
+  allowCalls   Boolean @default(true) @map("allow_calls")
+
+  /// Первая фотография. Остальные — в media по ownerType = listing.
+  coverMediaId String? @map("cover_media_id") @db.Uuid
+
+  /// approved сразу при публикации: предварительной проверки нет. Из шести
+  /// значений используются четыре — draft, approved, suspended, archived.
+  /// pending и rejected остаются на случай, если премодерацию однажды
+  /// включат для отдельных категорий: менять схему тогда не придётся.
+  status            ModerationStatus      @default(approved)
+  /// Причина снятия — её видит автор в своём кабинете
+  statusReason      String?               @map("status_reason") @db.VarChar(500)
+  statusChangedAt   DateTime?             @map("status_changed_at")
+  statusChangedById String?               @map("status_changed_by_id") @db.Uuid
+  archiveReason     ListingArchiveReason? @map("archive_reason")
+
+  publishedAt DateTime? @map("published_at")
+  /// Когда объявление само уйдёт в архив
+  expiresAt   DateTime? @map("expires_at")
+  /// Момент последнего поднятия. Это же — ключ сортировки «по дате»:
+  /// «поднять» означает поставить сюда текущее время, и объявление
+  /// оказывается наверху обычной ленты. Отдельного поля ранжирования не
+  /// нужно, и лента не расслаивается на «обычную» и «поднятую».
+  bumpedAt    DateTime  @default(now()) @map("bumped_at")
+
+  /// Платное продвижение (оплаты пока нет, включается из панели). На вид
+  /// объявления не влияет вообще: ни рамки, ни ярлыка «ТОП» — только вес в
+  /// ранжировании «Рекомендуемых», см. LISTING_RANKING в packages/shared.
+  promotedUntil    DateTime? @map("promoted_until")
+  /// Когда продвижение включили. Нужен именно момент старта: надбавка
+  /// затухает со временем (первые часы сильнее), а по одному «до какого
+  /// числа» посчитать, сколько она уже действует, нельзя.
+  promotedAt       DateTime? @map("promoted_at")
+  /// «Выделено до» — подложка в списке, на порядок не влияет
+  highlightedUntil DateTime? @map("highlighted_until")
+
+  viewsCount      Int @default(0) @map("views_count")
+  /// Сколько раз показали номер: продавцу это понятнее, чем просмотры
+  phoneViewsCount Int @default(0) @map("phone_views_count")
+  /// Денормализовано намеренно: очередь модерации сортируется по числу
+  /// жалоб, и считать их агрегатом на каждый показ страницы незачем
+  reportsCount    Int @default(0) @map("reports_count")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  city      City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  district  District?         @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  category  ListingCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  seller          User                    @relation("ListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  favorites       FavoriteListing[]
+  reports         ListingReport[]
+  attributeValues ListingAttributeValue[]
+
+  /// Лента категории и лента города: город и статус стоят первыми, потому
+  /// что они есть в КАЖДОМ запросе витрины
+  @@index([cityId, status, categoryId, bumpedAt(sort: Desc)])
+  @@index([cityId, status, bumpedAt(sort: Desc)])
+  /// Сортировка и фильтр по цене — только внутри одной единицы и сделки
+  @@index([cityId, status, categoryId, priceUnit, price])
+  @@index([cityId, status, transactionType, rentPeriod])
+  /// Самые частые диапазоны
+  @@index([cityId, status, categoryId, year])
+  @@index([cityId, status, categoryId, mileage])
+  @@index([cityId, status, categoryId, rooms])
+  @@index([cityId, status, categoryId, areaTotal])
+  @@index([cityId, status, districtId])
+  /// «Мои объявления» и «другие объявления продавца»
+  @@index([sellerId, status, bumpedAt(sort: Desc)])
+  /// Ночная уборка: что пора отправить в архив
+  @@index([status, expiresAt])
+  @@index([status, publishedAt])
+  /// Очередь модерации: сначала те, на кого жалуются, и правленные
+  @@index([status, reportsCount(sort: Desc)])
+  @@index([needsReview, updatedAt])
+  @@map("listings")
+}
+
+/// Значение характеристики для фильтра — по одной строке на значение.
+///
+/// Колонок под все диапазоны не заведёшь: «ёмкость аккумулятора», «участок»,
+/// «опыт», «мощность» фильтруются диапазоном не хуже пробега, а держать по
+/// колонке на каждое поле каждой категории — значит миграция на каждое
+/// новое поле. Число и строка в отдельных колонках с индексами: диапазон
+/// по числу и равенство по строке — оба индексом, без перебора JSON.
+model ListingAttributeValue {
+  id        String  @id @default(uuid()) @db.Uuid
+  listingId String  @map("listing_id") @db.Uuid
+  key       String  @db.VarChar(60)
+  numValue  Decimal? @map("num_value") @db.Decimal(18, 4)
+  textValue String?  @map("text_value") @db.VarChar(200)
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, key])
+  @@index([key, numValue])
+  @@index([key, textValue])
+  @@map("listing_attribute_values")
+}
+
+/// Избранные объявления. Отдельная таблица, как и у заведений: в схеме это
+/// уже оговорено — «появятся избранные объявления, будут свои таблицы».
+model FavoriteListing {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  listingId String   @map("listing_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([userId, createdAt])
+  @@map("favorite_listings")
+}
+
+/// Жалоба на объявление.
+///
+/// Единственный способ узнать о мошеннике, когда объявления публикуются без
+/// проверки, поэтому кнопка «Пожаловаться» должна быть заметной, а не
+/// спрятанной. Одна жалоба на человека и объявление: иначе один обиженный
+/// конкурент создаёт очередь из двадцати жалоб на одно объявление.
+model ListingReport {
+  id         String @id @default(uuid()) @db.Uuid
+  listingId  String @map("listing_id") @db.Uuid
+  reporterId String @map("reporter_id") @db.Uuid
+
+  reason  ListingReportReason
+  /// Обязателен, когда причина «другое»
+  comment String?             @db.VarChar(1000)
+
+  status       ListingReportStatus @default(new)
+  /// Что сделал сотрудник: снял, перенёс в другую категорию, отклонил жалобу
+  resolution   String?             @db.VarChar(500)
+  resolvedById String?             @map("resolved_by_id") @db.Uuid
+  resolvedAt   DateTime?           @map("resolved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  listing  Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporter User    @relation("ListingReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, reporterId])
+  /// Очередь разбора: сначала нерассмотренные, в порядке поступления
+  @@index([status, createdAt])
+  @@index([listingId])
+  @@map("listing_reports")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  НАСТРОЙКИ СИСТЕМЫ
+//
+//  Здесь живут значения, которые владелец меняет без программиста:
+//  ставка комиссии ресторанов, комиссия попутчиков, лимиты, тексты.
+//  Пункты 14 и 19 ТЗ прямо этого требуют.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Setting {
+  key         String           @id @db.VarChar(120)
+  value       String
+  valueType   SettingValueType @default(string) @map("value_type")
+  category    String           @db.VarChar(40)
+  label       String           @db.VarChar(200)
+  description String?          @db.VarChar(500)
+  /// Публичные настройки отдаются мобильному приложению, приватные — никогда
+  isPublic    Boolean          @default(false) @map("is_public")
+
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([category])
+  @@map("settings")
+}
+
+/// Настройки уведомлений пользователя (пункт 31 ТЗ).
+/// Рекламные уведомления имеют отдельный выключатель — это требование ТЗ
+/// и одновременно требование закона о рекламе.
+model NotificationPreference {
+  userId String @id @map("user_id") @db.Uuid
+
+  /// Сервисные: статус заказа, подтверждение поездки. Отключить нельзя —
+  /// без них пользователь не узнает о своём же заказе.
+  serviceEnabled   Boolean @default(true) @map("service_enabled")
+  /// Персональные: ответ в чате, изменение цены избранного объекта
+  personalEnabled  Boolean @default(true) @map("personal_enabled")
+  /// Рекламные: акции и предложения
+  marketingEnabled Boolean @default(false) @map("marketing_enabled")
+
+  /// Не беспокоить с … по … (часы по времени города пользователя)
+  quietHoursStart Int? @map("quiet_hours_start")
+  quietHoursEnd   Int? @map("quiet_hours_end")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}

@@ -1,0 +1,309 @@
+import { LISTING_MAX_PHOTOS, type MediaDto } from '@dagestan/shared';
+import { useMemo } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { radius, spacing, typography, useThemeColors } from '../theme';
+import { Icon } from './Icon';
+import { RemoteImage } from './RemoteImage';
+
+/**
+ * Фотографии объявления: добавление, порядок, обложка, удаление.
+ *
+ * Общий компонент для подачи и правки. Правила простые и видимые:
+ *   - первая фотография — обложка (её видно в ленте), у неё рамка и метка;
+ *   - «★» на любой другой делает её обложкой — переносит в начало;
+ *   - стрелки двигают фото на место левее или правее, «×» убирает его.
+ * Пока фото нет — не пустая пунктирная рамка, а понятная карточка с
+ * кнопкой: что сделать и зачем.
+ */
+export function PhotoGridEditor({
+  photos,
+  onAdd,
+  onRemove,
+  onMove,
+  onMakeCover,
+  uploading,
+}: {
+  photos: MediaDto[];
+  onAdd: () => void;
+  onRemove: (photoId: string) => void;
+  onMove: (index: number, direction: -1 | 1) => void;
+  /** Сделать фото обложкой. Без обработчика кнопка «★» не показывается */
+  onMakeCover?: (index: number) => void;
+  uploading: boolean;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const canAdd = photos.length < LISTING_MAX_PHOTOS;
+
+  if (photos.length === 0) {
+    return (
+      <Pressable
+        onPress={onAdd}
+        disabled={uploading}
+        accessibilityRole="button"
+        accessibilityLabel="Добавить фотографии"
+        style={({ pressed }) => [styles.empty, pressed && styles.pressed]}
+      >
+        <View style={styles.emptyIcon}>
+          {uploading ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Icon name="image" size={28} color={colors.primary} />
+          )}
+        </View>
+        <Text style={styles.emptyTitle}>
+          {uploading ? 'Загружаем фото…' : 'Добавьте фотографии'}
+        </Text>
+        <Text style={styles.emptyText}>
+          До {LISTING_MAX_PHOTOS} фото. Первое станет обложкой — его видно в ленте. С фото
+          объявление смотрят чаще.
+        </Text>
+        {!uploading && (
+          <View style={styles.emptyButton}>
+            <Icon name="plus" size={16} color={colors.textOnPrimary} />
+            <Text style={styles.emptyButtonLabel}>Выбрать фото</Text>
+          </View>
+        )}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.wrapper}>
+      <View style={styles.header}>
+        <Text style={styles.counter}>
+          {photos.length} из {LISTING_MAX_PHOTOS}
+        </Text>
+        <Text style={styles.hint}>Первое фото — обложка</Text>
+      </View>
+
+      <View style={styles.grid}>
+        {photos.map((photo, index) => {
+          const isCover = index === 0;
+          return (
+            <View key={photo.id} style={[styles.tile, isCover && styles.tileCover]}>
+              <RemoteImage
+                uri={photo.thumbnailUrl ?? photo.url}
+                style={styles.photo}
+                containerStyle={styles.photoPlaceholder}
+                fallback={<Icon name="image" size={20} color="rgba(255,255,255,0.5)" />}
+              />
+
+              {isCover && (
+                <View style={styles.coverBadge}>
+                  <Text style={styles.coverBadgeText}>Обложка</Text>
+                </View>
+              )}
+
+              <Pressable
+                onPress={() => onRemove(photo.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Удалить фото ${index + 1}`}
+                hitSlop={8}
+                style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
+              >
+                <Icon name="close" size={14} color="#ffffff" />
+              </Pressable>
+
+              <View style={styles.toolbar}>
+                <ToolButton
+                  icon="chevron-left"
+                  label={`Фото ${index + 1}: левее`}
+                  disabled={index === 0}
+                  onPress={() => onMove(index, -1)}
+                />
+                {onMakeCover && !isCover ? (
+                  <ToolButton
+                    icon="star"
+                    label={`Сделать фото ${index + 1} обложкой`}
+                    onPress={() => onMakeCover(index)}
+                  />
+                ) : (
+                  <View style={styles.toolSpacer} />
+                )}
+                <ToolButton
+                  icon="chevron-right"
+                  label={`Фото ${index + 1}: правее`}
+                  disabled={index === photos.length - 1}
+                  onPress={() => onMove(index, 1)}
+                />
+              </View>
+            </View>
+          );
+        })}
+
+        {canAdd && (
+          <Pressable
+            onPress={onAdd}
+            disabled={uploading}
+            accessibilityRole="button"
+            accessibilityLabel="Добавить ещё фотографии"
+            style={({ pressed }) => [styles.tile, styles.add, pressed && styles.pressed]}
+          >
+            <View style={styles.addInner}>
+              {uploading ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <>
+                  <View style={styles.addIcon}>
+                    <Icon name="plus" size={18} color={colors.primary} />
+                  </View>
+                  <Text style={styles.addLabel}>Добавить</Text>
+                </>
+              )}
+            </View>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function ToolButton({
+  icon,
+  label,
+  onPress,
+  disabled = false,
+}: {
+  icon: 'chevron-left' | 'chevron-right' | 'star';
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      hitSlop={6}
+      style={({ pressed }) => [styles.tool, pressed && styles.pressed]}
+    >
+      <Icon name={icon} size={14} color={disabled ? 'rgba(255,255,255,0.35)' : '#ffffff'} />
+    </Pressable>
+  );
+}
+
+const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
+  StyleSheet.create({
+    pressed: { opacity: 0.85 },
+    wrapper: { gap: spacing.sm },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+    counter: { ...typography.caption, color: colors.text, fontWeight: '600' },
+    hint: { ...typography.caption, color: colors.textMuted },
+
+    empty: {
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primarySoft,
+      marginBottom: spacing.xs,
+    },
+    emptyTitle: { ...typography.subheading, color: colors.text },
+    emptyText: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
+    emptyButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+    },
+    emptyButtonLabel: { ...typography.caption, color: colors.textOnPrimary, fontWeight: '600' },
+
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    tile: {
+      width: '31.5%',
+      aspectRatio: 3 / 4,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tileCover: { borderWidth: 2, borderColor: colors.primary },
+    photo: { width: '100%', height: '100%' },
+    photoPlaceholder: {
+      width: '100%',
+      height: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.inkSoft,
+    },
+    coverBadge: {
+      position: 'absolute',
+      top: 6,
+      left: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: radius.sm,
+      backgroundColor: colors.primary,
+    },
+    coverBadgeText: { ...typography.label, color: colors.textOnPrimary, fontSize: 10 },
+    remove: {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(13,24,26,0.7)',
+    },
+    toolbar: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+      backgroundColor: 'rgba(13,24,26,0.55)',
+    },
+    tool: { padding: 4 },
+    toolSpacer: { width: 22 },
+
+    add: { backgroundColor: colors.surface },
+    // Слой на всю плитку: на вебе Pressable не всегда растягивается по
+    // высоте, и центрирование внутри него съезжало
+    addInner: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+    },
+    addIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primarySoft,
+    },
+    addLabel: { ...typography.caption, color: colors.primary, fontWeight: '600' },
+  });

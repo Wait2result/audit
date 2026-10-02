@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "incremental": true,
+    // NestJS создаёт объекты через внедрение зависимостей, поэтому поля
+    // классов заполняются не в конструкторе. Без этой настройки TypeScript
+    // ругался бы на каждый такой класс.
+    "strictPropertyInitialization": false
+  },
+  "include": ["src/**/*", "prisma/**/*", "scripts/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

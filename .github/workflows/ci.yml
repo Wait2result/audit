@@ -1,0 +1,126 @@
+# Автоматическая проверка кода.
+#
+# Что это: робот, который при каждом изменении кода заново собирает проект,
+# прогоняет тесты и проверяет стиль. Если что-то сломалось — вы узнаёте сразу,
+# а не через неделю на боевом сервере.
+#
+# Запускается: при отправке кода в ветки main и develop и при каждом
+# предложении изменений (pull request).
+
+name: Проверка кода
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Если пришло новое изменение, пока проверяется предыдущее, — старую проверку
+# останавливаем. Незачем тратить время на заведомо устаревший код.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  quality:
+    name: Сборка, типы, линтер, тесты
+    runs-on: ubuntu-latest
+
+    # Настоящие база данных и Redis: тесты работают с ними, а не с заглушками.
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_USER: dagestan
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: dagestan_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dagestan -d dagestan_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Получить код
+        uses: actions/checkout@v4
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: Подготовить настройки для тестов
+        # Значения заведомо тестовые. Настоящие секреты в проверку кода
+        # не попадают никогда — они живут в защищённом хранилище.
+        run: |
+          cat > .env <<'ENVFILE'
+          NODE_ENV=test
+          API_PORT=3000
+          DATABASE_URL=postgresql://dagestan:test_password@localhost:5432/dagestan_test?schema=public
+          REDIS_URL=redis://localhost:6379
+          JWT_ACCESS_SECRET=ci_access_secret_that_is_long_enough_for_validation_x
+          JWT_REFRESH_SECRET=ci_refresh_secret_that_is_long_enough_for_validation
+          ENCRYPTION_KEY=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=
+          SMS_PROVIDER=console
+          ENVFILE
+
+      - name: Собрать общий пакет
+        run: npm run build --workspace @dagestan/shared
+
+      - name: Сгенерировать клиент базы данных
+        run: npm run db:generate --workspace @dagestan/api
+
+      - name: Применить миграции
+        run: npm run db:migrate:deploy --workspace @dagestan/api
+
+      - name: Проверить типы
+        run: npm run typecheck
+
+      - name: Проверить линтером
+        run: npm run lint
+
+      - name: Проверить оформление кода
+        run: npm run format:check
+
+      - name: Прогнать тесты
+        run: npm test
+
+      - name: Собрать проект
+        run: npm run build
+
+  security:
+    name: Проверка зависимостей на уязвимости
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Установить зависимости
+        run: npm ci
+
+      # Проверяем известные уязвимости в библиотеках, которые мы используем.
+      # Пункт 4 ТЗ: регулярное обновление зависимостей.
+      # Уровень high: предупреждения о мелочах не должны блокировать работу,
+      # но серьёзные проблемы обязаны останавливать выпуск.
+      - name: Аудит зависимостей
+        run: npm audit --audit-level=high

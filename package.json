@@ -1,0 +1,66 @@
+{
+  "name": "dagestan-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Мобильная платформа «Дагестан»: единый backend, API, мобильное приложение и веб-панели",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
+    "infra:logs": "docker compose -f infra/docker/docker-compose.dev.yml logs -f",
+    "infra:reset": "docker compose -f infra/docker/docker-compose.dev.yml down -v && npm run infra:up",
+    "build": "npm run build --workspace @dagestan/shared && npm run build --workspace @dagestan/api && npm run build --workspace @dagestan/web",
+    "dev:api": "npm run start:dev --workspace @dagestan/api",
+    "db:migrate": "npm run db:migrate --workspace @dagestan/api",
+    "db:seed": "npm run db:seed --workspace @dagestan/api",
+    "db:studio": "npm run db:studio --workspace @dagestan/api",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "lint:fix": "eslint . --fix",
+    "test:e2e": "npm run test:e2e --workspace @dagestan/api",
+    "dev:web": "npm run dev --workspace @dagestan/web",
+    "dev:reset-limits": "npm run dev:reset-limits --workspace @dagestan/api",
+    "dev:mobile": "node scripts/start-mobile.js",
+    "dev:mobile:tunnel": "node scripts/start-mobile.js --tunnel",
+    "check:mobile": "node scripts/check-mobile-bundle.js",
+    "dev:up": "node scripts/dev-supervisor.js",
+    "dev:status": "node scripts/dev-supervisor.js --status",
+    "dev:stop": "node scripts/dev-supervisor.js --stop",
+    "dev:autostart": "node scripts/install-autostart.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@fastify/static": "^10.1.2",
+    "@types/node": "^22.10.2",
+    "eslint": "^10.10.0",
+    "prettier": "^3.4.2",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.70.0",
+    "qrcode": "^1.5.4"
+  },
+  "allowScripts": {
+    "argon2@0.45.1": true,
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "@parcel/watcher@2.6.0": true,
+    "msgpackr-extract@3.0.4": true,
+    "unrs-resolver@1.12.2": true,
+    "@scarf/scarf": false,
+    "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3"
+  }
+}

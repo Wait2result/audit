@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+/*
+ * Оформление панели управления.
+ *
+ * Палитра отсылает к Дагестану без буквальности: глубокий сине-зелёный тон
+ * каспийской воды и тёплый охристый акцент горного камня. Никаких
+ * национальных орнаментов — панелью пользуются по восемь часов в день,
+ * и она должна быть спокойной, а не нарядной.
+ */
+
+@theme {
+  --color-ink-950: #0b1418;
+  --color-ink-900: #0f1c21;
+  --color-ink-800: #16282f;
+  --color-ink-700: #1e353e;
+  --color-ink-600: #2a4650;
+  --color-ink-500: #3d5f6b;
+  --color-ink-400: #6a8b96;
+  --color-ink-300: #9db4bc;
+  --color-ink-200: #c8d8dd;
+  --color-ink-100: #e6eef0;
+
+  --color-brand-600: #157a6e;
+  --color-brand-500: #1a9384;
+  --color-brand-400: #2bb39f;
+  --color-brand-300: #62cbba;
+
+  --color-accent-500: #c8873b;
+  --color-accent-400: #dda15e;
+
+  --color-danger-500: #c4453b;
+  --color-danger-400: #e06a5f;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Видимая рамка при переходе с клавиатуры — без неё панель непригодна
+   для тех, кто не пользуется мышью. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+}
+
+/* Скроллбар в тон интерфейсу */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-ink-900);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-600);
+}
