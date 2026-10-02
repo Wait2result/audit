@@ -23,18 +23,25 @@ const CONDITION_KEYS = new Set(['condition']);
 const SELLER_KEYS = new Set(['sellerType']);
 
 /** Сколько основных полей показывать открытыми, даже если все они «из карточки» */
-const MAIN_LIMIT = 6;
+const MAIN_LIMIT = 8;
 
 export function groupFilterFields<T extends Pick<AttributeDefinition, 'key' | 'showInCard'>>(
   fields: readonly T[],
+  /**
+   * Ключи, которые категория считает главными для сравнения (CARD_FACTS): у
+   * автомобиля это ещё и топливо с приводом, хотя в строку карточки они
+   * попадают не всегда
+   */
+  priorityKeys: ReadonlySet<string> = new Set(),
 ): FilterFieldGroups<T> {
   const groups: FilterFieldGroups<T> = { main: [], condition: [], seller: [], extra: [] };
 
   for (const field of fields) {
     if (CONDITION_KEYS.has(field.key)) groups.condition.push(field);
     else if (SELLER_KEYS.has(field.key)) groups.seller.push(field);
-    else if (field.showInCard && groups.main.length < MAIN_LIMIT) groups.main.push(field);
-    else groups.extra.push(field);
+    else if ((field.showInCard || priorityKeys.has(field.key)) && groups.main.length < MAIN_LIMIT) {
+      groups.main.push(field);
+    } else groups.extra.push(field);
   }
 
   // Совсем без отмеченных полей экран остался бы пустым до «Ещё параметры»:

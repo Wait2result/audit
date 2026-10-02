@@ -1,9 +1,11 @@
 import {
+  LISTING_SORT_LABELS,
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
   allowedPriceUnits,
   operationLabels,
   rentPeriodChoices,
+  cardFactKeys,
   groupFilterFields,
   isAttributeVisible,
   plural,
@@ -64,11 +66,38 @@ export default function ListingFiltersScreen() {
   const area = useListingArea();
 
   const categories = useListingCategories();
+  const roots = useMemo(() => categories.data ?? [], [categories.data]);
   // Фильтры хранятся по категории: у автомобилей свои, у телефонов свои
   const scope = params.category ?? '';
   const saved = useListingFilterStore((s) => s.byScope[scope] ?? EMPTY_FILTERS);
   const apply = useListingFilterStore((s) => s.set);
   const resetStore = useListingFilterStore((s) => s.reset);
+
+  // Категория выбирается здесь же: раздел, затем подкатегория. Открыли с
+  // подкатегорией — выбраны обе; с разделом — только он; без категории —
+  // общие фильтры, и ничего лишнего на экране нет
+  const [categorySlug, setCategorySlug] = useState<string | undefined>(params.category);
+  const currentRoot = useMemo(
+    () =>
+      roots.find(
+        (root) =>
+          root.slug === categorySlug || root.children.some((child) => child.slug === categorySlug),
+      ) ?? null,
+    [roots, categorySlug],
+  );
+  // Ярлыки («Посуточная аренда») — готовые фильтры, а не категории: в выборе их нет
+  const subOptions = useMemo(
+    () =>
+      (currentRoot?.children ?? [])
+        .filter((child) => !child.shortcut)
+        .map((child) => ({ value: child.slug, label: child.name })),
+    [currentRoot],
+  );
+  const rootOptions = useMemo(
+    () => roots.map((root) => ({ value: root.slug, label: root.name })),
+    [roots],
+  );
+  const currentSub = subOptions.find((option) => option.value === categorySlug)?.value;
 
   const [priceFrom, setPriceFrom] = useState(saved.priceFrom ? String(saved.priceFrom) : '');
   const [priceTo, setPriceTo] = useState(saved.priceTo ? String(saved.priceTo) : '');
@@ -77,34 +106,30 @@ export default function ListingFiltersScreen() {
   const [rentPeriod, setRentPeriod] = useState(saved.rentPeriod);
   const [onlyWithPhoto, setOnlyWithPhoto] = useState(Boolean(saved.onlyWithPhoto));
   const [attributes, setAttributes] = useState<Record<string, unknown>>(saved.attributes ?? {});
+  const [sort, setSort] = useState<ListingFilters['sort']>(saved.sort);
   const [showExtra, setShowExtra] = useState(false);
 
-  const fields = useMemo(
-    () => filterFields(categories.data ?? [], params.category),
-    [categories.data, params.category],
-  );
+  const fields = useMemo(() => filterFields(roots, categorySlug), [roots, categorySlug]);
   // Видимые поля раскладываем по блокам: главное сразу, остальное по кнопке
   const groups = useMemo(
-    () => groupFilterFields(fields.filter((field) => isAttributeVisible(field, attributes))),
-    [fields, attributes],
+    () =>
+      groupFilterFields(
+        fields.filter((field) => isAttributeVisible(field, attributes)),
+        new Set(categorySlug ? cardFactKeys(categorySlug) : []),
+      ),
+    [fields, attributes, categorySlug],
   );
   // Сделки, которые бывают в выбранной категории (или во всех её подкатегориях)
-  const transactions = useMemo(
-    () => transactionsOf(categories.data ?? [], params.category),
-    [categories.data, params.category],
-  );
+  const transactions = useMemo(() => transactionsOf(roots, categorySlug), [roots, categorySlug]);
   // Срок аренды выбирается отдельно только там, где аренда — «посуточно или
   // надолго» (жильё). У техники и инструмента срок — единица цены (ниже)
-  const periodChoices = useMemo(
-    () => periodChoicesOf(categories.data ?? [], params.category),
-    [categories.data, params.category],
-  );
+  const periodChoices = useMemo(() => periodChoicesOf(roots, categorySlug), [roots, categorySlug]);
   // Единицы цены, между которыми есть выбор при этой сделке. У аренды
   // машины — только «в сутки», выбирать нечего; у услуг бывает «за всё» и
   // «за час», и цена «до 2 000» без единицы ничего не значит
   const priceUnits = useMemo(
-    () => priceUnitsOf(categories.data ?? [], params.category, transactionType, rentPeriod),
-    [categories.data, params.category, transactionType, rentPeriod],
+    () => priceUnitsOf(roots, categorySlug, transactionType, rentPeriod),
+    [roots, categorySlug, transactionType, rentPeriod],
   );
   // Без выбора: сутки — самая обычная единица аренды, а не первая в списке
   const activeUnit =
@@ -113,6 +138,30 @@ export default function ListingFiltersScreen() {
       : transactionType === 'rent' && priceUnits.includes('per_day')
         ? 'per_day'
         : priceUnits[0];
+
+  /**
+   * Сменить категорию. Цена, фото и порядок остаются — они общие. Из
+   * характеристик, операции и срока остаётся то, что есть и у новой
+   * категории («год» у автомобилей и у мотоциклов), остальное снимается:
+   * «комнат: 2» не должно молча уйти с человеком в автомобили.
+   */
+  const changeCategory = (next: string | undefined) => {
+    if (next === categorySlug) return;
+    const nextKeys = new Set(filterFields(roots, next).map((field) => field.key));
+    const nextTransactions = transactionsOf(roots, next);
+    const nextPeriods = periodChoicesOf(roots, next);
+
+    setCategorySlug(next);
+    setAttributes((current) =>
+      Object.fromEntries(Object.entries(current).filter(([key]) => nextKeys.has(key))),
+    );
+    setTransactionType((current) =>
+      current && nextTransactions.includes(current) ? current : undefined,
+    );
+    setRentPeriod((current) => (current && nextPeriods.includes(current) ? current : undefined));
+    setPriceUnit(undefined);
+    setShowExtra(false);
+  };
 
   const setAttribute = (key: string, value: unknown) => {
     setAttributes((current) => {
@@ -129,7 +178,7 @@ export default function ListingFiltersScreen() {
 
   // То, что человек выбрал на экране сейчас, ещё не сохранённое: по нему же
   // считается число на кнопке и оно же сохраняется по нажатию
-  const draft = useMemo<ExtraListingFilters>(
+  const filterDraft = useMemo<ExtraListingFilters>(
     () => ({
       ...(priceFrom ? { priceFrom: Number(priceFrom) } : {}),
       ...(priceTo ? { priceTo: Number(priceTo) } : {}),
@@ -155,16 +204,26 @@ export default function ListingFiltersScreen() {
     ],
   );
 
+  // К условиям добавляется порядок выдачи — он только сохраняется, на счёт не влияет
+  const draft = useMemo<ExtraListingFilters>(
+    () => ({ ...filterDraft, ...(sort && sort !== 'recommended' ? { sort } : {}) }),
+    [filterDraft, sort],
+  );
+
   // Счёт: те же условия, что у выдачи (категория, текст, место) плюс черновик.
   // Задержка — чтобы не считать на каждую набранную цифру цены
   const countFilters = useMemo<ListingFilters>(
     () => ({
-      ...(params.category ? { category: params.category } : {}),
+      ...(categorySlug ? { category: categorySlug } : {}),
       ...(params.q && params.q.length >= 2 ? { search: params.q } : {}),
       ...area.filters,
-      ...draft,
+      ...filterDraft,
+      // Сортировка по цене сравнивает цену в одной единице и сужает выдачу —
+      // число на кнопке должно совпасть с тем, что человек увидит. Остальные
+      // порядки состав выдачи не меняют
+      ...(sort === 'price_asc' || sort === 'price_desc' ? { sort } : {}),
     }),
-    [params.category, params.q, area.filters, draft],
+    [categorySlug, params.q, area.filters, filterDraft, sort],
   );
   const debouncedFilters = useDebouncedValue(countFilters, 400);
   const count = useListingCount(cityId, debouncedFilters, area.ready);
@@ -183,7 +242,18 @@ export default function ListingFiltersScreen() {
   };
 
   const save = () => {
-    apply(scope, draft);
+    apply(categorySlug ?? '', draft);
+    // Категорию сменили здесь — человек ждёт её выдачу, а не ту, откуда пришёл
+    if (categorySlug !== params.category) {
+      router.replace({
+        pathname: '/listings/list',
+        params: {
+          ...(categorySlug ? { slug: categorySlug } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      });
+      return;
+    }
     leave();
   };
 
@@ -195,7 +265,8 @@ export default function ListingFiltersScreen() {
     setRentPeriod(undefined);
     setOnlyWithPhoto(false);
     setAttributes({});
-    resetStore(scope);
+    setSort(undefined);
+    resetStore(categorySlug ?? '');
   };
 
   const hasAny = Object.keys(draft).length > 0;
@@ -227,6 +298,31 @@ export default function ListingFiltersScreen() {
     <Screen scroll footer={footer}>
       <FormHeader title="Фильтры" description="Уточните, что именно ищете" onBack={leave} />
 
+      {/* Категория выбирается здесь же: от неё зависит весь набор ниже. Раздел
+          показывает общие для его подкатегорий фильтры, подкатегория — свои */}
+      <FilterSection title="Категория">
+        <SearchableSelect
+          label="Раздел"
+          value={currentRoot?.slug}
+          options={rootOptions}
+          onChange={(next) => changeCategory(next)}
+          placeholder="Все разделы"
+          clearLabel="Все разделы"
+          search={false}
+        />
+        {currentRoot && subOptions.length > 0 && (
+          <SearchableSelect
+            label="Подкатегория"
+            value={currentSub}
+            options={subOptions}
+            onChange={(next) => changeCategory(next ?? currentRoot.slug)}
+            placeholder="Весь раздел"
+            clearLabel="Весь раздел"
+            search={subOptions.length > 12}
+          />
+        )}
+      </FilterSection>
+
       {transactions.length > 1 && (
         <FilterSection title="Операция">
           <View style={styles.chips}>
@@ -234,7 +330,7 @@ export default function ListingFiltersScreen() {
               <FilterChip
                 key={value}
                 // «Снять» у жилья, «Арендовать» у техники и транспорта
-                label={operationLabels(params.category, value).search}
+                label={operationLabels(categorySlug, value).search}
                 active={transactionType === value}
                 onPress={() =>
                   setTransactionType((current) => (current === value ? undefined : value))
@@ -352,6 +448,13 @@ export default function ListingFiltersScreen() {
       </FilterSection>
 
       <FilterSection title="Дополнительно">
+        <SearchableSelect
+          label="Сортировка"
+          value={sort ?? 'recommended'}
+          options={Object.entries(LISTING_SORT_LABELS).map(([value, label]) => ({ value, label }))}
+          onChange={(next) => setSort(next as ListingFilters['sort'])}
+          search={false}
+        />
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Только с фотографией</Text>
           <Switch

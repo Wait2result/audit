@@ -3,6 +3,7 @@ import {
   DAGESTAN_BOUNDS,
   boundsAround,
   cardEmphasis,
+  cardFactKeys,
   cardFacts,
   cardFactSpecs,
   bindingsOf,
@@ -97,9 +98,9 @@ describe('groupFilterFields', () => {
   });
 
   it('ограничивает основные поля и переносит остальное в дополнительные', () => {
-    const many = Array.from({ length: 9 }, (_, i) => f(`k${i}`, true));
+    const many = Array.from({ length: 11 }, (_, i) => f(`k${i}`, true));
     const groups = groupFilterFields(many);
-    expect(groups.main).toHaveLength(6);
+    expect(groups.main).toHaveLength(8);
     expect(groups.extra).toHaveLength(3);
   });
 
@@ -325,5 +326,29 @@ describe('describeCardFacts: приоритеты категорий', () => {
         for (const key of keys) expect(allKeys.has(key), `${slug}: ${key}`).toBe(true);
       }
     }
+  });
+});
+
+describe('фильтры: приоритеты категории поднимают поля в основные', () => {
+  const f = (key: string, showInCard = false) => ({ key, showInCard });
+
+  it('топливо и привод автомобиля — основные, хотя в карточку не входят', () => {
+    const keys = new Set(cardFactKeys('transport-cars'));
+    expect(keys.has('fuel')).toBe(true);
+    expect(keys.has('drive')).toBe(true);
+
+    const groups = groupFilterFields([f('year', true), f('fuel'), f('drive'), f('vin')], keys);
+    expect(groups.main.map((field) => field.key)).toEqual(['year', 'fuel', 'drive']);
+    expect(groups.extra.map((field) => field.key)).toEqual(['vin']);
+  });
+
+  it('без приоритетов — как раньше: основные только из карточки', () => {
+    const groups = groupFilterFields([f('year', true), f('fuel')]);
+    expect(groups.main.map((field) => field.key)).toEqual(['year']);
+  });
+
+  it('ключи составных характеристик раскрываются по одному', () => {
+    expect(cardFactKeys('transport-cars')).toEqual(expect.arrayContaining(['brand', 'model']));
+    expect(cardFactKeys('no-such-category')).toEqual([]);
   });
 });

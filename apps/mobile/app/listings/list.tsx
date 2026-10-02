@@ -57,7 +57,6 @@ export default function ListingsListScreen() {
   const { slug, q } = useLocalSearchParams<{ slug?: string; q?: string }>();
   const { toggleListing } = useFavoriteActions();
 
-  const [sort, setSort] = useState<ListingSort>(ListingSort.RECOMMENDED);
   const [sortOpen, setSortOpen] = useState(false);
   // «Список» или «Карта»: те же условия, другой способ смотреть
   const [mode, setMode] = useState<'list' | 'map'>('list');
@@ -73,6 +72,9 @@ export default function ListingsListScreen() {
   const setScoped = useListingFilterStore((s) => s.set);
   const resetScoped = useListingFilterStore((s) => s.reset);
   const setFilters = (next: ExtraListingFilters) => setScoped(scope, next);
+  // Порядок выдачи живёт в тех же фильтрах: его выбирают и здесь, и на экране фильтров
+  const sort: ListingSort = extraFilters.sort ?? ListingSort.RECOMMENDED;
+  const setSort = (next: ListingSort) => setFilters({ ...extraFilters, sort: next });
   const resetFilters = () => resetScoped(scope);
 
   const [search, setSearch] = useState(q ?? '');

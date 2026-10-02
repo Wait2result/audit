@@ -208,6 +208,19 @@ export function cardFactSpecs(categorySlug: string): readonly CardFactSpec[] | n
   return CARD_FACTS[categorySlug] ?? CARD_FACTS[section] ?? null;
 }
 
+/** Все ключи приоритетов категории одним списком — для экрана фильтров. */
+export function cardFactKeys(categorySlug: string): string[] {
+  const specs = cardFactSpecs(categorySlug);
+  if (!specs) return [];
+  return specs.flatMap((spec) =>
+    typeof spec === 'string'
+      ? [spec]
+      : Array.isArray(spec)
+        ? (spec as readonly string[])
+        : (spec as { keys: readonly string[] }).keys,
+  );
+}
+
 /**
  * Строка характеристик для карточки: до `limit` значений в порядке
  * приоритета категории, через « · ». Возвращает null, если для категории

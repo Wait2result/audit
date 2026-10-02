@@ -25,6 +25,13 @@ interface SearchableSelectProps {
    * Для модели — да: марка есть, а нужной комплектации в списке нет.
    */
   allowCustom?: boolean;
+  /**
+   * Верхний пункт «снять выбор» («Все разделы»): значение становится пустым.
+   * Без него выбранное можно только заменить другим.
+   */
+  clearLabel?: string;
+  /** Строка поиска в окне выбора. Для короткого списка (десять разделов) лишняя */
+  search?: boolean;
 }
 
 /**
@@ -41,6 +48,8 @@ export function SearchableSelect({
   placeholder = 'Не выбрано',
   error,
   allowCustom = false,
+  clearLabel,
+  search = true,
 }: SearchableSelectProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -118,32 +127,46 @@ export function SearchableSelect({
             </Pressable>
           </View>
 
-          <View style={styles.searchBox}>
-            <Icon name="search" size={18} color={colors.textFaint} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Поиск"
-              placeholderTextColor={colors.textFaint}
-              style={styles.searchInput}
-              autoFocus
-            />
-          </View>
+          {search && (
+            <View style={styles.searchBox}>
+              <Icon name="search" size={18} color={colors.textFaint} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Поиск"
+                placeholderTextColor={colors.textFaint}
+                style={styles.searchInput}
+                autoFocus
+              />
+            </View>
+          )}
 
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.value}
             keyboardShouldPersistTaps="handled"
             ListHeaderComponent={
-              showCustomOption ? (
-                <Pressable
-                  onPress={() => select(trimmedQuery)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [styles.option, pressed && styles.pressed]}
-                >
-                  <Text style={styles.optionText}>Использовать «{trimmedQuery}»</Text>
-                </Pressable>
-              ) : null
+              <>
+                {clearLabel && trimmedQuery.length === 0 && (
+                  <Pressable
+                    onPress={() => select(undefined)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.optionText}>{clearLabel}</Text>
+                    {value === undefined && <Icon name="check" size={18} color={colors.primary} />}
+                  </Pressable>
+                )}
+                {showCustomOption && (
+                  <Pressable
+                    onPress={() => select(trimmedQuery)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.optionText}>Использовать «{trimmedQuery}»</Text>
+                  </Pressable>
+                )}
+              </>
             }
             renderItem={({ item }) => (
               <Pressable
