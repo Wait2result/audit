@@ -1,7 +1,6 @@
 import {
   DAGESTAN_DEFAULT_CENTER,
   LISTING_PRICE_UNIT_SUFFIX,
-  defaultPriceUnit,
   isAttributeVisible,
   ruMobileDigits,
   ruMobileError,
@@ -33,6 +32,8 @@ import { Icon } from '../../../src/components/Icon';
 import {
   AttributeField,
   DealPicker,
+  needsDealChoice,
+  resolveUnit,
   Field,
   createStyles as createFieldStyles,
   dealComplete,
@@ -95,7 +96,11 @@ export default function EditListingScreen() {
   // Десять цифр после +7
   const [phone, setPhone] = useState('');
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [deal, setDeal] = useState<DealValue>({ transactionType: null, rentPeriod: null });
+  const [deal, setDeal] = useState<DealValue>({
+    transactionType: null,
+    rentPeriod: null,
+    priceUnit: null,
+  });
   // Ошибки показываются после попытки сохранить — правка открывается уже
   // заполненной, и подсвечивать поля до первого же нажатия незачем
   const [showErrors, setShowErrors] = useState(false);
@@ -116,7 +121,11 @@ export default function EditListingScreen() {
     setVisibility(listing.addressVisibility);
     setPhone(listing.contactPhone.startsWith('+79') ? ruMobileDigits(listing.contactPhone) : '');
     setValues(listing.attributes);
-    setDeal({ transactionType: listing.transactionType, rentPeriod: listing.rentPeriod });
+    setDeal({
+      transactionType: listing.transactionType,
+      rentPeriod: listing.rentPeriod,
+      priceUnit: listing.price.unit,
+    });
     replacePhotos(listing.photos);
     setHydrated(true);
   }, [listing, hydrated, replacePhotos]);
@@ -128,13 +137,7 @@ export default function EditListingScreen() {
   const category = findCategoryBySlug(categories.data ?? [], listing?.categorySlug);
 
   // Единица цены определяется сделкой, как и при подаче
-  const priceUnit = category
-    ? defaultPriceUnit(
-        { allowedPriceUnits: category.priceUnits, defaultPriceUnit: category.defaultPriceUnit },
-        deal.transactionType,
-        deal.rentPeriod,
-      )
-    : (listing?.price.unit ?? 'total');
+  const priceUnit = category ? resolveUnit(category, deal) : (listing?.price.unit ?? 'total');
   const priceless = deal.transactionType === 'free' || deal.transactionType === 'mating';
 
   const canSave =
@@ -251,7 +254,7 @@ export default function EditListingScreen() {
           error={showErrors ? minLengthError(description, 10) : undefined}
         />
 
-        {category && category.transactions.length > 0 && (
+        {category && needsDealChoice(category) && (
           <DealPicker category={category} value={deal} onChange={setDeal} />
         )}
 

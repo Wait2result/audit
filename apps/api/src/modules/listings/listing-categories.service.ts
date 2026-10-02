@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ANY_DICTIONARY_PARENT,
   ErrorCode,
   ListingPriceUnit,
   mergeAttributeLists,
@@ -161,6 +162,7 @@ export class ListingCatalogue {
   readonly lookup: DictionaryLookup = (kind, value, parent) => {
     const entries = this.dictionaries.get(kind);
     if (!entries) return true;
+    if (parent === ANY_DICTIONARY_PARENT) return entries.some((entry) => entry.value === value);
     return entries.some((entry) => entry.value === value && entry.parentValue === (parent ?? ''));
   };
 

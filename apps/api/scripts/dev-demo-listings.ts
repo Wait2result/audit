@@ -41,7 +41,7 @@ interface DemoListing {
   description: string;
   /** Цена в рублях — в копейки переводит скрипт */
   priceRub: number;
-  priceUnit?: 'total' | 'per_month' | 'per_day' | 'per_hour';
+  priceUnit?: 'total' | 'per_month' | 'per_week' | 'per_day' | 'per_hour';
   transactionType?: 'sale' | 'rent' | 'free' | 'mating';
   rentPeriod?: 'daily' | 'monthly';
   columns?: Record<string, number | string>;

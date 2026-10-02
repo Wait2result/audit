@@ -14,6 +14,8 @@ import {
   defaultPriceUnit,
   expiresAtFor,
   hoursUntilBump,
+  rentPeriodChoices,
+  rentPeriodOfUnit,
   transactionCardLabel,
   validatePrice,
   type ArchiveListingDto,
@@ -611,12 +613,15 @@ export class ListingsLifecycleService {
       );
     }
 
+    const rules = catalogue.priceRules(category);
+
     let rentPeriod: ListingRentPeriod | null = null;
     if (transactionType === 'rent') {
       rentPeriod = category.defaultRentPeriod ?? input.rentPeriod ?? null;
-      const units = category.allowedPriceUnits;
-      const needsPeriod = units.includes('per_day') && units.includes('per_month');
-      if (strict && needsPeriod && !rentPeriod) {
+      // Срок — отдельный выбор только там, где аренда ровно «посуточно или
+      // надолго» (жильё). Там, где ещё есть час и неделя, срок — это сама
+      // единица цены, и второго выбора нет
+      if (strict && rentPeriodChoices(rules).length > 1 && !rentPeriod) {
         throw AppException.badRequest(
           'Укажите срок аренды: посуточно или надолго',
           ErrorCode.VALIDATION_FAILED,
@@ -624,7 +629,8 @@ export class ListingsLifecycleService {
       }
     }
 
-    const rules = catalogue.priceRules(category);
+    // Срок, названный явно, не может противоречить единице: «посуточно» и
+    // цена «в неделю» вместе — ошибка, её находит validatePrice
     const priceUnit = input.priceUnit ?? defaultPriceUnit(rules, transactionType, rentPeriod);
     const error = validatePrice(rules, {
       transactionType,
@@ -633,6 +639,10 @@ export class ListingsLifecycleService {
       priceUnit,
     });
     if (error) throw AppException.badRequest(error, ErrorCode.VALIDATION_FAILED);
+
+    // Срок по единице: «в сутки» — посуточно, «в месяц» — надолго. Так
+    // «Снять посуточно» находит и квартиру, и автомобиль, сданный в сутки
+    if (transactionType === 'rent' && !rentPeriod) rentPeriod = rentPeriodOfUnit(priceUnit);
 
     return { transactionType, rentPeriod, priceUnit };
   }
@@ -664,7 +674,7 @@ export class ListingsLifecycleService {
     return prepareAttributes(attributes, parsed, catalogue.labelsFor(attributes, parsed), [
       category.name,
       parent?.name,
-      transactionCardLabel(deal.transactionType, deal.rentPeriod),
+      transactionCardLabel(deal.transactionType, deal.rentPeriod, category.slug),
       ...catalogue.aliasesFor(attributes, parsed),
     ]);
   }

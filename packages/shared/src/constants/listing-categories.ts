@@ -79,12 +79,20 @@ const REALTY_DEAL: Preset = {
   cardLayout: 'list',
 };
 
-const VEHICLE_DEAL: Preset = {
+/**
+ * Продажа и аренда «за время»: час, сутки, неделя, месяц. Транспорт, техника,
+ * инструмент, снаряжение — всё, что можно и продать, и сдать. Единицу
+ * выбирает продавец; фильтр и сортировка по цене сравнивают только одну
+ * единицу (price-config.ts).
+ */
+const RENTAL_DEAL: Preset = {
   transactions: ['sale', 'rent'],
   defaultTransaction: 'sale',
-  priceUnits: ['total', 'per_day'],
+  priceUnits: ['total', 'per_hour', 'per_day', 'per_week', 'per_month'],
   defaultPriceUnit: 'total',
 };
+
+const VEHICLE_DEAL = RENTAL_DEAL;
 
 const SALE_ONLY: Preset = {
   transactions: ['sale'],
@@ -613,7 +621,7 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         name: 'Мотоциклы',
         itemLabel: 'Мотоцикл',
         attributes: MOTO_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
       {
         slug: 'transport-trucks',
@@ -800,7 +808,7 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         name: 'Фото и видео',
         itemLabel: 'Техника',
         attributes: PHOTO_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
       {
         slug: 'electronics-console',
@@ -872,7 +880,7 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         name: 'Инструменты',
         itemLabel: 'Инструмент',
         attributes: TOOLS_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
       {
         slug: 'home-plumbing',
@@ -1192,14 +1200,14 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         name: 'Велосипеды и самокаты',
         itemLabel: 'Велосипед',
         attributes: BIKE_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
       {
         slug: 'hobby-outdoor',
         name: 'Туристическое снаряжение',
         itemLabel: 'Снаряжение',
         attributes: BRANDED_GOODS_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
     ],
   },
@@ -1212,7 +1220,7 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         name: 'Оборудование',
         itemLabel: 'Оборудование',
         attributes: EQUIPMENT_ATTRIBUTES,
-        ...SALE_ONLY,
+        ...RENTAL_DEAL,
       },
       {
         slug: 'business-retail',
@@ -1271,10 +1279,14 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         slug: 'business-rent',
         name: 'Аренда оборудования',
         itemLabel: 'Оборудование',
-        attributes: EQUIPMENT_ATTRIBUTES,
+        // Не отдельная категория, а ярлык в «Оборудовании» с готовой сделкой:
+        // иначе один и тот же станок заводится дважды, а поиск разбегается.
+        // Объявления, поданные сюда раньше, переносит миграция
+        // 20261002120000_listing_operations
+        shortcut: { category: 'business-equipment', transactionType: 'rent' },
         transactions: ['rent'],
         defaultTransaction: 'rent',
-        priceUnits: ['per_day', 'per_month', 'per_hour'],
+        priceUnits: ['per_hour', 'per_day', 'per_week', 'per_month'],
         defaultPriceUnit: 'per_day',
       },
     ],

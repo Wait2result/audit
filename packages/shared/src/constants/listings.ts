@@ -15,6 +15,8 @@ export const ListingPriceUnit = {
   TOTAL: 'total',
   PER_MONTH: 'per_month',
   PER_DAY: 'per_day',
+  /** В неделю: аренда техники, инструмента, снаряжения */
+  PER_WEEK: 'per_week',
   PER_HOUR: 'per_hour',
   /** За штуку, метр, тонну — стройматериалы, услуги «за единицу» */
   PER_UNIT: 'per_unit',
@@ -29,6 +31,7 @@ export const LISTING_PRICE_UNIT_SUFFIX: Record<ListingPriceUnit, string> = {
   total: '',
   per_month: '/мес',
   per_day: '/сут',
+  per_week: '/нед',
   per_hour: '/час',
   per_unit: '/шт',
 };

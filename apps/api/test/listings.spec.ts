@@ -76,7 +76,9 @@ function baseListing(extra: Record<string, unknown> = {}) {
 describe('Схема объявления', () => {
   it('умолчания есть только при создании', () => {
     const created = createListingSchema.parse(baseListing());
-    expect(created.priceUnit).toBe('total');
+    // Единицу цены по умолчанию подставляет категория (у вещи «целиком», у
+    // вакансии «в месяц»), а не схема: общее «целиком» не годилось бы вакансии
+    expect(created.priceUnit).toBeUndefined();
     expect(created.allowChat).toBe(true);
     expect(created.allowCalls).toBe(true);
     expect(created.photoIds).toEqual([]);
@@ -227,13 +229,22 @@ describe('Сделка и цена', () => {
   });
 
   it('аренда автомобиля — за время, не целиком', () => {
-    expect(allowedPriceUnits(rulesOf('transport-cars'), 'rent', null)).toEqual(['per_day']);
+    // час, сутки, неделя, месяц — но не «целиком»
+    expect(allowedPriceUnits(rulesOf('transport-cars'), 'rent', null)).toEqual([
+      'per_hour',
+      'per_day',
+      'per_week',
+      'per_month',
+    ]);
   });
 
   it('подпись сделки в карточке', () => {
-    expect(transactionCardLabel('sale', null)).toBe('Продам');
-    expect(transactionCardLabel('rent', 'daily')).toBe('Сдам посуточно');
-    expect(transactionCardLabel('rent', 'monthly')).toBe('Сдам надолго');
+    // Жильё: срок входит в подпись; у техники и транспорта — «в аренду»
+    expect(transactionCardLabel('sale', null, 'realty-flats')).toBe('Продам');
+    expect(transactionCardLabel('rent', 'daily', 'realty-flats')).toBe('Сдам посуточно');
+    expect(transactionCardLabel('rent', 'monthly', 'realty-flats')).toBe('Сдам надолго');
+    expect(transactionCardLabel('rent', 'daily', 'transport-cars')).toBe('Сдам в аренду');
+    expect(transactionCardLabel('rent', null)).toBe('Сдам в аренду');
     expect(transactionCardLabel(null, null)).toBeNull();
   });
 });

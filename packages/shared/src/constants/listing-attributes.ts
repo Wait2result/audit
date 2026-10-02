@@ -26,8 +26,14 @@
 export type ListingAttributeType =
   'string' | 'number' | 'boolean' | 'enum' | 'multiEnum' | 'date' | 'brand' | 'model';
 
-/** Как поле выглядит в фильтрах. `none` — поле есть только в карточке. */
-export type ListingAttributeFilter = 'range' | 'select' | 'multiselect' | 'toggle' | 'none';
+/**
+ * Как поле выглядит в фильтрах. `none` — поле есть только в карточке.
+ * Виды разведены по смыслу поля: `select`/`multiselect`/`toggle` — точное
+ * значение из набора, `range` — числовой диапазон, `text` — слово или его
+ * часть («камр», «ryzen») без точного совпадения.
+ */
+export type ListingAttributeFilter =
+  'range' | 'select' | 'multiselect' | 'toggle' | 'text' | 'none';
 
 /** Колонки таблицы, в которые раскладываются самые частые диапазоны. */
 export type ListingAttributeColumn =
@@ -126,7 +132,7 @@ function defaultFilter(type: ListingAttributeType): ListingAttributeFilter {
     case 'multiEnum':
       return 'multiselect';
     case 'string':
-      return 'none';
+      return 'text';
     default:
       return 'select';
   }
@@ -556,7 +562,14 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
   def({ key: 'customs', label: 'Растаможен', type: 'boolean' }),
   def({ key: 'damaged', label: 'Битый или не на ходу', type: 'boolean' }),
   /** VIN — только для показа в карточке, в поиск и фильтры не идёт */
-  def({ key: 'vin', label: 'VIN', type: 'string', searchable: false, showInDetails: true }),
+  def({
+    key: 'vin',
+    label: 'VIN',
+    type: 'string',
+    searchable: false,
+    filter: 'none',
+    showInDetails: true,
+  }),
   def({
     key: 'motoType',
     label: 'Тип',

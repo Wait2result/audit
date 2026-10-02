@@ -34,20 +34,67 @@ export type ListingRentPeriod = (typeof ListingRentPeriod)[keyof typeof ListingR
 
 export const LISTING_RENT_PERIODS = Object.values(ListingRentPeriod) as ListingRentPeriod[];
 
-/** Что продавец выбирает при подаче. */
-export const TRANSACTION_CREATE_LABELS: Record<ListingTransactionType, string> = {
-  sale: 'Продам',
-  rent: 'Сдам',
-  free: 'Отдам бесплатно',
-  mating: 'Вязка',
+/**
+ * Подписи операции: что продавец выбирает при подаче и что покупатель — при
+ * поиске. Значение под ними одно, а слова зависят от категории: квартиру
+ * «сдают» и «снимают», а автомобиль, инструмент или экскаватор — «сдают в
+ * аренду» и «арендуют». Куплю и сниму — не операции объявления вовсе.
+ */
+export interface OperationLabels {
+  /** Форма подачи: «Продам», «Сдам», «Сдам в аренду» */
+  create: string;
+  /** Экран поиска: «Купить», «Снять», «Арендовать» */
+  search: string;
+  /** К подписи в карточке добавляется срок: «Сдам посуточно», «Сдам надолго» */
+  withPeriod?: boolean;
+}
+
+/** Подписи по умолчанию — для категории, у которой своих нет. */
+const DEFAULT_OPERATION_LABELS: Record<ListingTransactionType, OperationLabels> = {
+  sale: { create: 'Продам', search: 'Купить' },
+  rent: { create: 'Сдам в аренду', search: 'Арендовать' },
+  free: { create: 'Отдам бесплатно', search: 'Бесплатно' },
+  mating: { create: 'Вязка', search: 'Вязка' },
 };
 
-/** Что покупатель выбирает при поиске — та же сделка с другой стороны. */
+/**
+ * Подписи, отличающиеся от умолчания. Ключ — код раздела («realty») или
+ * конкретной категории («realty-flats»); конкретная перекрывает раздел. Новая
+ * операция или своя формулировка категории — одна строка здесь, без правки экранов.
+ */
+export const CATEGORY_OPERATION_LABELS: Readonly<
+  Record<string, Partial<Record<ListingTransactionType, OperationLabels>>>
+> = {
+  realty: { rent: { create: 'Сдам', search: 'Снять', withPeriod: true } },
+};
+
+/** Подписи операции в категории; без категории — умолчание. */
+export function operationLabels(
+  categorySlug: string | null | undefined,
+  type: ListingTransactionType,
+): OperationLabels {
+  if (categorySlug) {
+    const section = categorySlug.split('-')[0] ?? '';
+    const own = CATEGORY_OPERATION_LABELS[categorySlug]?.[type];
+    const shared = CATEGORY_OPERATION_LABELS[section]?.[type];
+    if (own ?? shared) return (own ?? shared) as OperationLabels;
+  }
+  return DEFAULT_OPERATION_LABELS[type];
+}
+
+/** Умолчания подписей — там, где категория неизвестна. */
+export const TRANSACTION_CREATE_LABELS: Record<ListingTransactionType, string> = {
+  sale: DEFAULT_OPERATION_LABELS.sale.create,
+  rent: DEFAULT_OPERATION_LABELS.rent.create,
+  free: DEFAULT_OPERATION_LABELS.free.create,
+  mating: DEFAULT_OPERATION_LABELS.mating.create,
+};
+
 export const TRANSACTION_SEARCH_LABELS: Record<ListingTransactionType, string> = {
-  sale: 'Купить',
-  rent: 'Снять',
-  free: 'Бесплатно',
-  mating: 'Вязка',
+  sale: DEFAULT_OPERATION_LABELS.sale.search,
+  rent: DEFAULT_OPERATION_LABELS.rent.search,
+  free: DEFAULT_OPERATION_LABELS.free.search,
+  mating: DEFAULT_OPERATION_LABELS.mating.search,
 };
 
 export const RENT_PERIOD_LABELS: Record<ListingRentPeriod, string> = {
@@ -67,13 +114,21 @@ export const TRANSACTION_QUERY_ALIASES: Record<string, ListingTransactionType> =
   mating: 'mating',
 };
 
-/** Подпись в карточке: «Продам», «Сдам посуточно», «Сдам надолго». */
+/**
+ * Подпись в карточке: «Продам», «Сдам посуточно», «Сдам надолго», «Сдам в
+ * аренду». Срок добавляется там, где он — выбор человека (жильё), а не часть
+ * единицы цены.
+ */
 export function transactionCardLabel(
   type: ListingTransactionType | null | undefined,
   period: ListingRentPeriod | null | undefined,
+  categorySlug?: string | null,
 ): string | null {
   if (!type) return null;
-  if (type === 'rent' && period === 'daily') return 'Сдам посуточно';
-  if (type === 'rent' && period === 'monthly') return 'Сдам надолго';
-  return TRANSACTION_CREATE_LABELS[type];
+  const labels = operationLabels(categorySlug, type);
+  if (type === 'rent' && labels.withPeriod) {
+    if (period === 'daily') return `${labels.create} посуточно`;
+    if (period === 'monthly') return `${labels.create} надолго`;
+  }
+  return labels.create;
 }

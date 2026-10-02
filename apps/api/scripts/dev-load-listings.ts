@@ -16,6 +16,9 @@ import {
   LISTING_LIFETIME_DAYS,
   attributesSchemaFor,
   defaultPriceUnit,
+  allowedPriceUnits,
+  rentPeriodChoices,
+  rentPeriodOfUnit,
   transactionCardLabel,
   type AttributeValue,
   type ListingAttribute,
@@ -206,23 +209,30 @@ async function main(): Promise<void> {
 
       const transactionType: ListingTransactionType | null =
         category.allowedTransactions.length > 0 ? pick(category.allowedTransactions) : null;
-      const rentPeriod: ListingRentPeriod | null =
+      const rules = catalogue.priceRules(category);
+      // Срок выбирается отдельно только у жилья; у техники срок — сама единица
+      const periods = rentPeriodChoices(rules);
+      let rentPeriod: ListingRentPeriod | null =
         transactionType === 'rent'
-          ? (category.defaultRentPeriod ?? pick(['daily', 'monthly'] as const))
+          ? (category.defaultRentPeriod ?? (periods.length > 0 ? pick(periods) : null))
           : null;
-      const priceUnit = defaultPriceUnit(
-        catalogue.priceRules(category),
-        transactionType,
-        rentPeriod,
-      );
+      let priceUnit = defaultPriceUnit(rules, transactionType, rentPeriod);
+      if (transactionType === 'rent' && !rentPeriod) {
+        priceUnit = pick(allowedPriceUnits(rules, 'rent', null));
+        rentPeriod = rentPeriodOfUnit(priceUnit);
+      }
       const price =
         transactionType === 'free' || transactionType === 'mating'
           ? null
-          : priceUnit === 'per_day'
-            ? between(15, 80) * 100 * 100
-            : priceUnit === 'per_month'
-              ? between(150, 900) * 100 * 100
-              : between(5, 900) * 1000 * 100;
+          : priceUnit === 'per_hour'
+            ? between(3, 40) * 100 * 100
+            : priceUnit === 'per_day'
+              ? between(15, 80) * 100 * 100
+              : priceUnit === 'per_week'
+                ? between(80, 300) * 100 * 100
+                : priceUnit === 'per_month'
+                  ? between(150, 900) * 100 * 100
+                  : between(5, 900) * 1000 * 100;
 
       const districtPool = districts.filter((district) => district.cityId === city.id);
       const district = districtPool.length > 0 && random() < 0.5 ? pick(districtPool) : null;
@@ -238,7 +248,7 @@ async function main(): Promise<void> {
           category.name,
           city.name,
           district?.name,
-          transactionCardLabel(transactionType, rentPeriod),
+          transactionCardLabel(transactionType, rentPeriod, category.slug),
         ],
       );
 

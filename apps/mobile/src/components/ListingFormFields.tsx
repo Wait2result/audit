@@ -1,9 +1,14 @@
 import {
+  PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
-  TRANSACTION_CREATE_LABELS,
+  allowedPriceUnits,
+  defaultPriceUnit,
+  operationLabels,
   pluralize,
+  rentPeriodChoices,
   type ListingAttribute,
   type ListingCategoryDto,
+  type ListingPriceUnit,
   type ListingRentPeriod,
   type ListingTransactionType,
 } from '@dagestan/shared';
@@ -282,63 +287,100 @@ function DictionaryField({
 export interface DealValue {
   transactionType: ListingTransactionType | null;
   rentPeriod: ListingRentPeriod | null;
+  /** Единица цены, выбранная продавцом; пусто — по умолчанию для сделки */
+  priceUnit: ListingPriceUnit | null;
+}
+
+/** Поля категории, от которых зависит выбор сделки и единицы цены. */
+type DealCategory = Pick<
+  ListingCategoryDto,
+  | 'slug'
+  | 'transactions'
+  | 'defaultTransaction'
+  | 'priceUnits'
+  | 'defaultPriceUnit'
+  | 'defaultRentPeriod'
+>;
+
+const rulesOf = (category: DealCategory) => ({
+  allowedPriceUnits: category.priceUnits,
+  defaultPriceUnit: category.defaultPriceUnit,
+});
+
+/**
+ * Нужен ли категории блок «сделка и цена»: несколько операций («продам /
+ * сдам»), срок аренды или выбор единицы цены (час, сутки, штука).
+ */
+export function needsDealChoice(category: DealCategory): boolean {
+  if (category.transactions.length > 1) return true;
+  if (category.transactions.includes('rent') && needsRentPeriod(category)) return true;
+  return category.priceUnits.length > 1;
 }
 
 /**
- * Нужен ли категории отдельный выбор сделки: несколько вариантов («продам /
- * сдам») или аренда, у которой надо уточнить срок.
+ * Срок аренды выбирается отдельно только там, где аренда ровно «посуточно или
+ * надолго» (жильё). У техники и инструмента срок — сама единица цены.
  */
-export function needsDealChoice(
-  category: Pick<ListingCategoryDto, 'transactions' | 'priceUnits' | 'defaultRentPeriod'>,
-): boolean {
-  if (category.transactions.length > 1) return true;
-  return category.transactions.includes('rent') && needsRentPeriod(category);
+export function needsRentPeriod(category: DealCategory): boolean {
+  if (category.defaultRentPeriod) return false;
+  return rentPeriodChoices(rulesOf(category)).length > 1;
 }
 
-export function needsRentPeriod(
-  category: Pick<ListingCategoryDto, 'priceUnits' | 'defaultRentPeriod'>,
-): boolean {
-  if (category.defaultRentPeriod) return false;
-  return category.priceUnits.includes('per_day') && category.priceUnits.includes('per_month');
+/** Единицы цены, из которых продавец выбирает при такой сделке. */
+export function unitChoices(category: DealCategory, value: DealValue): ListingPriceUnit[] {
+  return allowedPriceUnits(rulesOf(category), value.transactionType, value.rentPeriod);
+}
+
+/** Единица цены с учётом выбора продавца: допустимая или по умолчанию. */
+export function resolveUnit(category: DealCategory, value: DealValue): ListingPriceUnit {
+  if (value.priceUnit && unitChoices(category, value).includes(value.priceUnit)) {
+    return value.priceUnit;
+  }
+  return defaultPriceUnit(rulesOf(category), value.transactionType, value.rentPeriod);
 }
 
 /** Сделка по умолчанию для категории: одна возможная или умолчание категории. */
-export function defaultDeal(
-  category: Pick<
-    ListingCategoryDto,
-    'transactions' | 'defaultTransaction' | 'defaultRentPeriod' | 'priceUnits'
-  >,
-): DealValue {
+export function defaultDeal(category: DealCategory): DealValue {
   const transactionType =
     category.transactions.length === 1
       ? (category.transactions[0] ?? null)
       : (category.defaultTransaction ?? null);
   const rentPeriod = transactionType === 'rent' ? (category.defaultRentPeriod ?? null) : null;
-  return { transactionType, rentPeriod };
+  return { transactionType, rentPeriod, priceUnit: null };
 }
 
 /**
- * Выбор сделки при подаче: «Продам / Сдам», для аренды — «Надолго / Посуточно».
- * Подписи — глазами продавца; покупатель на экране поиска видит «Купить /
- * Снять», но значение под ними одно.
+ * Выбор операции при подаче. Подписи зависят от категории: «Продам / Сдам»
+ * у жилья, «Продам / Сдам в аренду» у техники и транспорта, у остального —
+ * одно «Продам». Покупатель на экране поиска видит те же операции с другой
+ * стороны («Купить / Снять / Арендовать»), но значение под ними одно.
+ *
+ * Для аренды жилья — срок «Надолго / Посуточно»; для остального — единица
+ * цены («₽/час», «₽/сут», «₽/нед», «₽/мес»). Отдельного экрана ради этого нет.
  */
 export function DealPicker({
   category,
   value,
   onChange,
 }: {
-  category: Pick<ListingCategoryDto, 'transactions' | 'priceUnits' | 'defaultRentPeriod'>;
+  category: DealCategory;
   value: DealValue;
   onChange: (value: DealValue) => void;
 }) {
   const options = category.transactions.map((type) => ({
     value: type,
-    label: TRANSACTION_CREATE_LABELS[type],
+    label: operationLabels(category.slug, type).create,
   }));
   const periodOptions = (['monthly', 'daily'] as ListingRentPeriod[]).map((period) => ({
     value: period,
     label: RENT_PERIOD_LABELS[period],
   }));
+
+  const units = unitChoices(category, value);
+  // Срок и единица — одно и то же для жилья: второго выбора рядом не нужно
+  const showUnits =
+    units.length > 1 && !(value.transactionType === 'rent' && needsRentPeriod(category));
+  const unitOptions = units.map((unit) => ({ value: unit, label: PRICE_UNIT_LABELS[unit] }));
 
   return (
     <>
@@ -351,6 +393,8 @@ export function DealPicker({
               onChange({
                 transactionType: next as ListingTransactionType,
                 rentPeriod: next === 'rent' ? value.rentPeriod : null,
+                // Единицы у продажи и аренды разные: прежний выбор не переносится
+                priceUnit: null,
               })
             }
           />
@@ -362,7 +406,19 @@ export function DealPicker({
           <OptionChips
             options={periodOptions}
             selected={value.rentPeriod ? [value.rentPeriod] : []}
-            onToggle={(next) => onChange({ ...value, rentPeriod: next as ListingRentPeriod })}
+            onToggle={(next) =>
+              onChange({ ...value, rentPeriod: next as ListingRentPeriod, priceUnit: null })
+            }
+          />
+        </Field>
+      )}
+
+      {showUnits && (
+        <Field label="Цена за">
+          <OptionChips
+            options={unitOptions}
+            selected={[resolveUnit(category, value)]}
+            onToggle={(next) => onChange({ ...value, priceUnit: next as ListingPriceUnit })}
           />
         </Field>
       )}
@@ -371,10 +427,7 @@ export function DealPicker({
 }
 
 /** Выбор сделки сделан полностью: сама сделка и срок аренды, если он нужен. */
-export function dealComplete(
-  category: Pick<ListingCategoryDto, 'transactions' | 'priceUnits' | 'defaultRentPeriod'>,
-  value: DealValue,
-): boolean {
+export function dealComplete(category: DealCategory, value: DealValue): boolean {
   if (category.transactions.length === 0) return true;
   if (!value.transactionType) return false;
   if (value.transactionType === 'rent' && needsRentPeriod(category) && !value.rentPeriod) {

@@ -145,11 +145,31 @@ function columnSql(attribute: ListingAttribute, value: unknown): Prisma.Sql | nu
   return sql`${column} = ${String(value)}`;
 }
 
+/**
+ * Часть слова для поиска по тексту: без пробелов по краям, не длиннее
+ * разумного, со спецсимволами LIKE (`%`, `_`, `\`) в виде обычных букв — иначе
+ * человек, набравший «50%», получил бы «всё».
+ */
+export function textNeedle(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const text = String(value).trim().slice(0, 60);
+  if (text.length === 0) return null;
+  return text.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 /** Условие через таблицу значений: EXISTS строки с нужным ключом и значением. */
 function valueSql(attribute: ListingAttribute, value: unknown): Prisma.Sql | null {
   const numeric = attribute.type === 'number' || attribute.type === 'date';
   const exists = (condition: Prisma.Sql): Prisma.Sql =>
     sql`EXISTS (SELECT 1 FROM "listing_attribute_values" v WHERE v."listing_id" = l."id" AND v."key" = ${attribute.key} AND ${condition})`;
+
+  // Текстовое поле (производитель «своими словами», порода, процессор):
+  // человек пишет часть слова, и равенство не нашло бы «Camry» по «cam».
+  // Перечисления сюда не попадают — у них точное значение из набора
+  if (attribute.filter === 'text') {
+    const needle = textNeedle(value);
+    return needle ? exists(sql`v."text_value" ILIKE ${`%${needle}%`}`) : null;
+  }
 
   if (Array.isArray(value)) {
     const items = value.filter((item) => item !== null && item !== undefined && item !== '');
@@ -390,7 +410,8 @@ export function feedWhere(query: ListingListQuery, context: FeedContext): Prisma
   const priceFiltered = query.priceFrom !== undefined || query.priceTo !== undefined;
   // Цена сравнивается только внутри одной единицы: без этого «до 5 000»
   // ставит рядом квартиру за сутки и стул целиком
-  if ((priceSorted || priceFiltered) && context.priceUnit) {
+  // Явно выбранная единица — тоже условие: «₽/сут» показывает посуточное, а не всё
+  if ((priceSorted || priceFiltered || query.priceUnit !== undefined) && context.priceUnit) {
     parts.push(sql`l."price_unit" = ${context.priceUnit}::"ListingPriceUnit"`);
   }
   if (query.priceFrom !== undefined) parts.push(sql`l."price" >= ${query.priceFrom}`);

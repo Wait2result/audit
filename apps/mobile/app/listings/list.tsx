@@ -3,7 +3,7 @@ import {
   ListingSort,
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
-  TRANSACTION_SEARCH_LABELS,
+  operationLabels,
   attributeValueLabel,
   plural,
   resolveCardLayout,
@@ -110,7 +110,10 @@ export default function ListingsListScreen() {
   // Квартиры, вакансии и услуги читают, а не разглядывают — им нужен список
   const layout = resolveCardLayout(category);
 
-  const chips = useMemo(() => describeFilters(extraFilters, fields), [extraFilters, fields]);
+  const chips = useMemo(
+    () => describeFilters(extraFilters, fields, slug),
+    [extraFilters, fields, slug],
+  );
 
   const mapFilters = useMemo<ListingFilters>(
     () => ({
@@ -419,6 +422,7 @@ interface FilterChipInfo {
 function describeFilters(
   filters: ExtraListingFilters,
   fields: readonly ListingAttribute[],
+  categorySlug: string | undefined,
 ): FilterChipInfo[] {
   const chips: FilterChipInfo[] = [];
 
@@ -430,7 +434,8 @@ function describeFilters(
   if (filters.transactionType) {
     chips.push({
       key: 'transactionType',
-      label: TRANSACTION_SEARCH_LABELS[filters.transactionType],
+      // «Купить», «Снять» у жилья, «Арендовать» у техники — как на экране фильтров
+      label: operationLabels(categorySlug, filters.transactionType).search,
     });
   }
 
@@ -468,6 +473,8 @@ function valueLabel(field: ListingAttribute, value: unknown): string {
   }
 
   if (field.type === 'boolean') return field.label;
+  // Текстовый фильтр без названия поля не читается: «cam» — что это?
+  if (field.filter === 'text') return `${field.label}: ${String(value)}`;
   return attributeValueLabel(field, value);
 }
 

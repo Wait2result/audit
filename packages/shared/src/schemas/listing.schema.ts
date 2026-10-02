@@ -135,7 +135,9 @@ const priceRangeRefine = (
 export const createListingSchema = z
   .object(listingFields)
   .extend({
-    priceUnit: priceUnitSchema.default(ListingPriceUnit.TOTAL),
+    // Без единицы категория подставит свою: «целиком» у вещи, «в месяц» у
+    // вакансии. Единица по умолчанию «целиком» не годилась бы для вакансии
+    priceUnit: priceUnitSchema.optional(),
     isNegotiable: z.boolean().default(false),
     attributes: z.record(z.string(), z.unknown()).default({}),
     // Опубликованное объявление без точки не найдётся поиском по радиусу —
@@ -446,6 +448,13 @@ export type AttributeValue = string | number | boolean | string[];
  */
 export type DictionaryLookup = (kind: string, value: string, parent?: string) => boolean;
 
+/**
+ * Родитель «любой» в проверке справочника: есть ли такое значение хотя бы у
+ * какой-то марки. Нужен, чтобы отличить «модель чужой марки» (в справочнике
+ * есть, но не у этой марки) от «своей модели» (в справочнике нет совсем).
+ */
+export const ANY_DICTIONARY_PARENT = '*';
+
 function enumValues(attribute: ListingAttribute): [string, ...string[]] | null {
   const values = (attribute.options ?? []).map((option) => option.value);
   return values.length > 0 ? (values as [string, ...string[]]) : null;
@@ -564,6 +573,31 @@ export function attributesSchemaFor(
             code: 'custom',
             path: [attribute.key],
             message: `Нет в справочнике: ${attribute.label.toLowerCase()}`,
+          });
+          continue;
+        }
+      }
+
+      // Модель из справочника должна принадлежать выбранной марке: «Camry» у
+      // Chery — ошибка выбора, а не особенность. Модель, которой в справочнике
+      // нет вовсе, остаётся допустимой («своя» комплектация)
+      if (
+        attribute.type === 'model' &&
+        attribute.dictionary &&
+        lookup &&
+        typeof clean === 'string' &&
+        attribute.parentKey &&
+        typeof raw[attribute.parentKey] === 'string'
+      ) {
+        const parent = raw[attribute.parentKey] as string;
+        if (
+          !lookup(attribute.dictionary, clean, parent) &&
+          lookup(attribute.dictionary, clean, ANY_DICTIONARY_PARENT)
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [attribute.key],
+            message: 'Эта модель относится к другой марке',
           });
           continue;
         }

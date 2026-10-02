@@ -8,6 +8,7 @@ import {
   defaultPriceUnit,
   describeAttributes,
   distanceKm,
+  rentPeriodUnit,
   transactionCardLabel,
   type FavoriteListingAvailability,
   type FavoriteListingDto,
@@ -188,7 +189,14 @@ export class ListingsService {
     catalogue: ListingCatalogue,
   ): ListingPriceUnit {
     if (query.priceUnit) return query.priceUnit;
-    if (!category) return 'total';
+    if (!category) {
+      // Без категории единицу задаёт сделка и срок: «Снять посуточно» сравнивает
+      // «в сутки», а не «целиком» — иначе вся аренда выпала бы из выдачи по цене
+      if (query.transactionType === 'rent' && query.rentPeriod) {
+        return rentPeriodUnit(query.rentPeriod);
+      }
+      return 'total';
+    }
 
     const transaction = query.transactionType ?? category.defaultTransaction;
     const period = query.rentPeriod ?? category.defaultRentPeriod;
@@ -804,7 +812,7 @@ export class ListingsService {
     // в категории, где иначе и не бывает, — шум
     const transaction =
       category && category.allowedTransactions.length > 1
-        ? transactionCardLabel(row.transactionType, row.rentPeriod)
+        ? transactionCardLabel(row.transactionType, row.rentPeriod, category.slug)
         : null;
 
     return [transaction, summary].filter(Boolean).join(' · ');

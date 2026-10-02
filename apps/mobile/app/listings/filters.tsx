@@ -1,8 +1,9 @@
 import {
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
-  TRANSACTION_SEARCH_LABELS,
   allowedPriceUnits,
+  operationLabels,
+  rentPeriodChoices,
   groupFilterFields,
   isAttributeVisible,
   plural,
@@ -92,7 +93,12 @@ export default function ListingFiltersScreen() {
     () => transactionsOf(categories.data ?? [], params.category),
     [categories.data, params.category],
   );
-  const rentPeriods = transactions.includes('rent');
+  // Срок аренды выбирается отдельно только там, где аренда — «посуточно или
+  // надолго» (жильё). У техники и инструмента срок — единица цены (ниже)
+  const periodChoices = useMemo(
+    () => periodChoicesOf(categories.data ?? [], params.category),
+    [categories.data, params.category],
+  );
   // Единицы цены, между которыми есть выбор при этой сделке. У аренды
   // машины — только «в сутки», выбирать нечего; у услуг бывает «за всё» и
   // «за час», и цена «до 2 000» без единицы ничего не значит
@@ -100,7 +106,13 @@ export default function ListingFiltersScreen() {
     () => priceUnitsOf(categories.data ?? [], params.category, transactionType, rentPeriod),
     [categories.data, params.category, transactionType, rentPeriod],
   );
-  const activeUnit = priceUnit && priceUnits.includes(priceUnit) ? priceUnit : priceUnits[0];
+  // Без выбора: сутки — самая обычная единица аренды, а не первая в списке
+  const activeUnit =
+    priceUnit && priceUnits.includes(priceUnit)
+      ? priceUnit
+      : transactionType === 'rent' && priceUnits.includes('per_day')
+        ? 'per_day'
+        : priceUnits[0];
 
   const setAttribute = (key: string, value: unknown) => {
     setAttributes((current) => {
@@ -221,7 +233,8 @@ export default function ListingFiltersScreen() {
             {transactions.map((value) => (
               <FilterChip
                 key={value}
-                label={TRANSACTION_SEARCH_LABELS[value]}
+                // «Снять» у жилья, «Арендовать» у техники и транспорта
+                label={operationLabels(params.category, value).search}
                 active={transactionType === value}
                 onPress={() =>
                   setTransactionType((current) => (current === value ? undefined : value))
@@ -229,9 +242,9 @@ export default function ListingFiltersScreen() {
               />
             ))}
           </View>
-          {transactionType === 'rent' && rentPeriods && (
+          {transactionType === 'rent' && periodChoices.length > 0 && (
             <View style={styles.chips}>
-              {(['monthly', 'daily'] as ListingRentPeriod[]).map((value) => (
+              {periodChoices.map((value) => (
                 <FilterChip
                   key={value}
                   label={RENT_PERIOD_LABELS[value]}
@@ -441,6 +454,23 @@ function AttributeFilter({
           options={attribute.options ?? []}
           onChange={(next) => onChange(next)}
           placeholder="Любая"
+        />
+      </View>
+    );
+  }
+
+  // Текст («производитель», «порода», «процессор»): часть слова, а не точное
+  // совпадение — «cam» найдёт «Camry». Перечисления сюда не попадают
+  if (attribute.filter === 'text') {
+    return (
+      <View style={styles.block}>
+        <Text style={styles.blockTitle}>{attribute.label}</Text>
+        <TextField
+          value={typeof value === 'string' ? value : ''}
+          onChangeText={(text) => onChange(text.trim().length > 0 ? text : undefined)}
+          placeholder="Часть названия"
+          autoCapitalize="none"
+          accessibilityLabel={attribute.label}
         />
       </View>
     );
@@ -685,6 +715,36 @@ function priceUnitsOf(
   }
 
   return units.size > 0 ? [...units] : ['total'];
+}
+
+/**
+ * Сроки аренды, которые выбираются отдельно: у раздела — объединение по
+ * подкатегориям. Пусто, если аренда в категории идёт в единицах «час / сутки /
+ * неделя / месяц» — тогда срок и единица цены одно и то же.
+ */
+function periodChoicesOf(
+  roots: ListingCategoryDto[],
+  slug: string | undefined,
+): ListingRentPeriod[] {
+  if (!slug) return [];
+  const targets: ListingCategoryDto[] = [];
+  for (const root of roots) {
+    if (root.slug === slug) targets.push(...root.children);
+    const child = root.children.find((item) => item.slug === slug);
+    if (child) targets.push(child);
+  }
+
+  const periods = new Set<ListingRentPeriod>();
+  for (const category of targets) {
+    if (!category.transactions.includes('rent')) continue;
+    for (const period of rentPeriodChoices({
+      allowedPriceUnits: category.priceUnits,
+      defaultPriceUnit: category.defaultPriceUnit,
+    })) {
+      periods.add(period);
+    }
+  }
+  return (['monthly', 'daily'] as ListingRentPeriod[]).filter((period) => periods.has(period));
 }
 
 /** Сделки категории: у раздела — объединение по подкатегориям. */

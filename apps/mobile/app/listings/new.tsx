@@ -3,7 +3,6 @@ import {
   EXACT_ADDRESS_SECTIONS,
   LISTING_PRICE_UNIT_SUFFIX,
   classifyListingTitle,
-  defaultPriceUnit,
   describeAttributes,
   isAttributeVisible,
   ruMobileDigits,
@@ -40,6 +39,7 @@ import {
   createStyles as createFieldStyles,
   dealComplete,
   defaultDeal,
+  resolveUnit,
   hasValue,
   minLengthError,
   needsDealChoice,
@@ -94,7 +94,11 @@ export default function NewListingScreen() {
   const [dismissedSlug, setDismissedSlug] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [deal, setDeal] = useState<DealValue>({ transactionType: null, rentPeriod: null });
+  const [deal, setDeal] = useState<DealValue>({
+    transactionType: null,
+    rentPeriod: null,
+    priceUnit: null,
+  });
   const [moreOpen, setMoreOpen] = useState(false);
   const { photos, uploading, addPhotos, removePhoto, movePhoto, makeCover } = usePhotoEditor();
   const [description, setDescription] = useState('');
@@ -133,13 +137,7 @@ export default function NewListingScreen() {
   const requiredFields = visibleFields.filter((field) => field.required);
   const optionalFields = visibleFields.filter((field) => !field.required);
 
-  const priceUnit = category
-    ? defaultPriceUnit(
-        { allowedPriceUnits: category.priceUnits, defaultPriceUnit: category.defaultPriceUnit },
-        deal.transactionType,
-        deal.rentPeriod,
-      )
-    : 'total';
+  const priceUnit = category ? resolveUnit(category, deal) : 'total';
   const priceSuffix = LISTING_PRICE_UNIT_SUFFIX[priceUnit];
   const priceless = deal.transactionType === 'free' || deal.transactionType === 'mating';
   const currentCity = cities.data?.find((city) => city.id === cityId);
@@ -168,6 +166,7 @@ export default function NewListingScreen() {
         ? {
             transactionType: fromGuess.transactionType,
             rentPeriod: fromGuess.rentPeriod ?? base.rentPeriod,
+            priceUnit: null,
           }
         : base,
     );

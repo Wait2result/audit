@@ -115,7 +115,7 @@ export async function reindexListing(
     parent?.name,
     listing.city.name,
     listing.district?.name,
-    transactionCardLabel(transactionType, rentPeriod),
+    transactionCardLabel(transactionType, rentPeriod, category.slug),
     ...catalogue.aliasesFor(attributes, values),
   ]);
 
