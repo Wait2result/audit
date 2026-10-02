@@ -29,7 +29,37 @@ export interface LeafletMapProps {
   onPick?: (point: GeoCoordinates) => void;
   /** Перелёт камеры: после выбора подсказки, «моего места» и т. п. */
   focus?: MapFocus | null;
+  /** Объявления на карте результатов: метки-цены, рядом стоящие собираются в кластер */
+  points?: readonly MapPricePoint[];
+  /** Выбранная метка подсвечивается акцентом */
+  selectedId?: string | null;
+  onSelect?: (id: string | null) => void;
+  /** Область показа изменилась по воле человека (не из-за команды приложения) */
+  onViewport?: (view: MapViewport) => void;
+  /** Показать область целиком — например, круг поиска при открытии карты */
+  bounds?: MapBounds | null;
   style?: StyleProp<ViewStyle>;
+}
+
+/** Метка объявления: подпись уже готова («364 тыс»), ранг — для «от X» в кластере. */
+export interface MapPricePoint {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  /** Цена для сравнения внутри кластера; пусто — «договорная» */
+  rank: number | null;
+}
+
+export interface MapBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+export interface MapViewport extends MapBounds {
+  zoom: number;
 }
 
 export interface MapState {
@@ -38,7 +68,11 @@ export interface MapState {
   areaMeters: number | null;
 }
 
-export type MapMessage = { type: 'ready' } | { type: 'pick'; lat: number; lng: number };
+export type MapMessage =
+  | { type: 'ready' }
+  | { type: 'pick'; lat: number; lng: number }
+  | { type: 'select'; id: string | null }
+  | ({ type: 'viewport' } & MapViewport);
 
 /** Сообщение со страницы карты; null — чужое или испорченное. */
 export function parseMapMessage(raw: unknown): MapMessage | null {
@@ -48,9 +82,33 @@ export function parseMapMessage(raw: unknown): MapMessage | null {
       type: string;
       lat: number;
       lng: number;
+      id: string | null;
+      south: number;
+      west: number;
+      north: number;
+      east: number;
+      zoom: number;
     }>;
     if (!data || data.source !== 'dg-map') return null;
     if (data.type === 'ready') return { type: 'ready' };
+    if (data.type === 'select') {
+      return { type: 'select', id: typeof data.id === 'string' ? data.id : null };
+    }
+    if (
+      data.type === 'viewport' &&
+      [data.south, data.west, data.north, data.east, data.zoom].every(
+        (value) => typeof value === 'number' && Number.isFinite(value),
+      )
+    ) {
+      return {
+        type: 'viewport',
+        south: data.south as number,
+        west: data.west as number,
+        north: data.north as number,
+        east: data.east as number,
+        zoom: data.zoom as number,
+      };
+    }
     if (
       data.type === 'pick' &&
       typeof data.lat === 'number' &&
@@ -92,6 +150,9 @@ export function buildMapHtml(options: {
   interactive: boolean;
   dark: boolean;
   accent: string;
+  /** Фон и текст меток-цен: берутся из темы приложения, а не выдумываются тут */
+  surface?: string;
+  text?: string;
 }): string {
   return `<!DOCTYPE html>
 <html>
@@ -105,6 +166,25 @@ export function buildMapHtml(options: {
     .leaflet-control-attribution a { color: #eee; }
     ${options.dark ? '.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.5); }' : ''}
     .dg-pin { display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+    /* Метка-цена: остриё внизу ровно в координате. Размер самой метки не
+       участвует в расчёте положения — её якорь нулевого размера */
+    .dg-price, .dg-cluster {
+      position: absolute; left: 0; bottom: 0; transform: translate(-50%, -8px);
+      font: 600 12px/1 -apple-system, system-ui, sans-serif; white-space: nowrap;
+      color: ${options.text ?? (options.dark ? '#F0F4F3' : '#12211F')};
+      background: ${options.surface ?? (options.dark ? '#16282B' : '#FFFFFF')};
+      border: 1px solid ${options.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)'};
+      border-radius: 10px; padding: 6px 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.28);
+    }
+    .dg-price::after {
+      content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px;
+      background: inherit; border-right: inherit; border-bottom: inherit;
+      transform: translateX(-50%) rotate(45deg);
+    }
+    .dg-price.dg-sel { background: ${options.accent}; border-color: ${options.accent}; color: ${options.dark ? '#0D181A' : '#FFFFFF'}; z-index: 1000; }
+    .dg-cluster { transform: translate(-50%, 50%); border-radius: 999px; min-width: 34px; text-align: center; padding: 8px 10px; }
+    .dg-cluster small { display: block; font-weight: 500; font-size: 10px; opacity: 0.75; margin-top: 3px; }
   </style>
 </head>
 <body>
@@ -238,6 +318,109 @@ export function buildMapHtml(options: {
         return result;
       }
     };
+
+    // ── Карта результатов: метки-цены, кластеры, выбор, область ──
+    var layer = L.layerGroup().addTo(map);
+    var points = [], selectedId = null, resultsMode = false;
+    var CELL = 72;       // сторона ячейки кластера, px
+    var CLUSTER_MAX_ZOOM = 17;
+
+    // Команда приложения сдвигает камеру — это не «человек двинул карту».
+    // Событие движения приходит сразу, но если вид не изменился, не приходит
+    // вовсе, поэтому флаг сбрасывается по таймеру, а не по событию
+    var programmatic = false;
+    function program(fn) {
+      programmatic = true;
+      try { fn(); } finally { setTimeout(function () { programmatic = false; }, 200); }
+    }
+
+    function priceIcon(p, selected) {
+      return L.divIcon({
+        className: '',
+        html: '<div class="dg-price' + (selected ? ' dg-sel' : '') + '">' + p.label + '</div>',
+        iconSize: [0, 0], iconAnchor: [0, 0]
+      });
+    }
+
+    function render() {
+      layer.clearLayers();
+      var zoom = map.getZoom();
+      var buckets = {}, order = [];
+      points.forEach(function (p) {
+        // Выбранную не прячем в кластер: человек только что на неё нажал
+        if (p.id === selectedId || zoom >= CLUSTER_MAX_ZOOM) { order.push({ single: p }); return; }
+        var px = map.project([p.latitude, p.longitude], zoom);
+        var key = Math.floor(px.x / CELL) + ':' + Math.floor(px.y / CELL);
+        if (!buckets[key]) { buckets[key] = []; order.push({ group: buckets[key] }); }
+        buckets[key].push(p);
+      });
+      order.forEach(function (entry) {
+        var group = entry.group, one = entry.single || (group.length === 1 ? group[0] : null);
+        if (one) {
+          var sel = one.id === selectedId;
+          L.marker([one.latitude, one.longitude], { icon: priceIcon(one, sel), keyboard: false, zIndexOffset: sel ? 1000 : 0 })
+            .on('click', function (e) { L.DomEvent.stopPropagation(e); post({ type: 'select', id: one.id }); })
+            .addTo(layer);
+          return;
+        }
+        var lat = 0, lng = 0, cheapest = null;
+        group.forEach(function (p) {
+          lat += p.latitude; lng += p.longitude;
+          if (p.rank !== null && (cheapest === null || p.rank < cheapest.rank)) cheapest = p;
+        });
+        var icon = L.divIcon({
+          className: '',
+          html: '<div class="dg-cluster">' + group.length + (cheapest ? '<small>от ' + cheapest.label + '</small>' : '') + '</div>',
+          iconSize: [0, 0], iconAnchor: [0, 0]
+        });
+        L.marker([lat / group.length, lng / group.length], { icon: icon, keyboard: false })
+          .on('click', function (e) {
+            L.DomEvent.stopPropagation(e);
+            var bounds = L.latLngBounds(group.map(function (p) { return [p.latitude, p.longitude]; }));
+            program(function () { map.fitBounds(bounds, { padding: [48, 48], maxZoom: 18, animate: false }); });
+            // Приблизили — кластеры пересобираются по событию zoomend
+          })
+          .addTo(layer);
+      });
+    }
+
+    window.dg.setPoints = function (list, selected) {
+      resultsMode = true;
+      points = list || [];
+      selectedId = selected || null;
+      render();
+    };
+    window.dg.fit = function (south, west, north, east) {
+      program(function () { map.fitBounds([[south, west], [north, east]], { animate: false }); });
+    };
+    map.on('zoomend', function () { if (resultsMode) render(); });
+
+    // «Искать в этой области»: сообщаем, где карта оказалась после того, как
+    // человек отпустил её, — а не на каждый пиксель движения
+    var viewportTimer = null;
+    // Вид после последней команды приложения: от него считается «сдвинули ли»
+    var restCenter = null, restZoom = null;
+    map.on('moveend', function () {
+      if (!resultsMode) return;
+      if (programmatic) {
+        restCenter = map.getCenter();
+        restZoom = map.getZoom();
+        return;
+      }
+      // Окно карты меняет размер при первом показе, и Leaflet сообщает о
+      // «движении», хотя ни центр, ни масштаб не изменились: это не повод
+      // предлагать искать в новой области
+      if (restCenter && restZoom === map.getZoom()) {
+        var shift = map.latLngToContainerPoint(restCenter).distanceTo(map.getSize().divideBy(2));
+        if (shift < 24) return;
+      }
+      clearTimeout(viewportTimer);
+      viewportTimer = setTimeout(function () {
+        var b = map.getBounds();
+        post({ type: 'viewport', south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast(), zoom: map.getZoom() });
+      }, 350);
+    });
+    map.on('click', function () { if (resultsMode) post({ type: 'select', id: null }); });
 
     if (interactive) {
       map.on('click', function (event) {

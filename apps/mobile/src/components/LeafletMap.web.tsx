@@ -15,6 +15,8 @@ interface MapWindow extends Window {
   dg?: {
     setState: (state: unknown, initial?: boolean) => void;
     focus: (lat: number, lng: number, zoom: number) => void;
+    setPoints: (points: unknown, selectedId: string | null) => void;
+    fit: (south: number, west: number, north: number, east: number) => void;
   };
 }
 
@@ -33,6 +35,9 @@ export function LeafletMap(props: LeafletMapProps) {
     areaMeters,
     interactive = false,
     focus,
+    points,
+    selectedId,
+    bounds,
     style,
   } = props;
   const colors = useThemeColors();
@@ -41,6 +46,14 @@ export function LeafletMap(props: LeafletMapProps) {
   const ready = useRef(false);
   const onPickRef = useRef(props.onPick);
   onPickRef.current = props.onPick;
+  const onSelectRef = useRef(props.onSelect);
+  onSelectRef.current = props.onSelect;
+  const onViewportRef = useRef(props.onViewport);
+  onViewportRef.current = props.onViewport;
+  const pointsRef = useRef({ points, selectedId });
+  pointsRef.current = { points, selectedId };
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
 
   const state = useMemo(
     () => mapStateOf({ center, marker, radiusKm, areaMeters }),
@@ -50,8 +63,17 @@ export function LeafletMap(props: LeafletMapProps) {
   stateRef.current = state;
 
   const html = useMemo(
-    () => buildMapHtml({ center, zoom, interactive, dark, accent: colors.primary }),
-    [dark, interactive, colors.primary],
+    () =>
+      buildMapHtml({
+        center,
+        zoom,
+        interactive,
+        dark,
+        accent: colors.primary,
+        surface: colors.surface,
+        text: colors.text,
+      }),
+    [dark, interactive, colors.primary, colors.surface, colors.text],
   );
 
   const mapWindow = useCallback((): MapWindow | null => {
@@ -67,7 +89,21 @@ export function LeafletMap(props: LeafletMapProps) {
       if (!message) return;
       if (message.type === 'ready') {
         ready.current = true;
-        mapWindow()?.dg?.setState(stateRef.current, true);
+        const api = mapWindow()?.dg;
+        api?.setState(stateRef.current, true);
+        const b = boundsRef.current;
+        if (b) api?.fit(b.south, b.west, b.north, b.east);
+        const { points: list, selectedId: id } = pointsRef.current;
+        if (list) api?.setPoints(list, id ?? null);
+        return;
+      }
+      if (message.type === 'select') {
+        onSelectRef.current?.(message.id);
+        return;
+      }
+      if (message.type === 'viewport') {
+        const { type: _type, ...view } = message;
+        onViewportRef.current?.(view);
         return;
       }
       onPickRef.current?.({ latitude: message.lat, longitude: message.lng });
@@ -79,6 +115,14 @@ export function LeafletMap(props: LeafletMapProps) {
   useEffect(() => {
     mapWindow()?.dg?.setState(state);
   }, [state, mapWindow]);
+
+  useEffect(() => {
+    if (points) mapWindow()?.dg?.setPoints(points, selectedId ?? null);
+  }, [points, selectedId, mapWindow]);
+
+  useEffect(() => {
+    if (bounds) mapWindow()?.dg?.fit(bounds.south, bounds.west, bounds.north, bounds.east);
+  }, [bounds, mapWindow]);
 
   useEffect(() => {
     if (!focus) return;

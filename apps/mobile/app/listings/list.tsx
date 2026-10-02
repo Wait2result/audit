@@ -26,6 +26,7 @@ import { useListingCategories, useListings, type ListingFilters } from '../../sr
 import { Icon } from '../../src/components/Icon';
 import { ListingCard } from '../../src/components/ListingCard';
 import { ListingSearchBox } from '../../src/components/ListingSearchBox';
+import { ListingsMapView } from '../../src/components/ListingsMapView';
 import { Screen } from '../../src/components/Screen';
 import { useFavoriteActions } from '../../src/hooks/use-favorite-actions';
 import { useListingArea } from '../../src/hooks/use-listing-area';
@@ -58,6 +59,8 @@ export default function ListingsListScreen() {
 
   const [sort, setSort] = useState<ListingSort>(ListingSort.RECOMMENDED);
   const [sortOpen, setSortOpen] = useState(false);
+  // «Список» или «Карта»: те же условия, другой способ смотреть
+  const [mode, setMode] = useState<'list' | 'map'>('list');
 
   // Где искать: точка и радиус (или весь Дагестан). Меняется на отдельном
   // экране — выдача обновится сама, как только он применит выбор
@@ -101,13 +104,22 @@ export default function ListingsListScreen() {
     [slug, searching, query, sort, areaFilters, extraFilters, freshBefore],
   );
 
-  const feed = useListings(cityId, filters, area.ready);
+  const feed = useListings(cityId, filters, area.ready && mode === 'list');
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);
   const total = feed.data?.pages[0]?.total;
   // Квартиры, вакансии и услуги читают, а не разглядывают — им нужен список
   const layout = resolveCardLayout(category);
 
   const chips = useMemo(() => describeFilters(extraFilters, fields), [extraFilters, fields]);
+
+  const mapFilters = useMemo<ListingFilters>(
+    () => ({
+      ...(slug ? { category: slug } : {}),
+      ...(searching ? { search: query } : {}),
+      ...extraFilters,
+    }),
+    [slug, searching, query, extraFilters],
+  );
 
   /** Снять одно условие, не заходя в экран фильтров. */
   const removeChip = (key: string) => {
@@ -183,6 +195,42 @@ export default function ListingsListScreen() {
         />
       </View>
 
+      <View style={styles.modeSwitch} accessibilityRole="tablist">
+        {(
+          [
+            { value: 'list', label: 'Список', icon: 'grid' },
+            { value: 'map', label: 'Карта', icon: 'map' },
+          ] as const
+        ).map((option) => {
+          const active = mode === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => {
+                setSortOpen(false);
+                setMode(option.value);
+              }}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              style={({ pressed }) => [
+                styles.modeOption,
+                active && styles.modeOptionActive,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon
+                name={option.icon}
+                size={16}
+                color={active ? colors.primary : colors.textMuted}
+              />
+              <Text style={[styles.modeLabel, active && styles.modeLabelActive]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       {chips.length > 0 && (
         <ScrollView
           horizontal
@@ -230,20 +278,22 @@ export default function ListingsListScreen() {
           <Icon name="chevron-right" size={14} color={colors.primary} />
         </Pressable>
 
-        <Pressable
-          onPress={() => setSortOpen((value) => !value)}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: sortOpen }}
-          style={({ pressed }) => [styles.controlRow, pressed && styles.pressed]}
-        >
-          <Text style={styles.sortLabel} numberOfLines={1}>
-            {LISTING_SORT_LABELS[sort]}
-          </Text>
-          <Icon name="chevron-down" size={16} color={colors.primary} />
-        </Pressable>
+        {mode === 'list' && (
+          <Pressable
+            onPress={() => setSortOpen((value) => !value)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: sortOpen }}
+            style={({ pressed }) => [styles.controlRow, pressed && styles.pressed]}
+          >
+            <Text style={styles.sortLabel} numberOfLines={1}>
+              {LISTING_SORT_LABELS[sort]}
+            </Text>
+            <Icon name="chevron-down" size={16} color={colors.primary} />
+          </Pressable>
+        )}
       </View>
 
-      {sortOpen && (
+      {mode === 'list' && sortOpen && (
         <View style={styles.sortList}>
           {Object.entries(LISTING_SORT_LABELS).map(([value, label]) => (
             <Pressable
@@ -285,6 +335,22 @@ export default function ListingsListScreen() {
       )}
     </View>
   );
+
+  if (mode === 'map') {
+    return (
+      <Screen padded={false}>
+        <View style={styles.mapScreen}>
+          <View style={styles.mapHeader}>{header}</View>
+          <ListingsMapView
+            filters={mapFilters}
+            area={area}
+            cityId={cityId}
+            onOpen={(id) => router.push({ pathname: '/listings/[id]', params: { id } })}
+          />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen padded={false}>
@@ -441,6 +507,30 @@ function findCategory(roots: ListingCategoryDto[], slug: string | undefined) {
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
+    mapScreen: { flex: 1 },
+    mapHeader: { paddingHorizontal: spacing.lg },
+    modeSwitch: {
+      flexDirection: 'row',
+      alignSelf: 'flex-start',
+      gap: spacing.xs,
+      padding: 3,
+      marginTop: spacing.md,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modeOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      minHeight: 40,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radius.full,
+    },
+    modeOptionActive: { backgroundColor: colors.primarySoft },
+    modeLabel: { ...typography.caption, color: colors.textMuted },
+    modeLabelActive: { color: colors.primary, fontWeight: '600' },
     list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md },
     row: { gap: spacing.md, alignItems: 'stretch' },
     loader: { marginVertical: spacing.xl },

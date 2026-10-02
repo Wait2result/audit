@@ -31,6 +31,7 @@ import type {
   ListingCategoryDto,
   ListingDetailsDto,
   ListingDto,
+  ListingMapPointDto,
   ListingPhoneDto,
   CreateListingDto,
   MyListingDetailsDto,
@@ -860,6 +861,39 @@ export function useListings(cityId: string | null, filters: ListingFilters, enab
     // Выдаче нужен центр: город или точка места поиска
     enabled: enabled && (Boolean(cityId) || filters.latitude !== undefined),
     staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Точки для карты результатов в пределах области.
+ *
+ * Те же фильтры, что у ленты, плюс область «юг,запад,север,восток». Радиус от
+ * точки сюда не нужен: человек двигает карту, и показывать надо всё, что в
+ * кадре. Область округляется до трёх знаков (~100 м): иначе каждое дрожание
+ * карты — новый ключ запроса и новый запрос.
+ */
+export function useListingMapPoints(
+  cityId: string | null,
+  filters: ListingFilters,
+  bounds: { south: number; west: number; north: number; east: number },
+  enabled = true,
+) {
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  const bbox = [bounds.south, bounds.west, bounds.north, bounds.east].map(round).join(',');
+
+  return useQuery({
+    queryKey: ['listing-map', cityId, JSON.stringify(filters), bbox],
+    queryFn: () => {
+      // Карта не листается и не сортируется: эти поля сервер у неё не принимает
+      const params = new URLSearchParams(listingQuery(cityId ?? '', filters, null));
+      for (const key of ['limit', 'sort', 'freshBefore', 'cursor']) params.delete(key);
+      params.set('bbox', bbox);
+      return apiFetch<ListingMapPointDto[]>(`/listings/map?${params.toString()}`);
+    },
+    enabled,
+    staleTime: 30 * 1000,
+    // Пока грузятся новые точки, старые остаются на карте — без мигания
+    placeholderData: (previous) => previous,
   });
 }
 

@@ -48,6 +48,9 @@ export function LeafletMap(props: LeafletMapProps) {
     areaMeters,
     interactive = false,
     focus,
+    points,
+    selectedId,
+    bounds,
     style,
   } = props;
   const colors = useThemeColors();
@@ -56,6 +59,15 @@ export function LeafletMap(props: LeafletMapProps) {
   const ready = useRef(false);
   const onPickRef = useRef(props.onPick);
   onPickRef.current = props.onPick;
+  const onSelectRef = useRef(props.onSelect);
+  onSelectRef.current = props.onSelect;
+  const onViewportRef = useRef(props.onViewport);
+  onViewportRef.current = props.onViewport;
+  // Всё, что надо повторить, когда страница заново загрузилась или стала готова
+  const pointsRef = useRef({ points, selectedId });
+  pointsRef.current = { points, selectedId };
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
 
   const state = useMemo(
     () => mapStateOf({ center, marker, radiusKm, areaMeters }),
@@ -67,8 +79,17 @@ export function LeafletMap(props: LeafletMapProps) {
   // Страница собирается один раз на тему: центр — только стартовый,
   // дальше камеру двигают команды
   const html = useMemo(
-    () => buildMapHtml({ center, zoom, interactive, dark, accent: colors.primary }),
-    [dark, interactive, colors.primary],
+    () =>
+      buildMapHtml({
+        center,
+        zoom,
+        interactive,
+        dark,
+        accent: colors.primary,
+        surface: colors.surface,
+        text: colors.text,
+      }),
+    [dark, interactive, colors.primary, colors.surface, colors.text],
   );
 
   const run = useCallback((script: string) => {
@@ -85,12 +106,51 @@ export function LeafletMap(props: LeafletMapProps) {
     run(`window.dg.focus(${focus.point.latitude}, ${focus.point.longitude}, ${focus.zoom});`);
   }, [focus, run]);
 
+  const sendPoints = useCallback(() => {
+    const { points: list, selectedId: id } = pointsRef.current;
+    if (!list) return;
+    run('window.dg.setPoints(' + JSON.stringify(list) + ', ' + JSON.stringify(id ?? null) + ');');
+  }, [run]);
+
+  useEffect(() => {
+    sendPoints();
+  }, [points, selectedId, sendPoints]);
+
+  useEffect(() => {
+    if (!bounds) return;
+    run(
+      'window.dg.fit(' +
+        bounds.south +
+        ', ' +
+        bounds.west +
+        ', ' +
+        bounds.north +
+        ', ' +
+        bounds.east +
+        ');',
+    );
+  }, [bounds, run]);
+
   const onMessage = (event: WebViewMessageEvent) => {
     const message = parseMapMessage(event.nativeEvent.data);
     if (!message) return;
     if (message.type === 'ready') {
       ready.current = true;
       run(`window.dg.setState(${JSON.stringify(stateRef.current)}, true);`);
+      const b = boundsRef.current;
+      if (b) {
+        run('window.dg.fit(' + b.south + ', ' + b.west + ', ' + b.north + ', ' + b.east + ');');
+      }
+      sendPoints();
+      return;
+    }
+    if (message.type === 'select') {
+      onSelectRef.current?.(message.id);
+      return;
+    }
+    if (message.type === 'viewport') {
+      const { type: _type, ...view } = message;
+      onViewportRef.current?.(view);
       return;
     }
     onPickRef.current?.({ latitude: message.lat, longitude: message.lng });

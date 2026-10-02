@@ -1,5 +1,8 @@
 import {
+  CARD_FACTS_LIMIT,
   LISTING_PRICE_UNIT_SUFFIX,
+  cardEmphasis,
+  cardFacts,
   formatDistance,
   formatListingAge,
   formatViewsShort,
@@ -51,8 +54,22 @@ export function ListingCard({
 
   const photo = listing.cover?.thumbnailUrl ?? listing.cover?.url ?? null;
   const price = formatPrice(listing);
-  const facts = splitFacts(listing.attributesSummary);
   const isList = layout === 'list';
+  // Без шума: «Продам» и то, что уже в заголовке, в карточку не попадает
+  const facts = cardFacts(listing.attributesSummary, listing.title, CARD_FACTS_LIMIT[layout]);
+  // У вакансии главное — должность, зарплата следом; у остального — цена
+  const titleFirst = cardEmphasis(listing.categorySlug) === 'title';
+
+  const priceText = (
+    <Text style={styles.price} numberOfLines={1}>
+      {price}
+    </Text>
+  );
+  const titleText = (
+    <Text style={titleFirst ? styles.titleFirst : styles.title} numberOfLines={2}>
+      {listing.title}
+    </Text>
+  );
 
   const image = (
     <View style={isList ? styles.imageBoxList : styles.imageBox}>
@@ -101,12 +118,8 @@ export function ListingCard({
         {image}
 
         <View style={[styles.body, isList && styles.bodyList]}>
-          <Text style={styles.price} numberOfLines={1}>
-            {price}
-          </Text>
-          <Text style={styles.title} numberOfLines={2}>
-            {listing.title}
-          </Text>
+          {titleFirst ? titleText : priceText}
+          {titleFirst ? priceText : titleText}
 
           {/* Ключевые характеристики: в списке — отдельными «таблетками», в
               плитке — одной строкой. Из JSON-ключей сюда ничего не попадает:
@@ -114,7 +127,7 @@ export function ListingCard({
           {facts.length > 0 &&
             (isList ? (
               <View style={styles.facts}>
-                {facts.slice(0, 4).map((fact) => (
+                {facts.map((fact) => (
                   <View key={fact} style={styles.fact}>
                     <Text style={styles.factText} numberOfLines={1}>
                       {fact}
@@ -124,7 +137,7 @@ export function ListingCard({
               </View>
             ) : (
               <Text style={styles.summary} numberOfLines={2}>
-                {listing.attributesSummary}
+                {facts.join(' · ')}
               </Text>
             ))}
 
@@ -144,14 +157,6 @@ export function ListingCard({
       )}
     </View>
   );
-}
-
-/** «2 комн. · 54 м² · 3/9 эт.» → отдельные характеристики. */
-function splitFacts(summary: string): string[] {
-  return summary
-    .split(' · ')
-    .map((part) => part.trim())
-    .filter(Boolean);
 }
 
 /**
@@ -228,6 +233,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     // Две строки под заголовок всегда: иначе соседние карточки в ряду
     // расходятся по высоте и сетка выглядит рваной
     title: { ...typography.body, color: colors.text, fontSize: 14, lineHeight: 18, minHeight: 36 },
+    titleFirst: { ...typography.subheading, color: colors.text, fontSize: 16, lineHeight: 20 },
     summary: { ...typography.caption, color: colors.textMuted },
     // Тонкая черта отделяет «что это» (цена, название, параметры) от «где и когда»
     metaBlock: {
@@ -242,7 +248,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
       borderRadius: radius.sm,
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: colors.primarySoft,
       maxWidth: '100%',
     },
     factText: { ...typography.caption, color: colors.text },

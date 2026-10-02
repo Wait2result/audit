@@ -2,7 +2,10 @@ import {
   APPROXIMATE_AREA_METERS,
   LISTING_CONDITION_LABELS,
   attributeValueLabel,
+  formatListingAge,
+  plural,
   type ListingAttribute,
+  type ListingDetailsDto,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
@@ -22,6 +25,8 @@ import {
   useListingCategories,
   useListings,
   useRevealPhone,
+  useSellerProfile,
+  type ListingFilters,
 } from '../../src/api/queries';
 import { Button } from '../../src/components/Button';
 import { FavoriteButton } from '../../src/components/FavoriteButton';
@@ -29,7 +34,7 @@ import { LeafletMap } from '../../src/components/LeafletMap';
 import { Icon } from '../../src/components/Icon';
 import { RemoteImage } from '../../src/components/RemoteImage';
 import { Screen } from '../../src/components/Screen';
-import { ListingCard, formatPrice, formatWhen, placeLine } from '../../src/components/ListingCard';
+import { ListingCard, formatPrice, placeLine } from '../../src/components/ListingCard';
 import { useFavoriteActions } from '../../src/hooks/use-favorite-actions';
 import { useListingArea } from '../../src/hooks/use-listing-area';
 import { SellerAvatar } from '../../src/components/SellerAvatar';
@@ -58,6 +63,9 @@ export default function ListingScreen() {
   const categories = useListingCategories();
   const { toggleListing } = useFavoriteActions();
   const revealPhone = useRevealPhone();
+  // Профиль продавца — то, чего нет в самой карточке: подтверждён ли телефон,
+  // сколько у него активных объявлений, есть ли оценки
+  const sellerProfile = useSellerProfile(listing?.seller.id);
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [phone, setPhone] = useState<string | null>(null);
@@ -97,8 +105,20 @@ export default function ListingScreen() {
     });
   };
 
+  // Главное действие не прячется внизу длинной страницы: оно закреплено над
+  // краем экрана и учитывает безопасную область (это делает Screen)
+  const canCall = !listing.isMine && listing.availability === 'active' && listing.allowCalls;
+  const callBar = canCall ? (
+    <Button
+      label={phone ?? (revealPhone.isPending ? 'Показываем…' : 'Позвонить')}
+      onPress={openPhone}
+      loading={revealPhone.isPending}
+      accessibilityLabel={phone ? `Позвонить ${phone}` : 'Позвонить продавцу'}
+    />
+  ) : undefined;
+
   return (
-    <Screen padded={false} scroll>
+    <Screen padded={false} scroll footer={callBar}>
       <View style={styles.hero}>
         {photos.length > 0 ? (
           <ScrollView
@@ -127,10 +147,15 @@ export default function ListingScreen() {
         )}
 
         {photos.length > 1 && (
-          <View style={styles.dots}>
-            {photos.map((photo, index) => (
-              <View key={photo.id} style={[styles.dot, index === photoIndex && styles.dotActive]} />
-            ))}
+          // «1/10»: сразу видно, сколько фотографий и на какой человек
+          <View
+            style={styles.counter}
+            accessible
+            accessibilityLabel={`Фото ${photoIndex + 1} из ${photos.length}`}
+          >
+            <Text style={styles.counterText}>
+              {photoIndex + 1}/{photos.length}
+            </Text>
           </View>
         )}
 
@@ -180,9 +205,10 @@ export default function ListingScreen() {
 
         <View style={styles.metaRow}>
           <Icon name="clock" size={13} color={colors.textFaint} />
-          <Text style={styles.meta}>{formatWhen(listing.bumpedAt)}</Text>
-          <Icon name="eye" size={13} color={colors.textFaint} />
-          <Text style={styles.meta}>{listing.viewsCount}</Text>
+          <Text style={styles.meta}>
+            {formatListingAge(listing.bumpedAt)} · {listing.viewsCount}{' '}
+            {plural(listing.viewsCount, 'просмотр', 'просмотра', 'просмотров')}
+          </Text>
         </View>
 
         {attributes.length > 0 && (
@@ -252,6 +278,19 @@ export default function ListingScreen() {
             <Text style={styles.sellerMeta}>
               На площадке с {formatMemberSince(listing.seller.memberSince)}
             </Text>
+            <Text style={styles.sellerMeta}>
+              {[
+                sellerProfile.data?.isVerified ? 'Телефон подтверждён' : null,
+                sellerProfile.data
+                  ? `${sellerProfile.data.activeCount} ${plural(sellerProfile.data.activeCount, 'объявление', 'объявления', 'объявлений')}`
+                  : null,
+                listing.seller.rating.count > 0
+                  ? `★ ${listing.seller.rating.average.toFixed(1).replace('.', ',')} (${listing.seller.rating.count})`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
           </View>
           <Icon name="chevron-right" size={18} color={colors.textFaint} />
         </Pressable>
@@ -279,17 +318,8 @@ export default function ListingScreen() {
           />
         ) : (
           <>
-            {listing.allowCalls && (
-              <Button
-                label={phone ?? (revealPhone.isPending ? 'Показываем…' : 'Показать номер')}
-                onPress={openPhone}
-                loading={revealPhone.isPending}
-                style={styles.action}
-              />
-            )}
-
-            {/* Чат появится следующей частью: обещать кнопку, которая ничего
-                не делает, хуже, чем не показывать её */}
+            {/* «Позвонить» закреплена внизу экрана. «Написать» появится вместе с
+                чатом: кнопка, которая ничего не делает, хуже, чем её отсутствие */}
 
             <Pressable
               onPress={() =>
@@ -305,8 +335,60 @@ export default function ListingScreen() {
         )}
 
         <SellerListings sellerId={listing.seller.id} excludeId={listing.id} />
+        <SimilarListings listing={listing} />
       </View>
     </Screen>
+  );
+}
+
+/**
+ * Похожие объявления: та же категория и та же сделка рядом с человеком.
+ *
+ * Отдельного запроса «похожих» на сервере нет и не нужно: обычная лента с
+ * теми же категорией, сделкой и местом ранжируется так же, как везде. Сделка
+ * учитывается, чтобы рядом с «Сдам посуточно» не оказалась продажа.
+ */
+function SimilarListings({ listing }: { listing: ListingDetailsDto }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const router = useRouter();
+  const cityId = useCityStore((s) => s.cityId);
+  const area = useListingArea();
+  const { toggleListing } = useFavoriteActions();
+
+  const filters = useMemo<ListingFilters>(
+    () => ({
+      category: listing.categorySlug,
+      ...(listing.transactionType ? { transactionType: listing.transactionType } : {}),
+      ...(listing.rentPeriod ? { rentPeriod: listing.rentPeriod } : {}),
+      ...area.filters,
+    }),
+    [listing.categorySlug, listing.transactionType, listing.rentPeriod, area.filters],
+  );
+  const feed = useListings(cityId, filters, area.ready);
+  const items = (feed.data?.pages[0]?.items ?? []).filter((item) => item.id !== listing.id);
+
+  if (items.length === 0) return null;
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>Похожие объявления</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.moreList}
+      >
+        {items.slice(0, 8).map((item) => (
+          <View key={item.id} style={styles.moreItem}>
+            <ListingCard
+              listing={item}
+              onOpen={() => router.push({ pathname: '/listings/[id]', params: { id: item.id } })}
+              onToggleFavorite={() => toggleListing(item)}
+            />
+          </View>
+        ))}
+      </ScrollView>
+    </>
   );
 }
 
@@ -395,6 +477,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       justifyContent: 'center',
       backgroundColor: colors.inkSoft,
     },
+    counter: {
+      position: 'absolute',
+      right: spacing.md,
+      bottom: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 4,
+      borderRadius: radius.full,
+      // Подложка поверх фотографии, как у пометки «Продано» в карточке
+      backgroundColor: 'rgba(13,24,26,0.7)',
+    },
+    counterText: { ...typography.caption, color: '#F0F4F3', fontWeight: '600' },
     dots: {
       position: 'absolute',
       bottom: spacing.md,

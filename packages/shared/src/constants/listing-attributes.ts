@@ -781,21 +781,23 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     options: [
       { value: 'five_two', label: '5/2' },
       { value: 'two_two', label: '2/2' },
-      { value: 'free', label: 'Свободный' },
+      { value: 'free', label: 'Свободный', cardLabel: 'Свободный график' },
       { value: 'remote', label: 'Удалённо' },
     ],
+    showInCard: true,
   }),
   def({
     key: 'experience',
     label: 'Опыт работы',
     type: 'enum',
     options: [
-      { value: 'none', label: 'Не требуется' },
-      { value: 'year', label: 'От года' },
-      { value: 'three', label: 'От трёх лет' },
+      { value: 'none', label: 'Не требуется', cardLabel: 'Без опыта' },
+      { value: 'year', label: 'От года', cardLabel: 'Опыт от года' },
+      { value: 'three', label: 'От трёх лет', cardLabel: 'Опыт от 3 лет' },
     ],
+    showInCard: true,
   }),
-  def({ key: 'remote', label: 'Удалённая работа', type: 'boolean' }),
+  def({ key: 'remote', label: 'Удалённая работа', type: 'boolean', showInCard: true }),
   def({
     key: 'registration',
     label: 'Оформление',
@@ -1088,7 +1090,6 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
       { value: 'finance', label: 'Финансы, юристы' },
       { value: 'other', label: 'Другое' },
     ],
-    showInCard: true,
   }),
   def({
     key: 'education',

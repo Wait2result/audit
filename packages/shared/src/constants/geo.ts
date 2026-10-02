@@ -180,3 +180,32 @@ export function approximatePoint(point: GeoCoordinates): GeoCoordinates {
 
 /** Радиус круга «примерно здесь» на карте объявления со скрытым адресом, м. */
 export const APPROXIMATE_AREA_METERS = 700;
+
+/** Прямоугольник области: юг, запад, север, восток (градусы). */
+export interface GeoBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+/**
+ * Прямоугольник, в который целиком вписан круг радиуса `radiusKm` вокруг
+ * точки. Нужен карте результатов: она открывается так, чтобы круг поиска
+ * был виден целиком, и запрашивает объявления по этому прямоугольнику.
+ *
+ * Градус широты — около 111,32 км везде; градус долготы сжимается к полюсам
+ * пропорционально cos(широты).
+ */
+export function boundsAround(center: GeoCoordinates, radiusKm: number): GeoBounds {
+  const KM_PER_DEGREE = 111.32;
+  const latDelta = radiusKm / KM_PER_DEGREE;
+  const lngDelta = radiusKm / (KM_PER_DEGREE * Math.cos((center.latitude * Math.PI) / 180));
+
+  return {
+    south: center.latitude - latDelta,
+    west: center.longitude - lngDelta,
+    north: center.latitude + latDelta,
+    east: center.longitude + lngDelta,
+  };
+}

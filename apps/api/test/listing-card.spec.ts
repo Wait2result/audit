@@ -1,5 +1,10 @@
 import {
+  DAGESTAN_BOUNDS,
+  boundsAround,
+  cardEmphasis,
+  cardFacts,
   formatListingAge,
+  formatPriceCompact,
   formatViewsShort,
   groupFilterFields,
   resolveCardLayout,
@@ -99,5 +104,83 @@ describe('groupFilterFields', () => {
 
   it('пустой список — пустые группы', () => {
     expect(groupFilterFields([])).toEqual({ main: [], condition: [], seller: [], extra: [] });
+  });
+});
+
+describe('cardFacts', () => {
+  it('убирает «Продам» и то, что уже есть в заголовке', () => {
+    expect(
+      cardFacts('Продам · Chery · Tiggo 8 · 2015 · 242 000 км · Механика', 'Chery Tiggo 8', 4),
+    ).toEqual(['2015', '242 000 км', 'Механика']);
+  });
+
+  it('сдачу оставляет: «Сдам надолго» — это характеристика', () => {
+    expect(cardFacts('Сдам надолго · 2 комн. · 54 м²', 'Квартира у моря', 4)).toEqual([
+      'Сдам надолго',
+      '2 комн.',
+      '54 м²',
+    ]);
+  });
+
+  it('учитывает регистр, «ё» и повторы; ограничивает число', () => {
+    expect(cardFacts('Тойота · тойота · Белый · 2020 · AT', 'Тойота Камри', 3)).toEqual([
+      'Белый',
+      '2020',
+      'AT',
+    ]);
+  });
+
+  it('короткое значение не считается «уже в заголовке» случайно', () => {
+    expect(cardFacts('3 · 4x4', 'Дом 3 этажа, 4x4', 4)).toEqual(['3']);
+  });
+
+  it('пустая строка — пустой список', () => {
+    expect(cardFacts('', 'Диван', 3)).toEqual([]);
+  });
+});
+
+describe('cardEmphasis', () => {
+  it('у вакансии главное — должность, у остального — цена', () => {
+    expect(cardEmphasis('job-vacancies')).toBe('title');
+    expect(cardEmphasis('job')).toBe('title');
+    expect(cardEmphasis('transport-cars')).toBe('price');
+    expect(cardEmphasis('realty-flats')).toBe('price');
+  });
+});
+
+describe('formatPriceCompact', () => {
+  it('сокращает суммы для меток карты (копейки на входе)', () => {
+    expect(formatPriceCompact(36_400_000, 'total')).toBe('364 тыс');
+    expect(formatPriceCompact(250_000_000, 'total')).toBe('2,5 млн');
+    expect(formatPriceCompact(300_000_000, 'total')).toBe('3 млн');
+    expect(formatPriceCompact(4_580_000, 'per_month')).toBe('46 тыс/мес');
+    expect(formatPriceCompact(150_000, 'per_month')).toBe('1,5 тыс/мес');
+    expect(formatPriceCompact(450_000, 'per_day')).toBe('4,5 тыс/сут');
+    expect(formatPriceCompact(95_000, 'total')).toBe('950 ₽');
+  });
+
+  it('без цены — «Дог.»', () => {
+    expect(formatPriceCompact(null, 'total')).toBe('Дог.');
+  });
+});
+
+describe('boundsAround', () => {
+  it('прямоугольник вокруг точки: вписывает круг радиуса', () => {
+    const center = { latitude: 42.9849, longitude: 47.5047 };
+    const box = boundsAround(center, 25);
+
+    // 25 км по широте — около 0,2246°
+    expect(box.north - center.latitude).toBeCloseTo(25 / 111.32, 5);
+    expect(center.latitude - box.south).toBeCloseTo(25 / 111.32, 5);
+    // по долготе градус короче, значит, градусов больше
+    expect(box.east - center.longitude).toBeGreaterThan(box.north - center.latitude);
+    // точка ровно в середине
+    expect((box.south + box.north) / 2).toBeCloseTo(center.latitude, 9);
+    expect((box.west + box.east) / 2).toBeCloseTo(center.longitude, 9);
+  });
+
+  it('границы Дагестана корректны (юг < север, запад < восток)', () => {
+    expect(DAGESTAN_BOUNDS.south).toBeLessThan(DAGESTAN_BOUNDS.north);
+    expect(DAGESTAN_BOUNDS.west).toBeLessThan(DAGESTAN_BOUNDS.east);
   });
 });

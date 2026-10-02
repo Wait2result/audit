@@ -1,4 +1,4 @@
-import { ModerationStatus, plural } from '@dagestan/shared';
+import { ModerationStatus, plural, resolveCardLayout } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -67,9 +67,12 @@ export default function ListingsScreen() {
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
+  // Выбранный раздел ленты категорий; null — «Все»
+  const [section, setSection] = useState<string | null>(null);
 
-  // Фильтры общего каталога — свой набор, отдельный от категорий
-  const extraFilters = useListingFilterStore((s) => s.byScope[''] ?? EMPTY_FILTERS);
+  // Фильтры хранятся по категории: у общей ленты свой набор, у раздела свой
+  const scope = section ?? '';
+  const extraFilters = useListingFilterStore((s) => s.byScope[scope] ?? EMPTY_FILTERS);
   const activeFilterCount = countFilters(extraFilters);
 
   const categories = useListingCategories();
@@ -94,30 +97,36 @@ export default function ListingsScreen() {
 
   const freshBefore = useMemo(
     () => new Date().toISOString(),
-    [cityId, query, extraFilters, areaFilters],
+    [cityId, query, section, extraFilters, areaFilters],
   );
 
   const filters = useMemo<ListingFilters>(
     () => ({
+      ...(section ? { category: section } : {}),
       ...(searching ? { search: query } : {}),
       ...areaFilters,
       ...extraFilters,
       freshBefore,
     }),
-    [searching, query, areaFilters, extraFilters, freshBefore],
+    [section, searching, query, areaFilters, extraFilters, freshBefore],
   );
 
   const feed = useListings(cityId, filters, area.ready);
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);
 
   const roots = categories.data ?? [];
+  const selected = roots.find((root) => root.slug === section) ?? null;
+  // Квартиры и вакансии читают, а не разглядывают — им нужен список
+  const layout = resolveCardLayout(selected);
 
   // Один блок вместо россыпи секций: ближайшее, если выбран радиус, иначе общее
   const feedTitle = searching
     ? 'Найденное'
-    : area.radiusKm === null
-      ? 'Популярные'
-      : 'Рядом с вами';
+    : selected
+      ? selected.name
+      : area.radiusKm === null
+        ? 'Популярные'
+        : 'Рядом с вами';
 
   const header = (
     <View>
@@ -151,7 +160,13 @@ export default function ListingsScreen() {
 
         <Pressable
           onPress={() =>
-            router.push({ pathname: '/listings/filters', params: searching ? { q: query } : {} })
+            router.push({
+              pathname: '/listings/filters',
+              params: {
+                ...(section ? { category: section } : {}),
+                ...(searching ? { q: query } : {}),
+              },
+            })
           }
           accessibilityRole="button"
           accessibilityLabel={`Фильтры${activeFilterCount > 0 ? `, выбрано ${activeFilterCount}` : ''}`}
@@ -210,19 +225,30 @@ export default function ListingsScreen() {
           contentContainerStyle={styles.categoriesContent}
           accessibilityLabel="Категории"
         >
-          {roots.map((section) => (
+          <SectionButton
+            icon="grid"
+            label="Все"
+            active={section === null}
+            onPress={() => setSection(null)}
+          />
+          {roots.map((root) => (
             <SectionButton
-              key={section.id}
-              icon={sectionIcon(section.slug)}
-              label={section.name}
+              key={root.id}
+              icon={sectionIcon(root.slug)}
+              label={root.name}
+              active={section === root.slug}
+              // Первое нажатие выбирает раздел и показывает его объявления тут же;
+              // повторное — открывает подкатегории
               onPress={() =>
-                router.push({ pathname: '/listings/category', params: { slug: section.slug } })
+                section === root.slug
+                  ? router.push({ pathname: '/listings/category', params: { slug: root.slug } })
+                  : setSection(root.slug)
               }
             />
           ))}
           <SectionButton
-            icon="grid"
-            label="Все"
+            icon="chevron-right"
+            label="Ещё"
             onPress={() => router.push('/listings/categories')}
           />
         </ScrollView>
@@ -232,14 +258,32 @@ export default function ListingsScreen() {
         <Text style={styles.sectionTitle}>{feedTitle}</Text>
 
         {!searching && (
-          <Pressable
-            onPress={() => router.push('/listings/list')}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.allLink, pressed && styles.pressed]}
-          >
-            <Text style={styles.allLinkLabel}>Все объявления</Text>
-            <Icon name="chevron-right" size={14} color={colors.primary} />
-          </Pressable>
+          <View style={styles.links}>
+            {selected && (
+              <Pressable
+                onPress={() =>
+                  router.push({ pathname: '/listings/category', params: { slug: selected.slug } })
+                }
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.allLink, pressed && styles.pressed]}
+              >
+                <Text style={styles.allLinkLabel}>Подкатегории</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/listings/list',
+                  params: selected ? { slug: selected.slug } : {},
+                })
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.allLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.allLinkLabel}>Все объявления</Text>
+              <Icon name="chevron-right" size={14} color={colors.primary} />
+            </Pressable>
+          </View>
         )}
       </View>
     </View>
@@ -250,8 +294,10 @@ export default function ListingsScreen() {
       <FlatList
         data={items}
         keyExtractor={(listing) => listing.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
+        // Число колонок нельзя менять на лету — FlatList требует новый key
+        key={layout}
+        numColumns={layout === 'list' ? 1 : 2}
+        columnWrapperStyle={layout === 'list' ? undefined : styles.row}
         ListHeaderComponent={header}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
@@ -259,6 +305,7 @@ export default function ListingsScreen() {
         renderItem={({ item }) => (
           <ListingCard
             listing={item}
+            layout={layout}
             onOpen={() => router.push({ pathname: '/listings/[id]', params: { id: item.id } })}
             onToggleFavorite={() => toggleListing(item)}
           />
@@ -296,10 +343,13 @@ export default function ListingsScreen() {
 function SectionButton({
   icon,
   label,
+  active = false,
   onPress,
 }: {
   icon: IconName;
   label: string;
+  /** Выбранный раздел выделяется акцентом: тонкая рамка и подпись, без плашки */
+  active?: boolean;
   onPress: () => void;
 }) {
   const colors = useThemeColors();
@@ -310,12 +360,13 @@ function SectionButton({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
       style={styles.categoryCell}
     >
-      <View style={styles.categoryIcon}>
+      <View style={[styles.categoryIcon, active && styles.categoryIconActive]}>
         <Icon name={icon} size={28} color={colors.primary} />
       </View>
-      <Text style={styles.categoryLabel} numberOfLines={2}>
+      <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]} numberOfLines={2}>
         {label}
       </Text>
     </Pressable>
@@ -482,6 +533,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
+    categoryIconActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+    categoryLabelActive: { color: colors.primary, fontWeight: '600' },
     categoryLabel: {
       ...typography.caption,
       color: colors.text,
@@ -498,7 +551,14 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       marginBottom: spacing.sm,
     },
     sectionTitle: { ...typography.heading, color: colors.text },
-    allLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    links: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    allLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
     allLinkLabel: { ...typography.caption, color: colors.primary },
 
     empty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxxl },
