@@ -30,8 +30,10 @@ interface SearchableSelectProps {
    * Без него выбранное можно только заменить другим.
    */
   clearLabel?: string;
-  /** Строка поиска в окне выбора. Для короткого списка (десять разделов) лишняя */
+  /** Строка поиска в окне выбора. Для короткого списка (десять категорий) лишняя */
   search?: boolean;
+  /** Плотный вариант для фильтров: ниже поле и стрелка «›», как у перехода к списку */
+  compact?: boolean;
 }
 
 /**
@@ -50,6 +52,7 @@ export function SearchableSelect({
   allowCustom = false,
   clearLabel,
   search = true,
+  compact = false,
 }: SearchableSelectProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -94,8 +97,8 @@ export function SearchableSelect({
       <Pressable
         onPress={() => setOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel={label}
-        style={[styles.field, error && styles.fieldError]}
+        accessibilityLabel={`${label}: ${displayLabel ?? placeholder}`}
+        style={[styles.field, compact && styles.fieldCompact, error && styles.fieldError]}
       >
         <Text
           style={[styles.fieldText, !displayLabel && styles.fieldPlaceholder]}
@@ -103,7 +106,11 @@ export function SearchableSelect({
         >
           {displayLabel ?? placeholder}
         </Text>
-        <Icon name="chevron-down" size={16} color={colors.textFaint} />
+        <Icon
+          name={compact ? 'chevron-right' : 'chevron-down'}
+          size={16}
+          color={colors.textFaint}
+        />
       </Pressable>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -205,6 +212,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
+    fieldCompact: { minHeight: 44, paddingHorizontal: spacing.md, gap: spacing.sm },
     fieldError: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
     fieldText: { ...typography.body, color: colors.text, flexShrink: 1 },
     fieldPlaceholder: { color: colors.textFaint },

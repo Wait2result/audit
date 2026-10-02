@@ -39,7 +39,7 @@ import {
   useListingFilterStore,
   type ExtraListingFilters,
 } from '../../src/store/listing-filter-store';
-import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import { spacing, typography, useThemeColors } from '../../src/theme';
 
 /**
  * Фильтры каталога объявлений (Этап 7).
@@ -147,14 +147,31 @@ export default function ListingFiltersScreen() {
    */
   const changeCategory = (next: string | undefined) => {
     if (next === categorySlug) return;
-    const nextKeys = new Set(filterFields(roots, next).map((field) => field.key));
+    const nextFields = filterFields(roots, next);
+    const previous = new Map(fields.map((field) => [field.key, field]));
+    const upcoming = new Map(nextFields.map((field) => [field.key, field]));
     const nextTransactions = transactionsOf(roots, next);
     const nextPeriods = periodChoicesOf(roots, next);
 
     setCategorySlug(next);
-    setAttributes((current) =>
-      Object.fromEntries(Object.entries(current).filter(([key]) => nextKeys.has(key))),
-    );
+    // Остаётся то, что есть и у новой категории и означает то же самое: марка
+    // автомобиля и марка телефона — один ключ, но разные справочники, и
+    // «Toyota» у мотоциклов давала бы пустую выдачу
+    setAttributes((current) => {
+      const kept = Object.entries(current).filter(([key]) => {
+        const was = previous.get(key);
+        const now = upcoming.get(key);
+        return Boolean(now) && (!was || sameMeaning(was, now as ListingAttribute));
+      });
+      const keptKeys = new Set(kept.map(([key]) => key));
+      // Модель без своей марки не живёт
+      return Object.fromEntries(
+        kept.filter(([key]) => {
+          const parent = upcoming.get(key)?.parentKey;
+          return !parent || keptKeys.has(parent);
+        }),
+      );
+    });
     setTransactionType((current) =>
       current && nextTransactions.includes(current) ? current : undefined,
     );
@@ -296,32 +313,35 @@ export default function ListingFiltersScreen() {
 
   return (
     <Screen scroll footer={footer}>
-      <FormHeader title="Фильтры" description="Уточните, что именно ищете" onBack={leave} />
+      <FormHeader title="Фильтры" onBack={leave} />
 
-      {/* Категория выбирается здесь же: от неё зависит весь набор ниже. Раздел
-          показывает общие для его подкатегорий фильтры, подкатегория — свои */}
-      <FilterSection title="Категория">
+      {/* Категория выбирается здесь же: от неё зависит весь набор ниже.
+          Без выбора — общие фильтры; категория — общие для её подкатегорий;
+          подкатегория добавляет свои. Просто два поля формы, без карточки */}
+      <View style={styles.categoryBlock}>
         <SearchableSelect
-          label="Раздел"
+          compact
+          label="Категория"
           value={currentRoot?.slug}
           options={rootOptions}
           onChange={(next) => changeCategory(next)}
-          placeholder="Все разделы"
-          clearLabel="Все разделы"
+          placeholder="Все категории"
+          clearLabel="Все категории"
           search={false}
         />
         {currentRoot && subOptions.length > 0 && (
           <SearchableSelect
+            compact
             label="Подкатегория"
             value={currentSub}
             options={subOptions}
             onChange={(next) => changeCategory(next ?? currentRoot.slug)}
-            placeholder="Весь раздел"
-            clearLabel="Весь раздел"
+            placeholder={`Все категории в «${currentRoot.name}»`}
+            clearLabel={`Все категории в «${currentRoot.name}»`}
             search={subOptions.length > 12}
           />
         )}
-      </FilterSection>
+      </View>
 
       {transactions.length > 1 && (
         <FilterSection title="Операция">
@@ -371,20 +391,22 @@ export default function ListingFiltersScreen() {
         <View style={styles.row}>
           <View style={styles.half}>
             <TextField
-              value={priceFrom}
-              onChangeText={setPriceFrom}
+              compact
+              value={groupDigits(priceFrom)}
+              onChangeText={(text) => setPriceFrom(onlyDigits(text))}
               placeholder="от"
               keyboardType="number-pad"
-              accessibilityLabel="Цена от"
+              accessibilityLabel={`Цена от, ${activeUnit ? PRICE_UNIT_LABELS[activeUnit] : '₽'}`}
             />
           </View>
           <View style={styles.half}>
             <TextField
-              value={priceTo}
-              onChangeText={setPriceTo}
+              compact
+              value={groupDigits(priceTo)}
+              onChangeText={(text) => setPriceTo(onlyDigits(text))}
               placeholder="до"
               keyboardType="number-pad"
-              accessibilityLabel="Цена до"
+              accessibilityLabel={`Цена до, ${activeUnit ? PRICE_UNIT_LABELS[activeUnit] : '₽'}`}
             />
           </View>
         </View>
@@ -443,7 +465,7 @@ export default function ListingFiltersScreen() {
           <Text style={styles.areaText} numberOfLines={1}>
             {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
           </Text>
-          <Text style={styles.areaChange}>Изменить</Text>
+          <Icon name="chevron-right" size={16} color={colors.textFaint} />
         </Pressable>
       </FilterSection>
 
@@ -497,9 +519,9 @@ export default function ListingFiltersScreen() {
 }
 
 /**
- * Блок экрана фильтров: заголовок и карточка с полями. Карточка — как
- * остальные поверхности приложения (полупрозрачная, с тонкой границей), а не
- * отдельный стиль для раздела.
+ * Блок экрана фильтров: заголовок и поля под ним, отделённые от соседнего
+ * тонкой линией. Без отдельной карточки на каждый блок: десяток карточек
+ * друг под другом — это шум, а не форма.
  */
 function FilterSection({ title, children }: { title: string; children: ReactNode }) {
   const colors = useThemeColors();
@@ -510,7 +532,7 @@ function FilterSection({ title, children }: { title: string; children: ReactNode
       <Text style={styles.sectionTitle} accessibilityRole="header">
         {title}
       </Text>
-      <View style={styles.sectionCard}>{children}</View>
+      <View style={styles.sectionBody}>{children}</View>
     </View>
   );
 }
@@ -569,6 +591,7 @@ function AttributeFilter({
       <View style={styles.block}>
         <Text style={styles.blockTitle}>{attribute.label}</Text>
         <TextField
+          compact
           value={typeof value === 'string' ? value : ''}
           onChangeText={(text) => onChange(text.trim().length > 0 ? text : undefined)}
           placeholder="Часть названия"
@@ -605,23 +628,25 @@ function AttributeFilter({
         <View style={styles.row}>
           <View style={styles.half}>
             <TextField
+              compact
               value={bounds.from === undefined ? '' : String(bounds.from)}
               onChangeText={(text) =>
                 onChange(cleanBounds({ ...bounds, from: text ? Number(toDot(text)) : undefined }))
               }
               placeholder="от"
-              keyboardType="number-pad"
+              keyboardType={attribute.scale ? 'decimal-pad' : 'number-pad'}
               accessibilityLabel={`${attribute.label} от`}
             />
           </View>
           <View style={styles.half}>
             <TextField
+              compact
               value={bounds.to === undefined ? '' : String(bounds.to)}
               onChangeText={(text) =>
                 onChange(cleanBounds({ ...bounds, to: text ? Number(toDot(text)) : undefined }))
               }
               placeholder="до"
-              keyboardType="number-pad"
+              keyboardType={attribute.scale ? 'decimal-pad' : 'number-pad'}
               accessibilityLabel={`${attribute.label} до`}
             />
           </View>
@@ -850,6 +875,27 @@ function periodChoicesOf(
   return (['monthly', 'daily'] as ListingRentPeriod[]).filter((period) => periods.has(period));
 }
 
+/**
+ * Поле значит то же самое в обеих категориях: тот же справочник и тот же
+ * набор вариантов. Иначе значение из прежней категории не имеет смысла.
+ */
+function sameMeaning(a: ListingAttribute, b: ListingAttribute): boolean {
+  if ((a.dictionary ?? null) !== (b.dictionary ?? null)) return false;
+  const values = (field: ListingAttribute) =>
+    (field.options ?? []).map((option) => option.value).join('|');
+  return values(a) === values(b);
+}
+
+/** Только цифры: из «1 500 000 ₽» остаётся 1500000. */
+function onlyDigits(text: string): string {
+  return text.replace(/\D/g, '');
+}
+
+/** Разряды пробелами для чтения: 1500000 → «1 500 000». */
+function groupDigits(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
 /** Сделки категории: у раздела — объединение по подкатегориям. */
 function transactionsOf(
   roots: ListingCategoryDto[],
@@ -875,18 +921,21 @@ function dedupe(fields: ListingAttribute[]): ListingAttribute[] {
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     pressed: { opacity: 0.85 },
-    section: { marginTop: spacing.xl, gap: spacing.sm },
-    sectionTitle: { ...typography.heading, color: colors.text, fontSize: 18 },
-    sectionCard: {
-      gap: spacing.lg,
-      padding: spacing.lg,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+    categoryBlock: { gap: spacing.md, marginTop: spacing.sm },
+    // Блоки — единая форма: тонкая линия сверху и небольшой воздух, а не
+    // «заголовок → карточка → заголовок → карточка»
+    section: {
+      marginTop: spacing.lg,
+      paddingTop: spacing.lg,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.sm,
     },
-    block: { gap: spacing.sm },
-    blockTitle: { ...typography.subheading, color: colors.text, fontSize: 15 },
+    sectionTitle: { ...typography.subheading, color: colors.text, fontSize: 15 },
+    sectionBody: { gap: spacing.md },
+    block: { gap: spacing.xs },
+    // Подпись поля — как подпись у «Категории»: мелкая и спокойная
+    blockTitle: { ...typography.caption, color: colors.textMuted },
     hint: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
     row: { flexDirection: 'row', gap: spacing.md },
     half: { flex: 1 },
@@ -905,7 +954,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       minHeight: 44,
     },
     areaText: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
-    areaChange: { ...typography.caption, color: colors.primary },
     moreRow: {
       flexDirection: 'row',
       alignItems: 'center',

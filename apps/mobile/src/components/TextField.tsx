@@ -9,6 +9,8 @@ interface TextFieldProps extends TextInputProps {
   error?: string | undefined;
   /** Подсказка под полем, когда ошибки нет */
   hint?: string;
+  /** Плотный вариант для экранов с десятком полей (фильтры): ниже и без лишних отступов */
+  compact?: boolean;
 }
 
 /**
@@ -18,7 +20,7 @@ interface TextFieldProps extends TextInputProps {
  * видит, что именно исправить, не теряя из виду само поле.
  */
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
-  { label, error, hint, style, ...props },
+  { label, error, hint, compact = false, style, ...props },
   ref,
 ) {
   const colors = useThemeColors();
@@ -36,7 +38,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         // Сообщаем вспомогательным технологиям, что поле заполнено неверно
         accessibilityState={{ disabled: props.editable === false }}
         {...props}
-        style={[styles.input, hasError && styles.inputError, style]}
+        style={[styles.input, compact && styles.inputCompact, hasError && styles.inputError, style]}
       />
 
       {hasError ? (
@@ -65,6 +67,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       backgroundColor: colors.surface,
       color: colors.text,
     },
+    inputCompact: { minHeight: 44, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
     inputError: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
     error: { ...typography.caption, color: colors.danger },
     hint: { ...typography.caption, color: colors.textFaint },
