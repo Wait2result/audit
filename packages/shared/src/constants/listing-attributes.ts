@@ -779,8 +779,8 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     label: 'Занятость',
     type: 'enum',
     options: [
-      { value: 'full', label: 'Полная' },
-      { value: 'part', label: 'Частичная' },
+      { value: 'full', label: 'Полная', cardLabel: 'Полная занятость' },
+      { value: 'part', label: 'Частичная', cardLabel: 'Частичная занятость' },
       { value: 'shift', label: 'Вахта' },
       { value: 'temporary', label: 'Подработка' },
       { value: 'internship', label: 'Стажировка' },
@@ -1895,6 +1895,38 @@ function hasOwnName(attribute: AttributeDefinition, value: unknown): boolean {
  * Строка характеристик под заголовком карточки: «2 комн. · 54,5 м² · 3/9 эт.».
  * Чистая функция — одинаково работает в списке, в карточке и в тесте.
  */
+/**
+ * Значение одного поля коротким текстом для карточки: «54 м²», «Автомат»,
+ * «3/9 эт.». Пусто, если показывать нечего.
+ */
+export function describeAttribute(
+  attribute: ListingAttribute,
+  values: Record<string, unknown>,
+  dictionaryLabels?: Readonly<Record<string, string>>,
+): string | null {
+  const value = values[attribute.key];
+  if (value === null || value === undefined || value === '') return null;
+
+  // Этаж читается только вместе с этажностью: «3/9 эт.», а не «3» и «9»
+  // в разных концах строки
+  if (attribute.key === 'floor') {
+    const floor = plainText(value);
+    const floors = plainText(values.floorsTotal);
+    return floors ? `${floor}/${floors} эт.` : `${floor} эт.`;
+  }
+  // Выключенный флажок в строке характеристик не нужен: «Балкон: нет» —
+  // это не то, ради чего человек читает карточку
+  if (attribute.type === 'boolean') return value ? attribute.label : null;
+
+  const cardLabel = attribute.options?.find((option) => option.value === value)?.cardLabel;
+  if (cardLabel) return cardLabel;
+
+  const text = attributeValueLabel(attribute, value, dictionaryLabels);
+  if (!text) return null;
+  const withUnit = attribute.shortLabel && !hasOwnName(attribute, value);
+  return withUnit ? `${text} ${attribute.shortLabel}` : text;
+}
+
 export function describeAttributes(
   attributes: readonly ListingAttribute[],
   values: Record<string, unknown>,
@@ -1904,37 +1936,8 @@ export function describeAttributes(
 
   for (const attribute of attributes) {
     if (!attribute.showInCard) continue;
-    const value = values[attribute.key];
-    if (value === null || value === undefined || value === '') continue;
-
-    // Этаж читается только вместе с этажностью: «3/9 эт.», а не «3» и «9»
-    // в разных концах строки
-    if (attribute.key === 'floor') {
-      const total = values.floorsTotal;
-      const floor = plainText(value);
-      const floors = plainText(total);
-      parts.push(floors ? `${floor}/${floors} эт.` : `${floor} эт.`);
-      continue;
-    }
-    // Выключенный флажок в строке характеристик не нужен: «Балкон: нет» —
-    // это не то, ради чего человек читает карточку
-    if (attribute.type === 'boolean' && !value) continue;
-
-    if (attribute.type === 'boolean') {
-      parts.push(attribute.label);
-      continue;
-    }
-
-    const cardLabel = attribute.options?.find((option) => option.value === value)?.cardLabel;
-    if (cardLabel) {
-      parts.push(cardLabel);
-      continue;
-    }
-
-    const text = attributeValueLabel(attribute, value, dictionaryLabels);
-    if (!text) continue;
-    const withUnit = attribute.shortLabel && !hasOwnName(attribute, value);
-    parts.push(withUnit ? `${text} ${attribute.shortLabel}` : text);
+    const text = describeAttribute(attribute, values, dictionaryLabels);
+    if (text) parts.push(text);
   }
 
   return parts.join(' · ');

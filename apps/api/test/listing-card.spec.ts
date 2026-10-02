@@ -1,8 +1,15 @@
 import {
+  CARD_FACTS,
   DAGESTAN_BOUNDS,
   boundsAround,
   cardEmphasis,
   cardFacts,
+  cardFactSpecs,
+  bindingsOf,
+  describeCardFacts,
+  findSeedCategory,
+  resolveAttributes,
+  type ListingAttribute,
   formatListingAge,
   formatPriceCompact,
   formatViewsShort,
@@ -114,11 +121,19 @@ describe('cardFacts', () => {
     ).toEqual(['2015', '242 000 км', 'Механика']);
   });
 
-  it('сдачу оставляет: «Сдам надолго» — это характеристика', () => {
-    expect(cardFacts('Сдам надолго · 2 комн. · 54 м²', 'Квартира у моря', 4)).toEqual([
-      'Сдам надолго',
-      '2 комн.',
-      '54 м²',
+  it('обычную операцию убирает — о ней говорит цена и её единица', () => {
+    for (const label of ['Продам', 'Сдам', 'Сдам в аренду', 'Сдам надолго', 'Сдам посуточно']) {
+      expect(cardFacts(`${label} · 2 комн. · 54 м²`, 'Квартира у моря', 4), label).toEqual([
+        '2 комн.',
+        '54 м²',
+      ]);
+    }
+  });
+
+  it('«Отдам бесплатно» и «Вязка» остаются — цены у них нет', () => {
+    expect(cardFacts('Отдам бесплатно · Лабрадор', 'Щенок', 4)).toEqual([
+      'Отдам бесплатно',
+      'Лабрадор',
     ]);
   });
 
@@ -182,5 +197,133 @@ describe('boundsAround', () => {
   it('границы Дагестана корректны (юг < север, запад < восток)', () => {
     expect(DAGESTAN_BOUNDS.south).toBeLessThan(DAGESTAN_BOUNDS.north);
     expect(DAGESTAN_BOUNDS.west).toBeLessThan(DAGESTAN_BOUNDS.east);
+  });
+});
+
+describe('describeCardFacts: приоритеты категорий', () => {
+  const attrs = (slug: string): readonly ListingAttribute[] => {
+    const category = findSeedCategory(slug);
+    if (!category) throw new Error(`Нет категории ${slug}`);
+    return resolveAttributes(bindingsOf(category));
+  };
+  const facts = (
+    slug: string,
+    values: Record<string, unknown>,
+    labels: Record<string, string> = {},
+    limit = 4,
+  ) => describeCardFacts(slug, attrs(slug), values, labels, limit);
+
+  it('квартира: площадь, комнаты, этаж — без отопления, ремонта и материала стен', () => {
+    const text = facts('realty-flats', {
+      areaTotal: 600,
+      rooms: 2,
+      floor: 8,
+      floorsTotal: 12,
+      renovation: 'euro',
+      bathroom: 'combined',
+      balcony: true,
+      lift: true,
+    });
+    expect(text).toBe('60 м² · 2 комн. · 8/12 эт.');
+  });
+
+  it('автомобиль: марка с моделью одним словом, год, пробег — без VIN', () => {
+    const text = facts(
+      'transport-cars',
+      {
+        brand: 'toyota',
+        model: 'camry',
+        year: 2019,
+        mileage: 80_000,
+        vin: 'XTA123',
+        color: 'white',
+      },
+      { toyota: 'Toyota', camry: 'Camry' },
+    );
+    // «80 000» с неразрывным пробелом: число не должно переноситься
+    expect(text?.split(String.fromCharCode(160)).join(' ')).toBe('Toyota Camry · 2019 · 80 000 км');
+    expect(text).not.toContain('XTA');
+  });
+
+  it('телефон: модель, память, состояние', () => {
+    const text = facts(
+      'electronics-phones',
+      { brand: 'apple', model: 'iphone_15', memory: '256', condition: 'used' },
+      { apple: 'Apple', iphone_15: 'iPhone 15' },
+    );
+    expect(text?.startsWith('Apple iPhone 15 · ')).toBe(true);
+  });
+
+  it('число характеристик ограничено: три на главной, четыре в поиске', () => {
+    const values = {
+      brand: 'toyota',
+      model: 'camry',
+      year: 2019,
+      mileage: 80_000,
+      engineVolume: 25,
+      gearbox: 'auto',
+    };
+    const labels = { toyota: 'Toyota', camry: 'Camry' };
+    expect(facts('transport-cars', values, labels, 3)?.split(' · ')).toHaveLength(3);
+    expect(facts('transport-cars', values, labels, 4)?.split(' · ')).toHaveLength(4);
+  });
+
+  it('незаполненное и несуществующее пропускается', () => {
+    expect(facts('realty-flats', { areaTotal: 450 })).toBe('45 м²');
+    expect(facts('realty-flats', {})).toBe('');
+  });
+
+  it('вакансия: «Удалённо» не повторяется флажком «Удалённая работа»', () => {
+    const remote = facts('job-vacancies', { employment: 'full', schedule: 'remote', remote: true });
+    expect(remote?.split(' · ').filter((fact) => /удал/i.test(fact))).toHaveLength(1);
+    const office = facts('job-vacancies', {
+      employment: 'full',
+      schedule: 'five_two',
+      remote: true,
+    });
+    expect(office).toContain('Удалённая работа');
+  });
+
+  it('раздел «Услуги»: вид услуги и формат из общего списка раздела', () => {
+    const text = facts('services-repair', { repairType: ['plumbing'], serviceFormat: 'visit' });
+    expect(text).toBeTruthy();
+  });
+
+  it('категория без приоритетов — null: берётся прежний набор по флагам', () => {
+    expect(describeCardFacts('no-such-category', [], {})).toBeNull();
+    expect(cardFactSpecs('no-such-category')).toBeNull();
+  });
+
+  it('все ключи конфигурации есть хотя бы у одной категории', () => {
+    // Опечатка в ключе молча выкинула бы характеристику из карточки
+    const allKeys = new Set<string>();
+    for (const root of [
+      'transport',
+      'realty',
+      'electronics',
+      'home',
+      'personal',
+      'services',
+      'job',
+      'animals',
+      'hobby',
+      'business',
+    ]) {
+      for (const child of findSeedCategory(root)?.children ?? []) {
+        for (const attribute of attrs(child.slug)) allKeys.add(attribute.key);
+      }
+    }
+
+    for (const [slug, specs] of Object.entries(CARD_FACTS)) {
+      for (const spec of specs) {
+        const keys: readonly string[] =
+          typeof spec === 'string'
+            ? [spec]
+            : Array.isArray(spec)
+              ? spec
+              : (spec as { keys: readonly string[] }).keys;
+        for (const key of keys) expect(allKeys.has(key), `${slug}: ${key}`).toBe(true);
+      }
+    }
   });
 });

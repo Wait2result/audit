@@ -2,6 +2,7 @@ import {
   APPROXIMATE_AREA_METERS,
   LISTING_CONDITION_LABELS,
   attributeValueLabel,
+  cardFacts,
   formatListingAge,
   plural,
   type ListingAttribute,
@@ -90,6 +91,8 @@ export default function ListingScreen() {
 
   const photos = listing.photos;
   const attributes = attributesOfCategory(categories.data ?? [], listing.categorySlug);
+  // Главное о вещи — одной строкой под названием; полный набор ниже, после описания
+  const keyFacts = cardFacts(listing.attributesSummary, listing.title, 4);
 
   const openPhone = () => {
     if (phone) {
@@ -136,13 +139,13 @@ export default function ListingScreen() {
                 key={photo.id}
                 uri={photo.url}
                 style={[styles.photo, { width: galleryWidth.current }]}
-                fallback={<Icon name="image" size={40} color="rgba(255,255,255,0.45)" />}
+                fallback={<Icon name="image" size={40} color={colors.primary} />}
               />
             ))}
           </ScrollView>
         ) : (
           <View style={[styles.photo, styles.photoPlaceholder]}>
-            <Icon name="image" size={40} color="rgba(255,255,255,0.45)" />
+            <Icon name="image" size={40} color={colors.primary} />
           </View>
         )}
 
@@ -196,104 +199,107 @@ export default function ListingScreen() {
         <Text style={styles.price}>{formatPrice(listing)}</Text>
         <Text style={styles.title}>{listing.title}</Text>
 
-        {/* Место — отдельной строкой и первым: «где» человек спрашивает
-            раньше, чем «когда разместили» */}
-        <View style={styles.metaRow}>
-          <Icon name="location" size={13} color={colors.textFaint} />
-          <Text style={styles.meta}>{placeLine(listing)}</Text>
-        </View>
+        {/* Место, возраст и просмотры — одна тихая строка: цена и название
+            остаются главным, а «где» и «когда» читаются рядом */}
+        <Text style={styles.meta}>
+          {placeLine(listing)} · {formatListingAge(listing.bumpedAt)} · {listing.viewsCount}{' '}
+          {plural(listing.viewsCount, 'просмотр', 'просмотра', 'просмотров')}
+        </Text>
 
-        <View style={styles.metaRow}>
-          <Icon name="clock" size={13} color={colors.textFaint} />
-          <Text style={styles.meta}>
-            {formatListingAge(listing.bumpedAt)} · {listing.viewsCount}{' '}
-            {plural(listing.viewsCount, 'просмотр', 'просмотра', 'просмотров')}
-          </Text>
-        </View>
-
-        {attributes.length > 0 && (
-          <View style={styles.card}>
-            {attributes
-              .filter((attribute) => listing.attributes[attribute.key] !== undefined)
-              .map((attribute) => (
-                <AttributeRow
-                  key={attribute.key}
-                  attribute={attribute}
-                  value={listing.attributes[attribute.key]}
-                  labels={listing.attributeLabels}
-                />
-              ))}
-
-            {listing.condition && !listing.attributes.condition && (
-              <View style={styles.attributeRow}>
-                <Text style={styles.attributeLabel}>Состояние</Text>
-                <Text style={styles.attributeValue}>
-                  {LISTING_CONDITION_LABELS[listing.condition]}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+        {keyFacts.length > 0 && <Text style={styles.keyFacts}>{keyFacts.join(' · ')}</Text>}
 
         <Text style={styles.sectionTitle}>Описание</Text>
         <Text style={styles.description}>{listing.description}</Text>
 
-        <Text style={styles.sectionTitle}>Где находится</Text>
-        <View style={styles.metaRow}>
-          <Icon name="location" size={15} color={colors.primary} />
+        {attributes.some((attribute) => listing.attributes[attribute.key] !== undefined) && (
+          <>
+            <Text style={styles.sectionTitle}>Характеристики</Text>
+            {/* Строки с тонкими разделителями, без отдельной карточки вокруг */}
+            <View>
+              {attributes
+                .filter((attribute) => listing.attributes[attribute.key] !== undefined)
+                .map((attribute) => (
+                  <AttributeRow
+                    key={attribute.key}
+                    attribute={attribute}
+                    value={listing.attributes[attribute.key]}
+                    labels={listing.attributeLabels}
+                  />
+                ))}
+
+              {listing.condition && !listing.attributes.condition && (
+                <View style={styles.attributeRow}>
+                  <Text style={styles.attributeLabel}>Состояние</Text>
+                  <Text style={styles.attributeValue}>
+                    {LISTING_CONDITION_LABELS[listing.condition]}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        <View style={styles.divided}>
+          <Text style={styles.sectionTitleFirst}>Продавец</Text>
+          {/* Блок продавца — часть страницы, а не отдельная кнопка: нажатие
+              открывает его публичную страницу со всеми объявлениями */}
+          <Pressable
+            onPress={() =>
+              router.push({ pathname: '/sellers/[id]', params: { id: listing.seller.id } })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Продавец ${listing.seller.name}. Открыть профиль`}
+            style={({ pressed }) => [styles.sellerRow, pressed && styles.pressed]}
+          >
+            <SellerAvatar name={listing.seller.name} avatar={listing.seller.avatar} />
+            <View style={styles.sellerTexts}>
+              <Text style={styles.sellerName}>{listing.seller.name}</Text>
+              <Text style={styles.sellerMeta}>
+                {[
+                  `На площадке с ${formatMemberSince(listing.seller.memberSince)}`,
+                  sellerProfile.data?.isVerified ? 'телефон подтверждён' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+              <Text style={styles.sellerMeta}>
+                {[
+                  sellerProfile.data
+                    ? `${sellerProfile.data.activeCount} ${plural(sellerProfile.data.activeCount, 'объявление', 'объявления', 'объявлений')}`
+                    : null,
+                  listing.seller.rating.count > 0
+                    ? `★ ${listing.seller.rating.average.toFixed(1).replace('.', ',')} (${listing.seller.rating.count})`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            </View>
+            <Icon name="chevron-right" size={18} color={colors.textFaint} />
+          </Pressable>
+        </View>
+
+        <View style={styles.divided}>
+          <Text style={styles.sectionTitleFirst}>Где находится</Text>
           <Text style={styles.address}>
             {[listing.location.label, listing.location.address].filter(Boolean).join(', ')}
           </Text>
+          {listing.location.point && (
+            // Скрытый адрес — круг «примерно здесь» вокруг округлённой точки,
+            // а не булавка: иначе булавка на округлённой точке выглядела бы
+            // точным адресом чужого дома
+            <LeafletMap
+              center={listing.location.point}
+              zoom={listing.location.isApproximate ? 14 : 16}
+              marker={listing.location.point}
+              areaMeters={listing.location.isApproximate ? APPROXIMATE_AREA_METERS : null}
+              style={styles.map}
+            />
+          )}
+          {listing.location.isApproximate && (
+            <Text style={styles.mapHint}>Продавец показывает место примерно, без номера дома.</Text>
+          )}
         </View>
-        {listing.location.point && (
-          // Скрытый адрес — круг «примерно здесь» вокруг округлённой точки,
-          // а не булавка: иначе булавка на округлённой точке выглядела бы
-          // точным адресом чужого дома
-          <LeafletMap
-            center={listing.location.point}
-            zoom={listing.location.isApproximate ? 14 : 16}
-            marker={listing.location.point}
-            areaMeters={listing.location.isApproximate ? APPROXIMATE_AREA_METERS : null}
-            style={styles.map}
-          />
-        )}
-        {listing.location.isApproximate && (
-          <Text style={styles.mapHint}>Продавец показывает место примерно, без номера дома.</Text>
-        )}
-
-        <Text style={styles.sectionTitle}>Продавец</Text>
-        {/* Блок продавца — часть карточки, а не отдельная кнопка: нажатие
-            открывает его публичную страницу со всеми объявлениями */}
-        <Pressable
-          onPress={() =>
-            router.push({ pathname: '/sellers/[id]', params: { id: listing.seller.id } })
-          }
-          accessibilityRole="button"
-          accessibilityLabel={`Продавец ${listing.seller.name}. Открыть профиль`}
-          style={({ pressed }) => [styles.sellerRow, pressed && styles.pressed]}
-        >
-          <SellerAvatar name={listing.seller.name} avatar={listing.seller.avatar} />
-          <View style={styles.sellerTexts}>
-            <Text style={styles.sellerName}>{listing.seller.name}</Text>
-            <Text style={styles.sellerMeta}>
-              На площадке с {formatMemberSince(listing.seller.memberSince)}
-            </Text>
-            <Text style={styles.sellerMeta}>
-              {[
-                sellerProfile.data?.isVerified ? 'Телефон подтверждён' : null,
-                sellerProfile.data
-                  ? `${sellerProfile.data.activeCount} ${plural(sellerProfile.data.activeCount, 'объявление', 'объявления', 'объявлений')}`
-                  : null,
-                listing.seller.rating.count > 0
-                  ? `★ ${listing.seller.rating.average.toFixed(1).replace('.', ',')} (${listing.seller.rating.count})`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          </View>
-          <Icon name="chevron-right" size={18} color={colors.textFaint} />
-        </Pressable>
 
         {!listing.isMine && listing.availability !== 'active' ? (
           // Проданное и снятое — история продавца: страница открывается, но
@@ -475,7 +481,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     photoPlaceholder: {
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.inkSoft,
+      backgroundColor: colors.primarySoft,
     },
     counter: {
       position: 'absolute',
@@ -527,27 +533,32 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     body: { padding: spacing.lg, gap: spacing.xs },
     price: { ...typography.title, color: colors.text },
     title: { ...typography.subheading, color: colors.text },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-    meta: { ...typography.caption, color: colors.textFaint, marginRight: spacing.sm },
+    meta: { ...typography.caption, color: colors.textFaint, marginTop: 2 },
+    // Главное о вещи — заметнее мета-строки, но тише цены и названия
+    keyFacts: { ...typography.body, color: colors.text, marginTop: spacing.md },
 
-    card: {
-      marginTop: spacing.lg,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingHorizontal: spacing.lg,
-    },
+    // Строка характеристики: тонкая линия снизу вместо карточки вокруг списка
     attributeRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       gap: spacing.md,
       paddingVertical: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
     },
     attributeLabel: { ...typography.body, color: colors.textMuted, flexShrink: 1 },
     attributeValue: { ...typography.body, color: colors.text, fontWeight: '600' },
 
     sectionTitle: { ...typography.subheading, color: colors.text, marginTop: spacing.xl },
+    sectionTitleFirst: { ...typography.subheading, color: colors.text },
+    // Раздел отделён линией и воздухом, а не рамкой
+    divided: {
+      marginTop: spacing.xl,
+      paddingTop: spacing.xl,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.sm,
+    },
     description: { ...typography.body, color: colors.textMuted, lineHeight: 22 },
     address: { ...typography.body, color: colors.text, flexShrink: 1 },
     map: { height: 180, marginTop: spacing.md },
@@ -557,7 +568,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.md,
-      marginTop: spacing.sm,
     },
     avatar: {
       width: 44,

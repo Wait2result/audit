@@ -7,6 +7,7 @@ import {
   approximatePoint,
   defaultPriceUnit,
   describeAttributes,
+  describeCardFacts,
   distanceKm,
   rentPeriodUnit,
   transactionCardLabel,
@@ -806,8 +807,13 @@ export class ListingsService {
   ): string {
     const attributes = catalogue.attributesOf(row.categoryId);
     const values = this.allAttributes(row);
-    const summary = describeAttributes(attributes, values, catalogue.labelsFor(attributes, values));
+    const labels = catalogue.labelsFor(attributes, values);
     const category = catalogue.findById(row.categoryId);
+    // Приоритеты категории (CARD_FACTS): самое нужное для сравнения, а не все
+    // заполненные поля. Нет приоритетов — прежний набор по флагу «в карточке»
+    const summary =
+      (category && describeCardFacts(category.slug, attributes, values, labels)) ??
+      describeAttributes(attributes, values, labels);
     // Подпись сделки — только там, где сделок несколько: «Продам диван»
     // в категории, где иначе и не бывает, — шум
     const transaction =

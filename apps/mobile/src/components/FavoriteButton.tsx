@@ -21,11 +21,14 @@ export function FavoriteButton({
   isFavorite,
   onToggle,
   onDark = false,
+  compact = false,
   size = 22,
 }: {
   isFavorite: boolean;
   onToggle: () => void;
   onDark?: boolean;
+  /** Меньший кружок поверх фотографии карточки; зона нажатия остаётся не меньше 44 pt */
+  compact?: boolean;
   size?: number;
 }) {
   const colors = useThemeColors();
@@ -35,8 +38,13 @@ export function FavoriteButton({
       accessibilityRole="button"
       accessibilityLabel={isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
       accessibilityState={{ selected: isFavorite }}
-      hitSlop={10}
-      style={({ pressed }) => [styles.button, onDark && styles.onDark, pressed && styles.pressed]}
+      hitSlop={compact ? 8 : 10}
+      style={({ pressed }) => [
+        styles.button,
+        onDark && styles.onDark,
+        onDark && compact && styles.onDarkCompact,
+        pressed && styles.pressed,
+      ]}
     >
       <Icon
         name="heart"
@@ -61,5 +69,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
   },
+  onDarkCompact: { width: 32, height: 32, minWidth: 32, minHeight: 32 },
   pressed: { opacity: 0.6, transform: [{ scale: 0.92 }] },
 });

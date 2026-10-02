@@ -13,8 +13,9 @@ import { RemoteImage } from './RemoteImage';
  *   - первая фотография — обложка (её видно в ленте), у неё рамка и метка;
  *   - «★» на любой другой делает её обложкой — переносит в начало;
  *   - стрелки двигают фото на место левее или правее, «×» убирает его.
- * Пока фото нет — не пустая пунктирная рамка, а понятная карточка с
- * кнопкой: что сделать и зачем.
+ * Пока фото нет — одна спокойная область «Добавить фото» и строка подсказки;
+ * в сетке её продолжает такая же плитка «Добавить». Без крупных заливок и
+ * длинных пояснений: фото — обычное поле формы, а не рекламный блок.
  */
 export function PhotoGridEditor({
   photos,
@@ -45,38 +46,22 @@ export function PhotoGridEditor({
         accessibilityLabel="Добавить фотографии"
         style={({ pressed }) => [styles.empty, pressed && styles.pressed]}
       >
-        <View style={styles.emptyIcon}>
-          {uploading ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Icon name="image" size={28} color={colors.primary} />
-          )}
-        </View>
-        <Text style={styles.emptyTitle}>
-          {uploading ? 'Загружаем фото…' : 'Добавьте фотографии'}
-        </Text>
-        <Text style={styles.emptyText}>
-          До {LISTING_MAX_PHOTOS} фото. Первое станет обложкой — его видно в ленте. С фото
-          объявление смотрят чаще.
-        </Text>
-        {!uploading && (
-          <View style={styles.emptyButton}>
-            <Icon name="plus" size={16} color={colors.textOnPrimary} />
-            <Text style={styles.emptyButtonLabel}>Выбрать фото</Text>
-          </View>
+        {uploading ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
+          <Icon name="plus" size={22} color={colors.primary} />
         )}
+        <Text style={styles.emptyTitle}>{uploading ? 'Загружаем фото…' : 'Добавить фото'}</Text>
+        <Text style={styles.emptyText}>До {LISTING_MAX_PHOTOS} · первое станет обложкой</Text>
       </Pressable>
     );
   }
 
   return (
     <View style={styles.wrapper}>
-      <View style={styles.header}>
-        <Text style={styles.counter}>
-          {photos.length} из {LISTING_MAX_PHOTOS}
-        </Text>
-        <Text style={styles.hint}>Первое фото — обложка</Text>
-      </View>
+      <Text style={styles.hint}>
+        {photos.length} из {LISTING_MAX_PHOTOS} · первое — обложка
+      </Text>
 
       <View style={styles.grid}>
         {photos.map((photo, index) => {
@@ -87,7 +72,7 @@ export function PhotoGridEditor({
                 uri={photo.thumbnailUrl ?? photo.url}
                 style={styles.photo}
                 containerStyle={styles.photoPlaceholder}
-                fallback={<Icon name="image" size={20} color="rgba(255,255,255,0.5)" />}
+                fallback={<Icon name="image" size={20} color={colors.primary} />}
               />
 
               {isCover && (
@@ -146,9 +131,7 @@ export function PhotoGridEditor({
                 <ActivityIndicator color={colors.primary} />
               ) : (
                 <>
-                  <View style={styles.addIcon}>
-                    <Icon name="plus" size={18} color={colors.primary} />
-                  </View>
+                  <Icon name="plus" size={20} color={colors.primary} />
                   <Text style={styles.addLabel}>Добавить</Text>
                 </>
               )}
@@ -192,47 +175,28 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     pressed: { opacity: 0.85 },
     wrapper: { gap: spacing.sm },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-    counter: { ...typography.caption, color: colors.text, fontWeight: '600' },
     hint: { ...typography.caption, color: colors.textMuted },
 
+    // Область добавления: тонкая пунктирная рамка без заливки — как поле
+    // формы, а не рекламная плашка
     empty: {
-      alignItems: 'center',
-      gap: spacing.sm,
-      paddingVertical: spacing.xl,
-      paddingHorizontal: spacing.lg,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    emptyIcon: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
+      minHeight: 112,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primarySoft,
-      marginBottom: spacing.xs,
-    },
-    emptyTitle: { ...typography.subheading, color: colors.text },
-    emptyText: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
-    emptyButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginTop: spacing.sm,
+      gap: 4,
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      borderRadius: radius.full,
-      backgroundColor: colors.primary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: colors.borderStrong,
     },
-    emptyButtonLabel: { ...typography.caption, color: colors.textOnPrimary, fontWeight: '600' },
+    emptyTitle: { ...typography.body, color: colors.primary, fontWeight: '600' },
+    emptyText: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: {
       width: '31.5%',
-      aspectRatio: 3 / 4,
+      aspectRatio: 1,
       borderRadius: radius.md,
       overflow: 'hidden',
       backgroundColor: colors.surfaceMuted,
@@ -246,7 +210,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       height: '100%',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.inkSoft,
+      backgroundColor: colors.primarySoft,
     },
     coverBadge: {
       position: 'absolute',
@@ -284,7 +248,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     tool: { padding: 4 },
     toolSpacer: { width: 22 },
 
-    add: { backgroundColor: colors.surface },
+    add: {
+      backgroundColor: 'transparent',
+      borderStyle: 'dashed',
+      borderColor: colors.borderStrong,
+    },
     // Слой на всю плитку: на вебе Pressable не всегда растягивается по
     // высоте, и центрирование внутри него съезжало
     addInner: {
@@ -296,14 +264,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
-    },
-    addIcon: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.primarySoft,
     },
     addLabel: { ...typography.caption, color: colors.primary, fontWeight: '600' },
   });

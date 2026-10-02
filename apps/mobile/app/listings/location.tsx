@@ -189,7 +189,10 @@ function LocationEditor() {
   };
 
   return (
-    <Screen padded={false}>
+    <Screen
+      padded={false}
+      footer={<Button label="Показать объявления" onPress={submit} fullWidth />}
+    >
       <ScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.content}
@@ -360,11 +363,6 @@ function LocationEditor() {
               : `${label} и всё в радиусе ${radiusKm} км`}
           </Text>
         </View>
-        <Text style={styles.hint}>
-          Нажмите на карту или перетащите метку, чтобы искать от другой точки.
-        </Text>
-
-        <Button label="Показать объявления" onPress={submit} fullWidth style={styles.submit} />
       </ScrollView>
     </Screen>
   );
@@ -395,13 +393,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     searchInput: { ...typography.body, color: colors.text, flex: 1, paddingVertical: spacing.sm },
 
-    rows: {
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: 'hidden',
-    },
+    // Обычные строки с тонкими линиями, без карточки вокруг списка
+    rows: {},
     row: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -409,11 +402,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       minHeight: 48,
       paddingHorizontal: spacing.md,
     },
-    rowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+    rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
     rowAccent: { ...typography.body, color: colors.primary, fontWeight: '600' },
     rowText: { ...typography.body, color: colors.text, flex: 1 },
     clearRecent: {
-      borderTopWidth: 1,
+      borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
       paddingVertical: spacing.sm,
       alignItems: 'center',
@@ -424,10 +417,10 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     sectionLabel: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
     radii: { gap: spacing.sm, paddingVertical: 2 },
     radius: {
+      minHeight: 40,
+      justifyContent: 'center',
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
       borderRadius: radius.full,
-      backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -438,6 +431,4 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     map: { height: 300 },
     summary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     summaryText: { ...typography.body, color: colors.text, flex: 1 },
-    hint: { ...typography.caption, color: colors.textMuted, marginTop: -spacing.xs },
-    submit: { marginTop: spacing.sm },
   });

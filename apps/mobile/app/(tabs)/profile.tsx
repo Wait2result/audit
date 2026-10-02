@@ -196,7 +196,7 @@ export default function ProfileScreen() {
           </Pressable>
 
           <View style={styles.themeRow}>
-            <Icon name="settings" size={22} color={colors.textMuted} />
+            <Icon name="sun" size={22} color={colors.textMuted} />
             <Text style={styles.menuTitle}>Тема</Text>
             <View style={styles.themeSwitch}>
               {THEME_OPTIONS.map((option) => {

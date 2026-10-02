@@ -382,6 +382,13 @@ export default function ListingsListScreen() {
         ListEmptyComponent={
           feed.isLoading ? (
             <ActivityIndicator color={colors.primary} style={styles.loader} />
+          ) : feed.isError ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Не удалось загрузить объявления.</Text>
+              <Pressable onPress={() => void feed.refetch()} accessibilityRole="button">
+                <Text style={styles.resetLink}>Повторить</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
@@ -516,16 +523,13 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     mapScreen: { flex: 1 },
     mapHeader: { paddingHorizontal: spacing.lg },
+    // Без собственной рамки и подложки: выбранный режим виден по тону, а
+    // не по ещё одной капсуле вокруг двух слов
     modeSwitch: {
       flexDirection: 'row',
       alignSelf: 'flex-start',
       gap: spacing.xs,
-      padding: 3,
-      marginTop: spacing.md,
-      borderRadius: radius.full,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+      marginTop: spacing.sm,
     },
     modeOption: {
       flexDirection: 'row',
@@ -589,28 +593,23 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
 
     // Две кнопки в ряд: «где искать» и «как отсортировать». Рядом, потому
     // что это один и тот же вопрос — что показать первым
+    // Обычные строки без рамок: слева место, справа порядок. Разделены
+    // отступом, а не капсулами
     controls: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.sm,
+      justifyContent: 'space-between',
+      gap: spacing.md,
     },
     controlRow: {
-      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
       gap: 4,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: radius.full,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+      minHeight: 44,
     },
-    sortLabel: { ...typography.caption, color: colors.primary, flexShrink: 1 },
+    sortLabel: { ...typography.caption, color: colors.text, flexShrink: 1 },
     // Место — главное условие выдачи, ему больше места, чем сортировке
-    areaRow: { flex: 1.6 },
+    areaRow: { flexShrink: 1 },
     sortList: {
       borderRadius: radius.md,
       backgroundColor: colors.surface,

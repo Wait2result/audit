@@ -133,7 +133,6 @@ export default function ListingsScreen() {
       <View style={styles.topRow}>
         <View style={styles.titleBlock}>
           <Text style={styles.title}>Объявления</Text>
-          <Text style={styles.subtitle}>Покупайте, продавайте, находите рядом</Text>
         </View>
 
         <Pressable
@@ -199,7 +198,7 @@ export default function ListingsScreen() {
         <Text style={styles.areaLabel} numberOfLines={1}>
           {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
         </Text>
-        <Text style={styles.areaChange}>Изменить</Text>
+        <Icon name="chevron-down" size={14} color={colors.textMuted} />
       </Pressable>
 
       <View style={styles.shortcuts}>
@@ -306,6 +305,7 @@ export default function ListingsScreen() {
           <ListingCard
             listing={item}
             layout={layout}
+            maxFacts={3}
             onOpen={() => router.push({ pathname: '/listings/[id]', params: { id: item.id } })}
             onToggleFavorite={() => toggleListing(item)}
           />
@@ -317,6 +317,13 @@ export default function ListingsScreen() {
         ListEmptyComponent={
           feed.isLoading ? (
             <ActivityIndicator color={colors.primary} style={styles.loader} />
+          ) : feed.isError ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Не удалось загрузить объявления.</Text>
+              <Pressable onPress={() => void feed.refetch()} accessibilityRole="button">
+                <Text style={styles.resetLink}>Повторить</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
@@ -364,16 +371,16 @@ function SectionButton({
       style={styles.categoryCell}
     >
       <View style={[styles.categoryIcon, active && styles.categoryIconActive]}>
-        <Icon name={icon} size={28} color={colors.primary} />
+        <Icon name={icon} size={26} color={colors.primary} />
       </View>
-      <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]} numberOfLines={2}>
+      <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
   );
 }
 
-/** Компактная карточка быстрого перехода: иконка, название и сколько внутри. */
+/** Быстрый переход: значок, название и сколько внутри — без собственной рамки. */
 function Shortcut({
   icon,
   label,
@@ -399,15 +406,9 @@ function Shortcut({
       }
       style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
     >
-      <View style={styles.shortcutIcon}>
-        <Icon name={icon} size={18} color={colors.primary} />
-      </View>
-      <View style={styles.shortcutText}>
-        <Text style={styles.shortcutLabel} numberOfLines={1}>
-          {label}
-        </Text>
-        {count !== undefined && <Text style={styles.shortcutCount}>{count}</Text>}
-      </View>
+      <Icon name={icon} size={18} color={colors.primary} />
+      <Text style={styles.shortcutLabel}>{label}</Text>
+      {count !== undefined && <Text style={styles.shortcutCount}>{count}</Text>}
     </Pressable>
   );
 }
@@ -427,7 +428,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     titleBlock: { flexShrink: 1 },
     title: { ...typography.title, color: colors.text },
-    subtitle: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
 
     publishButton: {
       flexDirection: 'row',
@@ -444,48 +444,26 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
 
     // Кнопка фильтров стоит вровень с полем ввода, а подсказки под полем
     // растягивают только левую ячейку
+    // Где искать — обычная строка, а не ещё одна капсула рядом с полем поиска:
+    // отделяется от него отступом
     areaRow: {
       flexDirection: 'row',
       alignItems: 'center',
       alignSelf: 'flex-start',
       maxWidth: '100%',
-      // Отдельно от поиска: это другая настройка — где, а не что
-      marginTop: spacing.md,
+      minHeight: 44,
       gap: 6,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      marginBottom: spacing.md,
-      borderRadius: radius.full,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
     },
-    shortcuts: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+    shortcuts: { flexDirection: 'row', gap: spacing.xl, marginBottom: spacing.sm },
     shortcut: {
-      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      minHeight: 52,
-      paddingHorizontal: spacing.md,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+      minHeight: 44,
     },
-    shortcutIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: radius.full,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surfaceMuted,
-    },
-    shortcutText: { flex: 1, minWidth: 0 },
-    shortcutLabel: { ...typography.caption, color: colors.text, fontWeight: '600' },
-    shortcutCount: { ...typography.label, color: colors.textMuted },
+    shortcutLabel: { ...typography.body, color: colors.text },
+    shortcutCount: { ...typography.caption, color: colors.textMuted },
     areaLabel: { ...typography.body, color: colors.text, fontWeight: '600', flexShrink: 1 },
-    areaChange: { ...typography.caption, color: colors.primary },
     searchRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -521,27 +499,22 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
 
     // Лента выходит за поля экрана: так видно, что прокручивается дальше
     categoriesScroll: { marginHorizontal: -spacing.lg },
-    categoriesContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-    categoryCell: { width: 88, alignItems: 'center', gap: 6 },
+    categoriesContent: { paddingHorizontal: spacing.lg, gap: spacing.lg },
+    // Ширина по подписи: длинное название не переносится на вторую строку
+    categoryCell: { minWidth: 56, alignItems: 'center', gap: 6 },
     categoryIcon: {
-      width: 64,
-      height: 64,
+      width: 56,
+      height: 56,
       borderRadius: radius.xl,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'transparent',
     },
     categoryIconActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
     categoryLabelActive: { color: colors.primary, fontWeight: '600' },
-    categoryLabel: {
-      ...typography.caption,
-      color: colors.text,
-      textAlign: 'center',
-      fontSize: 12,
-      lineHeight: 15,
-    },
+    categoryLabel: { ...typography.caption, color: colors.text, fontSize: 12, lineHeight: 15 },
 
     listHeader: {
       flexDirection: 'row',
@@ -563,4 +536,5 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
 
     empty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxxl },
     emptyText: { ...typography.body, color: colors.textMuted, textAlign: 'center' },
+    resetLink: { ...typography.body, color: colors.primary, fontWeight: '600' },
   });
