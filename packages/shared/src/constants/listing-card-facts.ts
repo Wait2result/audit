@@ -104,12 +104,12 @@ const LOOSE_MODEL: CardFactSpec = ['brandName', 'modelName'];
 export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   // Транспорт
   'transport-cars': [BRAND_MODEL, 'year', 'mileage', 'engineVolume', 'fuel', 'drive'],
-  'transport-moto': [MODEL, 'year', 'engineCc', 'mileage'],
-  'transport-trucks': [MODEL, 'year', 'loadCapacity', 'mileage'],
-  'transport-special': ['specialType', LOOSE_MODEL, 'year', 'hours'],
+  'transport-moto': [BRAND_MODEL, 'year', 'engineCc', 'mileage'],
+  'transport-trucks': [BRAND_MODEL, 'year', 'loadCapacity', 'mileage'],
+  'transport-special': ['specialType', BRAND_MODEL, 'year', 'hours'],
   'transport-parts': ['partType', BRAND_MODEL, 'partOrigin', 'condition'],
-  'transport-tires': ['diameter', 'season', 'tireType', 'condition'],
-  'transport-water': ['waterType', LOOSE_MODEL, 'year', 'length'],
+  'transport-tires': ['diameter', 'season', 'tireType', 'brand', 'condition'],
+  'transport-water': ['waterType', MODEL, 'year', 'length'],
   'transport-other': [LOOSE_MODEL, 'year', 'condition'],
 
   // Недвижимость
@@ -123,15 +123,15 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
 
   // Электроника
   'electronics-phones': [BRAND_MODEL, 'memory', 'condition', 'battery'],
-  'electronics-tablets': [MODEL, 'screenSize', 'memory', 'condition'],
-  'electronics-laptops': [MODEL, 'screenSize', 'ram', 'storageSize', 'cpu'],
+  'electronics-tablets': [BRAND_MODEL, 'screenSize', 'memory', 'condition'],
+  'electronics-laptops': [BRAND_MODEL, 'screenSize', 'ram', 'storageSize', 'cpu'],
   'electronics-computers': ['brand', 'cpu', 'ram', 'storageSize'],
   'electronics-components': ['componentType', LOOSE_MODEL, 'condition'],
   'electronics-tv': [MODEL, 'screenSize', 'resolution', 'smartTv'],
-  'electronics-photo': ['photoType', MODEL, 'condition'],
+  'electronics-photo': ['photoType', BRAND_MODEL, 'condition'],
   'electronics-console': ['consoleType', 'storageSize', 'condition'],
   'electronics-audio': ['audioType', MODEL, 'condition'],
-  'electronics-watches': [MODEL, 'condition', 'color'],
+  'electronics-watches': [BRAND_MODEL, 'condition', 'color'],
   'electronics-accessories': ['accessoryType', 'brandName', 'condition'],
 
   // Дом
@@ -139,7 +139,7 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'home-appliances': ['applianceType', MODEL, 'condition'],
   'home-light': ['lightType', 'brandName', 'condition'],
   'home-materials': ['materialType', 'quantity', 'condition'],
-  'home-tools': ['toolType', 'brandName', 'condition'],
+  'home-tools': ['toolType', 'brand', 'condition'],
   'home-plumbing': ['plumbingType', 'brandName', 'condition'],
   'home-doors': ['doorsType', 'material', 'condition'],
 
@@ -192,14 +192,14 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'hobby-games': ['gamesType', 'condition'],
   'hobby-music': ['instrumentType', 'brandName', 'condition'],
   'hobby-books': ['author', 'condition'],
-  'hobby-bikes': ['bikeType', 'brandName', 'wheelDiameter', 'condition'],
+  'hobby-bikes': ['bikeType', 'brand', 'wheelDiameter', 'condition'],
   hobby: ['brandName', 'condition'],
 
   // Бизнес
-  'business-agro': ['specialType', LOOSE_MODEL, 'year', 'hours'],
+  'business-agro': ['specialType', BRAND_MODEL, 'year', 'hours'],
   'business-ready': ['businessSphere', 'monthlyRevenue', 'staffCount'],
   'business-franchise': ['businessSphere'],
-  business: ['equipmentType', 'toolType', 'brandName', 'condition'],
+  business: ['equipmentType', 'toolType', 'brand', 'brandName', 'condition'],
 };
 
 /** Приоритеты категории: сама подкатегория, затем её раздел; нет — null. */

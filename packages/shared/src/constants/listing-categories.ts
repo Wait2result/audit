@@ -122,7 +122,7 @@ const CAR_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const MOTO_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'brand', required: true, dictionary: DictionaryKind.MOTO_BRAND },
-  'modelName',
+  { key: 'model', dictionary: DictionaryKind.MOTO_MODEL },
   'motoType',
   { key: 'year', label: 'Год выпуска', min: 1950 },
   { key: 'mileage', max: 1_000_000 },
@@ -134,7 +134,7 @@ const MOTO_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const TRUCK_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'brand', required: true, dictionary: DictionaryKind.TRUCK_BRAND },
-  'modelName',
+  { key: 'model', dictionary: DictionaryKind.TRUCK_MODEL },
   { key: 'truckType', required: true },
   { key: 'year', required: true, label: 'Год выпуска', min: 1950 },
   'mileage',
@@ -148,8 +148,8 @@ const TRUCK_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const SPECIAL_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'specialType', required: true },
-  { key: 'brandName', label: 'Производитель' },
-  'modelName',
+  { key: 'brand', label: 'Производитель', dictionary: DictionaryKind.SPECIAL_BRAND },
+  { key: 'model', dictionary: DictionaryKind.SPECIAL_MODEL },
   { key: 'year', label: 'Год выпуска', min: 1950 },
   'hours',
   'power',
@@ -158,7 +158,7 @@ const SPECIAL_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const WATER_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'waterType', required: true },
-  { key: 'brandName', label: 'Производитель' },
+  { key: 'brand', label: 'Производитель', dictionary: DictionaryKind.WATER_BRAND },
   'modelName',
   { key: 'year', label: 'Год выпуска', min: 1950 },
   'length',
@@ -192,7 +192,7 @@ const TIRES_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   'tireWidth',
   'tireProfile',
   'quantity',
-  'brandName',
+  { key: 'brand', label: 'Бренд', dictionary: DictionaryKind.TIRE_BRAND },
   'condition',
 ];
 
@@ -298,8 +298,8 @@ const PHONE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 ];
 
 const TABLET_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
-  { key: 'brand', required: true, dictionary: DictionaryKind.PHONE_BRAND },
-  'modelName',
+  { key: 'brand', required: true, dictionary: DictionaryKind.TABLET_BRAND },
+  { key: 'model', dictionary: DictionaryKind.TABLET_MODEL },
   'screenSize',
   'memory',
   'cellular',
@@ -310,7 +310,7 @@ const TABLET_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const LAPTOP_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'brand', required: true, dictionary: DictionaryKind.COMPUTER_BRAND },
-  'modelName',
+  { key: 'model', dictionary: DictionaryKind.LAPTOP_MODEL },
   'screenSize',
   'cpu',
   'ram',
@@ -343,7 +343,7 @@ const COMPONENT_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 ];
 
 const TV_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
-  { key: 'brand', dictionary: DictionaryKind.ELECTRONICS_BRAND },
+  { key: 'brand', dictionary: DictionaryKind.TV_BRAND },
   'modelName',
   { key: 'screenSize', required: true },
   'resolution',
@@ -354,8 +354,8 @@ const TV_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const PHOTO_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'photoType', required: true },
-  { key: 'brand', dictionary: DictionaryKind.ELECTRONICS_BRAND },
-  'modelName',
+  { key: 'brand', dictionary: DictionaryKind.PHOTO_BRAND },
+  { key: 'model', dictionary: DictionaryKind.PHOTO_MODEL },
   { key: 'condition', required: true },
   'warranty',
 ];
@@ -369,7 +369,7 @@ const CONSOLE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const AUDIO_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'audioType', required: true },
-  { key: 'brand', dictionary: DictionaryKind.ELECTRONICS_BRAND },
+  { key: 'brand', dictionary: DictionaryKind.AUDIO_BRAND },
   'modelName',
   'wireless',
   { key: 'condition', required: true },
@@ -377,8 +377,8 @@ const AUDIO_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 ];
 
 const WATCH_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
-  { key: 'brand', dictionary: DictionaryKind.ELECTRONICS_BRAND },
-  'modelName',
+  { key: 'brand', dictionary: DictionaryKind.WATCH_BRAND },
+  { key: 'model', dictionary: DictionaryKind.WATCH_MODEL },
   'color',
   { key: 'condition', required: true },
   'warranty',
@@ -392,7 +392,7 @@ const ELECTRONICS_ACCESSORY_ATTRIBUTES: readonly (string | CategoryAttributeBind
 
 const APPLIANCE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'applianceType', required: true },
-  { key: 'brand', dictionary: DictionaryKind.ELECTRONICS_BRAND },
+  { key: 'brand', dictionary: DictionaryKind.APPLIANCE_BRAND },
   'modelName',
   { key: 'condition', required: true },
   'warranty',
@@ -472,7 +472,7 @@ const MATERIALS_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 
 const TOOLS_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'toolType', required: true },
-  'brandName',
+  { key: 'brand', label: 'Бренд', dictionary: DictionaryKind.TOOL_BRAND },
   { key: 'condition', required: true },
   'warranty',
 ];
@@ -498,7 +498,7 @@ const SPORT_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 const BIKE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'bikeType', required: true },
   'wheelDiameter',
-  'brandName',
+  { key: 'brand', label: 'Бренд', dictionary: DictionaryKind.BIKE_BRAND },
   { key: 'condition', required: true },
 ];
 

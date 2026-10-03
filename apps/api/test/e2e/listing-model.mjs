@@ -363,9 +363,15 @@ const search = async (params) => {
     limit: '50',
     ...params,
   });
-  return (await call('GET', `/listings?${query}`)).body;
+  // Каждый запрос — с нового «адреса»: у публичной выдачи есть лимит, а сценариев больше сотни
+  return (await call('GET', `/listings?${query}`, undefined, undefined, randomIp())).body;
 };
-const titles = (page) => (page?.items ?? []).map((item) => item.title.replace(` ${TAG}`, ''));
+// Только объявления этого прогона: поиск нечёткий, и метки прежних прогонов («Прогон78339»
+// и «Прогон78636») ему почти одинаковы — оставшиеся в базе записи не должны ломать сравнение
+const titles = (page) =>
+  (page?.items ?? [])
+    .filter((item) => item.title.includes(TAG))
+    .map((item) => item.title.replace(` ${TAG}`, ''));
 
 const flatsBuy = await search({ category: 'realty-flats', transactionType: 'sale' });
 check(
@@ -586,20 +592,20 @@ check(
 );
 check(ok(flat3) && ok(flat4) && ok(flat6), 'квартиры поданы');
 
-const toolBosch = await post('home-tools', {
+const toolBosch = await post('personal-bags', {
   title: 'Шуруповёрт',
   deal: { transactionType: 'sale' },
   attributes: { brandName: 'Bosch Professional' },
   price: 5_000_00,
 });
-const toolMakita = await post('home-tools', {
+const toolMakita = await post('personal-bags', {
   title: 'Перфоратор',
   deal: { transactionType: 'sale' },
   attributes: { brandName: 'Makita' },
   price: 7_000_00,
 });
 const textBosc = await search({
-  category: 'home-tools',
+  category: 'personal-bags',
   attributes: attributesParam({ brandName: 'bosc' }),
 });
 check(
@@ -608,17 +614,17 @@ check(
   titles(textBosc).join('; '),
 );
 const textUpper = await search({
-  category: 'home-tools',
+  category: 'personal-bags',
   attributes: attributesParam({ brandName: 'MAKITA' }),
 });
 check(titles(textUpper).includes('Перфоратор'), 'текстовый фильтр: регистр не важен');
 const textNone = await search({
-  category: 'home-tools',
+  category: 'personal-bags',
   attributes: attributesParam({ brandName: 'zzzz' }),
 });
 check(titles(textNone).length === 0, 'текстовый фильтр: чужое слово — пусто');
 const textPercent = await search({
-  category: 'home-tools',
+  category: 'personal-bags',
   attributes: attributesParam({ brandName: '%' }),
 });
 check(titles(textPercent).length === 0, 'текстовый фильтр: «%» — обычный символ, а не «всё»');
@@ -835,6 +841,287 @@ check(
     (byLabel.items ?? []).every((item) => item.title.includes('Stepwgn')),
   'текстовый поиск находит модель латиницей и только её',
 );
+
+// ── 5c. Бренд → модель в других категориях (не только автомобили) ───────────
+console.log('\n5c. Бренд → модель: мото, телефоны, ноутбуки, техника, грузовики, часы, фото');
+
+const dictionaryOf = async (kind, parent) =>
+  (
+    await call(
+      'GET',
+      `/listings/dictionaries/${kind}${parent ? `?parent=${encodeURIComponent(parent)}` : ''}`,
+      undefined,
+      undefined,
+      randomIp(),
+    )
+  ).body ?? [];
+const labelToValue = (list, label) => list.find((entry) => entry.label === label)?.value;
+
+const CASES = [
+  {
+    slug: 'transport-moto',
+    brandKind: 'moto_brand',
+    modelKind: 'moto_model',
+    items: [
+      ['kawasaki', 'Ninja 400'],
+      ['yamaha', 'MT-07'],
+      ['honda', 'CB400 Super Four'],
+    ],
+    extra: { year: 2018 },
+    alias: 'ниндзя',
+    aliasTitle: 'Ninja 400',
+  },
+  {
+    slug: 'electronics-phones',
+    brandKind: 'phone_brand',
+    modelKind: 'phone_model',
+    items: [
+      ['apple', 'iPhone 6s'],
+      ['samsung', 'Galaxy S10e'],
+      ['xiaomi', 'Mi 9T'],
+    ],
+    extra: {},
+    alias: 'айфон 6',
+    aliasTitle: 'iPhone 6s',
+  },
+  {
+    slug: 'electronics-laptops',
+    brandKind: 'computer_brand',
+    modelKind: 'laptop_model',
+    items: [
+      ['lenovo', 'ThinkPad T'],
+      ['apple', 'MacBook Air'],
+      ['asus', 'TUF Gaming F15'],
+    ],
+    extra: {},
+    alias: 'тинкпад',
+    aliasTitle: 'ThinkPad T',
+  },
+  {
+    slug: 'transport-trucks',
+    brandKind: 'truck_brand',
+    modelKind: 'truck_model',
+    items: [
+      ['mercedes', 'Actros'],
+      ['kamaz', '65115'],
+      ['hyundai', 'HD78'],
+    ],
+    extra: { year: 2015 },
+    alias: 'актрос',
+    aliasTitle: 'Actros',
+  },
+  {
+    slug: 'transport-special',
+    brandKind: 'special_brand',
+    modelKind: 'special_model',
+    items: [
+      ['caterpillar', '320'],
+      ['komatsu', 'PC200'],
+      ['jcb', '3CX'],
+    ],
+    extra: { year: 2012 },
+    alias: 'катерпиллар',
+    aliasTitle: '320',
+  },
+  {
+    slug: 'electronics-watches',
+    brandKind: 'watch_brand',
+    modelKind: 'watch_model',
+    items: [
+      ['apple', 'Apple Watch Series 9'],
+      ['garmin', 'Fenix 7'],
+      ['amazfit', 'GTR 4'],
+    ],
+    extra: {},
+    alias: 'эпл вотч',
+    aliasTitle: 'Apple Watch Series 9',
+  },
+  {
+    slug: 'electronics-photo',
+    brandKind: 'photo_brand',
+    modelKind: 'photo_model',
+    items: [
+      ['canon', 'EOS 5D Mark IV'],
+      ['sony', 'a7 III'],
+      ['dji', 'Mavic 3 Pro'],
+    ],
+    extra: {},
+    alias: 'мавик',
+    aliasTitle: 'Mavic 3 Pro',
+  },
+];
+
+for (const test of CASES) {
+  const brandList = await dictionaryOf(test.brandKind);
+  check(
+    items(
+      brandList,
+      test.items.map(([brand]) => brand),
+    ),
+    `${test.slug}: справочник брендов отдаётся, нужные бренды на месте`,
+    `${brandList.length}`,
+  );
+  const posted = [];
+  for (const [brand, label] of test.items) {
+    const models = await dictionaryOf(test.modelKind, brand);
+    const model = labelToValue(models, label);
+    check(
+      Boolean(model),
+      `${test.slug}: у ${brand} в списке «${label}»`,
+      `${models.length} моделей`,
+    );
+    const created = await post(test.slug, {
+      title: `Каталог ${label}`,
+      deal: { transactionType: 'sale' },
+      attributes: { brand, model, ...test.extra },
+    });
+    posted.push({ brand, label, model, created });
+  }
+  check(
+    posted.every((item) => ok(item.created)),
+    `${test.slug}: объявления с моделями из справочника поданы`,
+    posted
+      .filter((item) => !ok(item.created))
+      .map(
+        (item) =>
+          `${item.label}:${item.created.status}:${JSON.stringify(item.created.body?.message ?? '').slice(0, 80)}`,
+      )
+      .join(' '),
+  );
+
+  // Фильтр: бренд + модель возвращает ровно своё объявление
+  let exact = true;
+  for (const { brand, label, model } of posted) {
+    const found = await search({
+      category: test.slug,
+      attributes: attributesParam({ brand, model }),
+    });
+    const mine = mineOf(found);
+    if (!(mine.length === 1 && mine[0].includes(`Каталог ${label}`))) {
+      exact = false;
+      console.log('    фильтр:', test.slug, brand, label, mine.join('; '));
+    }
+  }
+  check(exact, `${test.slug}: фильтр «бренд + модель» возвращает ровно объявление этой модели`);
+
+  // Чужая пара: модель первого бренда с брендом второго
+  const [first, second] = posted;
+  const crossed = await post(test.slug, {
+    title: 'Чужая пара',
+    deal: { transactionType: 'sale' },
+    attributes: { brand: second.brand, model: first.model, ...test.extra },
+  });
+  check(
+    crossed.status === 400,
+    `${test.slug}: модель чужого бренда — отказ`,
+    `статус ${crossed.status}`,
+  );
+  const nothing = await search({
+    category: test.slug,
+    attributes: attributesParam({ brand: second.brand, model: first.model }),
+  });
+  check(
+    mineOf(nothing).length === 0,
+    `${test.slug}: фильтр «бренд ${second.brand} + модель ${first.label}» — пусто`,
+  );
+
+  // Русское написание в текстовом поиске
+  const aliasFound = await search({ category: test.slug, search: test.alias });
+  check(
+    (aliasFound.items ?? []).some((item) => item.title.includes(`Каталог ${test.aliasTitle}`)),
+    `${test.slug}: текстовый поиск по «${test.alias}» находит «${test.aliasTitle}»`,
+    mineOf(aliasFound).join('; ').slice(0, 120),
+  );
+
+  // Правка: меняем бренд и модель целиком, объявление переезжает в другой фильтр
+  const patched = await call(
+    'PATCH',
+    `/my/listings/${first.created.body?.id}`,
+    {
+      attributes: await requiredAttributes(test.slug, {
+        brand: second.brand,
+        model: second.model,
+        ...test.extra,
+      }),
+    },
+    first.created.owner.token,
+  );
+  check(
+    ok(patched),
+    `${test.slug}: правка бренда и модели проходит`,
+    `статус ${patched.status} ${JSON.stringify(ok(patched) ? '' : patched.body?.details).slice(0, 300)}`,
+  );
+  const afterOld = await search({
+    category: test.slug,
+    attributes: attributesParam({ brand: first.brand, model: first.model }),
+  });
+  check(
+    !mineOf(afterOld).some((title) => title.includes(`Каталог ${first.label}`)),
+    `${test.slug}: после правки не находится по прежней модели`,
+  );
+  const patchedBad = await call(
+    'PATCH',
+    `/my/listings/${first.created.body?.id}`,
+    {
+      attributes: await requiredAttributes(test.slug, {
+        brand: first.brand,
+        model: second.model,
+        ...test.extra,
+      }),
+    },
+    first.created.owner.token,
+  );
+  check(patchedBad.status === 400, `${test.slug}: правка на несовместимую пару — отказ`);
+}
+
+// Категории без каталога моделей: бренд из списка + модель текстом, фильтр по бренду
+const BRAND_ONLY = [
+  { slug: 'home-appliances', kind: 'appliance_brand', brand: 'bosch', model: true, extra: {} },
+  { slug: 'electronics-tv', kind: 'tv_brand', brand: 'samsung', model: true, extra: {} },
+  { slug: 'home-tools', kind: 'tool_brand', brand: 'makita', extra: {} },
+  { slug: 'transport-tires', kind: 'tire_brand', brand: 'michelin', extra: {} },
+];
+for (const test of BRAND_ONLY) {
+  const list = await dictionaryOf(test.kind);
+  check(
+    list.some((entry) => entry.value === test.brand),
+    `${test.slug}: в списке брендов есть ${test.brand}`,
+    `${list.length}`,
+  );
+  const created = await post(test.slug, {
+    title: `Бренд ${test.brand}`,
+    deal: { transactionType: 'sale' },
+    attributes: {
+      brand: test.brand,
+      ...(test.model ? { modelName: 'ABC-123 текстом' } : {}),
+      ...test.extra,
+    },
+  });
+  check(
+    ok(created),
+    `${test.slug}: объявление с брендом из списка поданo`,
+    `статус ${created.status}`,
+  );
+  const found = await search({
+    category: test.slug,
+    attributes: attributesParam({ brand: test.brand }),
+  });
+  check(
+    mineOf(found).some((title) => title.includes(`Бренд ${test.brand}`)),
+    `${test.slug}: фильтр по бренду находит объявление`,
+    `${(found.items ?? []).length} найдено`,
+  );
+  const wrong = await post(test.slug, {
+    title: 'Чужой бренд',
+    deal: { transactionType: 'sale' },
+    attributes: { brand: 'нет_такого', ...test.extra },
+  });
+  check(wrong.status === 400, `${test.slug}: бренд не из списка — отказ`, `статус ${wrong.status}`);
+}
+
+function items(list, values) {
+  return values.every((value) => list.some((entry) => entry.value === value));
+}
 
 console.log(`\nИтого: ${passed} пройдено, ${failed} с ошибкой`);
 process.exit(failed === 0 ? 0 : 1);

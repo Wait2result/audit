@@ -33,6 +33,22 @@ export const PHONE_BRANDS: readonly DictionaryBrand[] = [
   { value: 'zte', label: 'ZTE' },
   { value: 'nothing', label: 'Nothing' },
   { value: 'lenovo', label: 'Lenovo' },
+  { value: 'asus', label: 'ASUS' },
+  { value: 'lg', label: 'LG' },
+  { value: 'htc', label: 'HTC' },
+  { value: 'meizu', label: 'Meizu' },
+  { value: 'tcl', label: 'TCL' },
+  { value: 'alcatel', label: 'Alcatel' },
+  { value: 'itel', label: 'Itel' },
+  { value: 'bq', label: 'BQ' },
+  { value: 'inoi', label: 'Inoi' },
+  { value: 'sharp', label: 'Sharp' },
+  { value: 'blackview', label: 'Blackview' },
+  { value: 'doogee', label: 'Doogee' },
+  { value: 'ulefone', label: 'Ulefone' },
+  { value: 'cubot', label: 'Cubot' },
+  { value: 'umidigi', label: 'UMIDIGI' },
+  { value: 'oukitel', label: 'Oukitel' },
   { value: OTHER_BRAND, label: 'Другой бренд' },
 ];
 
@@ -50,11 +66,34 @@ export const COMPUTER_BRANDS: readonly DictionaryBrand[] = [
   { value: 'xiaomi', label: 'Xiaomi' },
   { value: 'microsoft', label: 'Microsoft' },
   { value: 'gigabyte', label: 'Gigabyte' },
+  { value: 'razer', label: 'Razer' },
+  { value: 'lg', label: 'LG' },
+  { value: 'toshiba', label: 'Toshiba' },
+  { value: 'sony', label: 'Sony' },
+  { value: 'fujitsu', label: 'Fujitsu' },
+  { value: 'dexp', label: 'DEXP' },
+  { value: 'digma', label: 'Digma' },
+  { value: 'irbis', label: 'Irbis' },
+  { value: 'chuwi', label: 'Chuwi' },
+  { value: 'machenike', label: 'Machenike' },
+  { value: 'infinix', label: 'Infinix' },
+  { value: 'tecno', label: 'Tecno' },
+  { value: 'realme', label: 'Realme' },
+  { value: 'panasonic', label: 'Panasonic' },
+  { value: 'prestigio', label: 'Prestigio' },
+  { value: 'thunderobot', label: 'Thunderobot' },
+  { value: 'intel', label: 'Intel' },
+  { value: 'zotac', label: 'Zotac' },
   { value: 'custom', label: 'Сборка' },
   { value: OTHER_BRAND, label: 'Другой бренд' },
 ];
 
-/** Бытовая техника, ТВ, аудио, фото: общий список крупных производителей. */
+/**
+ * Прежний общий список крупных производителей (ТВ, аудио, фото, часы, техника).
+ * У категорий теперь свои списки (`category-brands.ts`); этот остаётся
+ * справочником `electronics_brand`, чтобы значения уже поданных объявлений
+ * не терялись.
+ */
 export const ELECTRONICS_BRANDS: readonly DictionaryBrand[] = [
   { value: 'samsung', label: 'Samsung' },
   { value: 'lg', label: 'LG' },

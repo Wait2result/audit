@@ -489,7 +489,7 @@ describe('Фильтры разведены по смыслу поля', () => {
   });
 
   it('значение уходит параметром запроса, а не склеивается с текстом', () => {
-    const slug = ['home-tools', 'electronics-laptops', 'hobby-bikes'].find((candidate) =>
+    const slug = ['personal-clothes', 'personal-bags', 'hobby-sport'].find((candidate) =>
       attributesOf(candidate).some((field) => field.key === 'brandName'),
     ) as string;
     const [condition] = attributeSql(attributesOf(slug), { brandName: `x' OR 1=1 --` });

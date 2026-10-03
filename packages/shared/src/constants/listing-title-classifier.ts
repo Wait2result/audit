@@ -1,6 +1,7 @@
 import { BRAND_ALIASES, MODEL_ALIASES } from './dictionaries/aliases.js';
 import { CAR_BRANDS, OTHER_BRAND } from './dictionaries/car-brands.js';
 import { modelValue } from './dictionaries/index.js';
+import { PHONE_BRANDS } from './dictionaries/electronics-brands.js';
 import { PHONE_MODELS } from './dictionaries/phone-models.js';
 import type { ListingRentPeriod, ListingTransactionType } from './transactions.js';
 
@@ -137,6 +138,20 @@ function isRequest(words: readonly string[]): boolean {
   return ['куплю', 'сниму', 'ищу', 'возьму', 'приму'].includes(words[0] ?? '');
 }
 
+/**
+ * Модель телефона названа в тексте. Короткие и числовые названия («90», «12»,
+ * «Mi 11», «X9b») без марки — слишком частые слова: «пробег 90 000» — не
+ * Honor 90. Поэтому у модели меньше четырёх букв нужна марка прямо перед ней.
+ */
+function matchesPhoneModel(padded: string, form: string, brand: string): boolean {
+  if (!padded.includes(` ${form} `)) return false;
+  const letters = (form.match(/[a-zа-я]/g) ?? []).length;
+  if (letters >= 4) return true;
+  const label = PHONE_BRANDS.find((item) => item.value === brand)?.label ?? brand;
+  const names = [brand, normalize(label), ...(BRAND_ALIASES[brand] ?? []).map(normalize)];
+  return names.some((name) => padded.includes(` ${name} ${form} `));
+}
+
 /** Телефон по модели из справочника: самая длинная совпавшая подпись. */
 function phoneGuess(text: string): ListingTitleGuess | null {
   const padded = ` ${text} `;
@@ -144,7 +159,8 @@ function phoneGuess(text: string): ListingTitleGuess | null {
   for (const model of PHONE_MODELS) {
     const label = normalize(model.label);
     const aliases = MODEL_ALIASES[modelValue(model.label)] ?? [];
-    const hit = [label, ...aliases.map(normalize)].some((form) => padded.includes(` ${form} `));
+    const forms = [label, ...aliases.map(normalize)];
+    const hit = forms.some((form) => matchesPhoneModel(padded, form, model.brand));
     if (hit && (!best || model.label.length > best.label.length)) best = model;
   }
   if (!best) return null;
