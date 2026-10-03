@@ -297,7 +297,14 @@ export default function ListingFiltersScreen() {
   const footer = (
     <View style={styles.footerRow}>
       {hasAny && (
-        <Button label="Сбросить" variant="secondary" onPress={reset} style={styles.footerReset} />
+        <Button
+          label="Сбросить"
+          variant="secondary"
+          fullWidth={false}
+          singleLine
+          onPress={reset}
+          style={styles.footerReset}
+        />
       )}
       <Button
         label={applyLabel}
@@ -305,6 +312,7 @@ export default function ListingFiltersScreen() {
         // Пока число пересчитывается, кнопка остаётся рабочей: прежнее число
         // чуть устарело, но «Показать» работает всегда, кроме явного нуля
         disabled={found === 0 && !settling}
+        singleLine
         style={styles.footerApply}
         accessibilityLabel={applyLabel}
       />
@@ -962,7 +970,9 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     flipped: { transform: [{ rotate: '180deg' }] },
     moreLabel: { ...typography.body, color: colors.primary, fontWeight: '600' },
-    footerRow: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.sm },
-    footerReset: { flexShrink: 0 },
-    footerApply: { flex: 1 },
+    footerRow: { flexDirection: 'row', gap: spacing.xs, paddingTop: spacing.sm },
+    // «Сбросить» — компактное действие по ширине текста; «Показать N» забирает
+    // всё остальное и всегда в одну строку
+    footerReset: { flexShrink: 0, paddingHorizontal: 6 },
+    footerApply: { flex: 1, minWidth: 0, paddingHorizontal: spacing.xs },
   });

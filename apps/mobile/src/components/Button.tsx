@@ -23,6 +23,8 @@ interface ButtonProps {
   disabled?: boolean;
   /** Растянуть на всю ширину */
   fullWidth?: boolean;
+  /** Подпись в одну строку (без переноса): для кнопок в ряду с соседом */
+  singleLine?: boolean;
   style?: StyleProp<ViewStyle>;
   /** Подпись для незрячих, если текста кнопки недостаточно */
   accessibilityLabel?: string;
@@ -43,6 +45,7 @@ export function Button({
   loading = false,
   disabled = false,
   fullWidth = true,
+  singleLine = false,
   style,
   accessibilityLabel,
 }: ButtonProps) {
@@ -76,7 +79,12 @@ export function Button({
         />
       ) : (
         <View style={styles.content}>
-          <Text style={[styles.label, variantStyles[variant].label]}>{label}</Text>
+          <Text
+            style={[styles.label, variantStyles[variant].label]}
+            numberOfLines={singleLine ? 1 : undefined}
+          >
+            {label}
+          </Text>
         </View>
       )}
     </Pressable>
@@ -96,7 +104,7 @@ const styles = StyleSheet.create({
   sizeMd: { paddingVertical: spacing.sm, minHeight: MIN_TOUCH_SIZE },
   sizeLg: { paddingVertical: spacing.md, minHeight: 52 },
   fullWidth: { alignSelf: 'stretch' },
-  content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, maxWidth: '100%' },
   label: { ...typography.subheading },
   // Лёгкое затемнение вместо анимации: отклик должен быть мгновенным
   pressed: { opacity: 0.85 },
