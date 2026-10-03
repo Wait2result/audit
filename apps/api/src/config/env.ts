@@ -124,6 +124,30 @@ const envSchema = z.object({
   GEOCODER_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
   GEOCODER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
 
+  /**
+   * Умный поиск (docs/ADR/0011-умный-поиск.md). Выключен по умолчанию: включается
+   * явно, и разделы приложения от него не зависят — без модели обычный поиск
+   * работает как раньше.
+   */
+  SMART_SEARCH_ENABLED: booleanFromString.default(false),
+  /** Сколько живёт контекст уточнений («а автомат?») без новых запросов */
+  SMART_SEARCH_CONTEXT_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(1200),
+  /**
+   * Языковая модель для разбора фраз. Поставщик за общей прослойкой
+   * AiProvider: сменить модель или сервис — значит поменять эти строки.
+   */
+  AI_ENABLED: booleanFromString.default(false),
+  AI_PROVIDER: z.enum(['ollama']).default('ollama'),
+  OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
+  OLLAMA_MODEL: z.string().min(1).default('qwen3:8b'),
+  AI_TIMEOUT_MS: z.coerce.number().int().min(500).max(120_000).default(20_000),
+  /** Предел ответа модели в символах: больше — ответ отбрасывается */
+  AI_MAX_RESPONSE_CHARS: z.coerce.number().int().min(500).max(200_000).default(16_000),
+  /** Окно контекста модели в токенах (у Ollama по умолчанию меньше, чем нужно подсказке) */
+  AI_CONTEXT_TOKENS: z.coerce.number().int().min(2048).max(131_072).default(8192),
+  /** Писать ли в журнал подробности отказа разбора. Только для отладки, не в production */
+  AI_DEBUG_LOG: booleanFromString.default(false),
+
   PAYMENTS_ENABLED: booleanFromString.default(false),
   PAYMENT_PROVIDER: z.string().default('yookassa'),
   YOOKASSA_SHOP_ID: z.string().default(''),
@@ -225,6 +249,10 @@ export function loadConfig(): AppConfig {
           'нагрузку приложения: в production нужен свой Nominatim/Photon или платный ' +
           'поставщик (см. docs/ADR/0010-геолокация-объявлений.md)',
       );
+    }
+
+    if (env.AI_DEBUG_LOG) {
+      failures.push('AI_DEBUG_LOG — отладочный журнал умного поиска, в production он выключен');
     }
 
     if (failures.length > 0) {

@@ -10,5 +10,7 @@ import { KinoplanClient } from './kinoplan-client.js';
   imports: [CitiesModule],
   controllers: [CinemaController],
   providers: [CinemaService, KinoplanClient, CinemaTrailersTask],
+  // Для умного поиска: он ищет через этот же сервис, а не своей копией
+  exports: [CinemaService],
 })
 export class CinemaModule {}

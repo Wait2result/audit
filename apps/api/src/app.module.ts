@@ -27,6 +27,7 @@ import { OrdersModule } from './modules/orders/orders.module.js';
 import { ListingsModule } from './modules/listings/listings.module.js';
 import { PlacesModule } from './modules/places/places.module.js';
 import { RbacModule } from './modules/rbac/rbac.module.js';
+import { SmartSearchModule } from './modules/smart-search/smart-search.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 import { WeatherModule } from './modules/weather/weather.module.js';
 
@@ -118,6 +119,8 @@ import { WeatherModule } from './modules/weather/weather.module.js';
     PlacesModule,
     OrdersModule,
     ListingsModule,
+    // Умный поиск — поверх разделов; без модели отвечает «недоступен», разделы работают
+    SmartSearchModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

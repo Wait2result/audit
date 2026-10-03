@@ -10,5 +10,7 @@ import { NewsService } from './news.service.js';
   imports: [CitiesModule],
   controllers: [NewsController],
   providers: [NewsService, NewsIngestService, NewsIngestTask],
+  // Для умного поиска: он ищет через этот же сервис, а не своей копией
+  exports: [NewsService],
 })
 export class NewsModule {}
