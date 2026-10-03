@@ -7,6 +7,7 @@ import {
   type ListingAddressVisibility,
   type ListingLocationInput,
   type UpdateMyListingDto,
+  withAttributeValue,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -266,7 +267,9 @@ export default function EditListingScreen() {
               field={field}
               value={values[field.key]}
               values={values}
-              onChange={(value) => setValues((current) => ({ ...current, [field.key]: value }))}
+              onChange={(value) =>
+                setValues((current) => withAttributeValue(fields, current, field.key, value))
+              }
             />
           ))}
 

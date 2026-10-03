@@ -13,6 +13,7 @@ import {
   type ListingCategoryDto,
   type ListingLocationInput,
   type ListingTitleGuess,
+  withAttributeValue,
 } from '@dagestan/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -252,8 +253,9 @@ export default function NewListingScreen() {
     : price
       ? `${formatMoney(Number(price) * 100)}${priceSuffix}`
       : 'Цена договорная';
+  // Сменилась марка — модель прежней марки не остаётся
   const setValue = (key: string, value: unknown) =>
-    setValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => withAttributeValue(fields, current, key, value));
 
   return (
     <Screen

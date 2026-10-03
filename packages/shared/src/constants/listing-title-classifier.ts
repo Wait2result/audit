@@ -158,6 +158,22 @@ function phoneGuess(text: string): ListingTitleGuess | null {
   return { slug: 'electronics-phones', attributes, details: [best.label] };
 }
 
+/**
+ * Модель названа в тексте. Короткое название («3», «2», «Z») — слишком
+ * частое слово: «Mazda 3» — модель, а «Mazda 2.0 бензин» — нет. Поэтому
+ * короткое название засчитывается только сразу после марки и не перед
+ * дробной частью числа.
+ */
+function matchesModel(padded: string, label: string, brandForms: readonly string[]): boolean {
+  if (!label || !padded.includes(` ${label} `)) return false;
+  if (label.length >= 3) return true;
+  return brandForms.some((form) => {
+    const marker = ` ${form} ${label} `;
+    const at = padded.indexOf(marker);
+    return at >= 0 && !/^\d( |$)/.test(padded.slice(at + marker.length));
+  });
+}
+
 /** Автомобиль по марке, модели и году; мотоцикл, шины и запчасти — по словам. */
 function vehicleGuess(text: string, words: readonly string[]): ListingTitleGuess | null {
   const brand = CAR_BRANDS.find(
@@ -183,9 +199,10 @@ function vehicleGuess(text: string, words: readonly string[]): ListingTitleGuess
   const attributes: Record<string, string | number> = { brand: brand.value };
   const details = [brand.label];
   const padded = ` ${text} `;
+  const brandForms = [brand.value, normalize(brand.label), ...(BRAND_ALIASES[brand.value] ?? [])];
   const model = [...brand.models]
     .sort((a, b) => b.length - a.length)
-    .find((label) => padded.includes(` ${normalize(label)} `));
+    .find((label) => matchesModel(padded, normalize(label), brandForms));
   if (model) {
     attributes.model = modelValue(model);
     details.push(model);

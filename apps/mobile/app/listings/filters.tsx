@@ -14,6 +14,7 @@ import {
   type ListingPriceUnit,
   type ListingRentPeriod,
   type ListingTransactionType,
+  withAttributeValue,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -180,17 +181,9 @@ export default function ListingFiltersScreen() {
     setShowExtra(false);
   };
 
+  // Сменилась марка — модель прежней марки больше не подходит
   const setAttribute = (key: string, value: unknown) => {
-    setAttributes((current) => {
-      const next = { ...current };
-      if (value === undefined || value === null || value === '') delete next[key];
-      else next[key] = value;
-      // Сменилась марка — модель прежней марки больше не подходит
-      for (const child of fields.filter((field) => field.parentKey === key)) {
-        if (current[key] !== value) delete next[child.key];
-      }
-      return next;
-    });
+    setAttributes((current) => withAttributeValue(fields, current, key, value));
   };
 
   // То, что человек выбрал на экране сейчас, ещё не сохранённое: по нему же

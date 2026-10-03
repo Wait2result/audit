@@ -707,5 +707,134 @@ check(
   JSON.stringify(details.body?.attributeLabels),
 );
 
+// ── 5b. Расширенный справочник: редкие и снятые с производства модели ───────
+console.log('\n5b. Расширенный справочник моделей');
+/** Только свои объявления этого прогона: прежние прогоны оставляют такие же заголовки. */
+const mineOf = (page) =>
+  (page?.items ?? []).map((item) => item.title).filter((title) => title.includes(TAG));
+const modelsOf = async (brand) =>
+  (await call('GET', `/listings/dictionaries/car_model?parent=${brand}`)).body ?? [];
+const valueOf = (list, label) => list.find((model) => model.label === label)?.value;
+
+const SAMPLES = [
+  ['toyota', 'Succeed'],
+  ['toyota', 'Corolla Fielder'],
+  ['toyota', 'Premio'],
+  ['toyota', 'Mark X'],
+  ['nissan', 'Wingroad'],
+  ['honda', 'Stepwgn'],
+  ['mazda', 'Atenza'],
+  ['mitsubishi', 'Delica'],
+  ['subaru', 'Levorg'],
+  ['suzuki', 'Escudo'],
+  ['daihatsu', 'Mira'],
+  ['kia', 'Stinger'],
+  ['bmw', 'X4'],
+  ['chery', 'Tiggo 7 Pro'],
+];
+
+const modelLists = {};
+for (const brand of new Set(SAMPLES.map(([item]) => item)))
+  modelLists[brand] = await modelsOf(brand);
+check(
+  modelLists.toyota.length > 150 && modelLists.nissan.length > 90,
+  'у крупных марок сотни моделей',
+  `Toyota ${modelLists.toyota.length}, Nissan ${modelLists.nissan.length}`,
+);
+check(
+  SAMPLES.every(([brand, label]) => valueOf(modelLists[brand], label)),
+  'редкие и снятые модели 10 марок отдаются списком марки',
+);
+
+const sampleListings = [];
+for (const [brand, label] of SAMPLES) {
+  const created = await post('transport-cars', {
+    title: `Справочник ${label}`,
+    deal: { transactionType: 'sale' },
+    attributes: { brand, model: valueOf(modelLists[brand], label), year: 2014, mileage: 120_000 },
+  });
+  sampleListings.push({ brand, label, created });
+}
+check(
+  sampleListings.every((item) => ok(item.created)),
+  'объявления с новыми моделями проходят проверку при подаче',
+  sampleListings
+    .filter((item) => !ok(item.created))
+    .map((item) => `${item.label}:${item.created.status}`)
+    .join(' '),
+);
+
+let filterOk = true;
+for (const { brand, label } of sampleListings) {
+  const found = await search({
+    category: 'transport-cars',
+    attributes: attributesParam({ brand, model: valueOf(modelLists[brand], label) }),
+  });
+  const mine = mineOf(found);
+  if (!(mine.length === 1 && mine[0].includes(`Справочник ${label}`))) {
+    filterOk = false;
+    console.log('    фильтр:', brand, label, mine.join('; '));
+  }
+}
+check(filterOk, 'фильтр «марка + модель» возвращает ровно объявление этой модели');
+
+const succeedListing = sampleListings.find((item) => item.label === 'Succeed');
+const premioValue = valueOf(modelLists.toyota, 'Premio');
+const editedModel = await call(
+  'PATCH',
+  `/my/listings/${succeedListing.created.body?.id}`,
+  { attributes: { brand: 'toyota', model: premioValue, year: 2014, mileage: 120_000 } },
+  succeedListing.created.owner.token,
+);
+check(
+  ok(editedModel),
+  'правка: Succeed → Premio проходит проверку',
+  `статус ${editedModel.status}`,
+);
+const wrongEdit = await call(
+  'PATCH',
+  `/my/listings/${succeedListing.created.body?.id}`,
+  { attributes: { brand: 'honda', model: premioValue, year: 2014, mileage: 120_000 } },
+  succeedListing.created.owner.token,
+);
+check(wrongEdit.status === 400, 'правка: Honda + Premio (модель чужой марки) — отказ');
+const afterEdit = await search({
+  category: 'transport-cars',
+  attributes: attributesParam({ brand: 'toyota', model: valueOf(modelLists.toyota, 'Succeed') }),
+});
+check(
+  !mineOf(afterEdit).some((title) => title.includes('Succeed')),
+  'после правки объявление не находится по прежней модели',
+);
+const afterEditNew = await search({
+  category: 'transport-cars',
+  attributes: attributesParam({ brand: 'toyota', model: premioValue }),
+});
+check(
+  mineOf(afterEditNew).some((title) => title.includes('Succeed')),
+  'и находится по новой (Premio)',
+);
+
+const byAlias = await search({ category: 'transport-cars', search: 'филдер' });
+check(
+  (byAlias.items ?? []).length > 0 &&
+    (byAlias.items ?? []).every((item) => item.title.includes('Corolla Fielder')),
+  'текстовый поиск находит модель по русскому написанию («филдер») и только её',
+  (byAlias.items ?? []).map((item) => item.title).join('; '),
+);
+const byWingroad = await search({ category: 'transport-cars', search: 'вингроад' });
+check(
+  (byWingroad.items ?? []).length > 0 &&
+    (byWingroad.items ?? []).every((item) => item.title.includes('Wingroad')),
+  'поиск «вингроад» находит Wingroad и только его',
+  (byWingroad.items ?? []).map((item) => item.title).join('; '),
+);
+const byLabel = await search({ category: 'transport-cars', search: 'Stepwgn' });
+check(
+  (byLabel.items ?? []).length > 0 &&
+    (byLabel.items ?? []).every((item) => item.title.includes('Stepwgn')),
+  'текстовый поиск находит модель латиницей и только её',
+);
+
 console.log(`\nИтого: ${passed} пройдено, ${failed} с ошибкой`);
 process.exit(failed === 0 ? 0 : 1);
