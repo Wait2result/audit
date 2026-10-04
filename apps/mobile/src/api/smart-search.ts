@@ -45,7 +45,8 @@ export async function requestSmartSearch(
   try {
     return await apiFetch<SmartSearchResponse>('/smart-search', {
       method: 'POST',
-      body: { limit: 10, ...input },
+      // Выдачу показывает экран раздела: от поиска нужны только «куда» и «сколько» (D12)
+      body: { limit: 1, ...input },
       timeoutMs: SMART_SEARCH_TIMEOUT_MS,
       ...(signal ? { signal } : {}),
     });

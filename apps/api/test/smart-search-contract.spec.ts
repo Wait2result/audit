@@ -33,9 +33,8 @@ describe('Схема намерения', () => {
 
   it('неизвестный раздел — отказ', () => {
     expect(smartSearchIntentSchema.safeParse({ ...intent(), domain: 'admin' }).success).toBe(false);
-    expect(smartSearchIntentSchema.safeParse({ ...intent(), domain: 'weather' }).success).toBe(
-      false,
-    );
+    // Магазинов в умном поиске нет (погода и заведения — уже есть)
+    expect(smartSearchIntentSchema.safeParse({ ...intent(), domain: 'shops' }).success).toBe(false);
   });
 
   it('чужая версия схемы и лишние поля — отказ', () => {

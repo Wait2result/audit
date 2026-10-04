@@ -110,13 +110,21 @@ describe('Маршрутизация по разделам', () => {
     });
   });
 
-  it('«закажи пиццу» — действие: поиск не притворяется, что заказал', async () => {
+  it('«закажи пиццу» — поиск доставки пиццы (сам заказ — в карточке заведения)', async () => {
     const h = harness();
     h.ai.on(
       'закажи пиццу',
       intent({ intent: 'action', domain: 'delivery', filters: { dish: 'пицца' } }),
     );
     const response = await ask(h, 'закажи пиццу');
+    expect(response.status).toBe('results');
+    expect(h.calls.places[0]).toMatchObject({ hasDelivery: true, search: 'пицца' });
+  });
+
+  it('«где мой курьер?» — действие без предмета: честное «не умею»', async () => {
+    const h = harness();
+    h.ai.on('где мой курьер?', intent({ intent: 'action', domain: 'delivery' }));
+    const response = await ask(h, 'где мой курьер?');
     expect(response.status).toBe('unsupported');
     expect(h.calls.places).toHaveLength(0);
   });
@@ -164,15 +172,40 @@ describe('Отказы модели — без падений, с обычным
     expect(h.ai.requests).toHaveLength(0);
   });
 
-  it('неизвестное имя фильтра — ответ модели не исполняется целиком', async () => {
+  it('неизвестное имя фильтра не применяется и не роняет ответ (D11)', async () => {
     const h = harness();
     h.ai.on('камри', intent({ domain: 'listings', filters: { model: 'Camry', sqlWhere: '1=1' } }));
     const response = await ask(h, 'камри');
-    expect(response.error?.code).toBe('INVALID_INTENT');
-    expect(h.calls.listings).toHaveLength(0);
+    expect(response.status).toBe('results');
+    expect(JSON.stringify(h.calls.listings[0])).not.toContain('sqlWhere');
+    expect(response.parts[0]!.query!.ignored).toContainEqual(
+      expect.objectContaining({ field: 'sqlWhere' }),
+    );
   });
 
-  it('неизвестный подзапрос тоже останавливает всё, даже если основная часть верна', async () => {
+  it('условие с неверным именем или значением убирается до проверки схемой', async () => {
+    const h = harness();
+    h.ai.on(
+      'камри',
+      JSON.stringify({
+        ...intent({ domain: 'listings', filters: { model: 'Camry' } }),
+        preferences: { желательно: 'машину', brand: null },
+      }),
+    );
+    const response = await ask(h, 'камри');
+    expect(response.status).toBe('results');
+    expect(attributesOf(h.calls.listings[0])).toMatchObject({ model: 'camry' });
+  });
+
+  it('неизвестный раздел и порча структуры по-прежнему отклоняют ответ', async () => {
+    const h = harness();
+    h.ai.on('камри', JSON.stringify({ ...intent(), domain: 'shops' }));
+    expect((await ask(h, 'камри')).error?.code).toBe('INVALID_AI_OUTPUT');
+    h.ai.on('кино', JSON.stringify({ ...intent(), filters: 'всё' }));
+    expect((await ask(h, 'кино')).error?.code).toBe('INVALID_AI_OUTPUT');
+  });
+
+  it('выдуманное поле подзапроса не применяется, остальные части работают', async () => {
     const h = harness();
     h.ai.on(
       'кино и новости',
@@ -181,8 +214,9 @@ describe('Отказы модели — без падений, с обычным
         subqueries: [core({ domain: 'news', filters: { password: 'x' } })],
       }),
     );
-    expect((await ask(h, 'кино и новости')).error?.code).toBe('INVALID_INTENT');
-    expect(h.calls.cinema).toHaveLength(0);
+    const response = await ask(h, 'кино и новости');
+    expect(response.parts.map((part) => part.domain)).toEqual(['cinema', 'news']);
+    expect(JSON.stringify(h.calls.news)).not.toContain('password');
   });
 });
 
@@ -213,7 +247,9 @@ describe('Внедрение инструкций в текст человека
       injection,
       intent({ domain: 'listings', filters: { userId: 'all', endpoint: '/admin' } }),
     );
-    expect((await ask(h, injection)).error?.code).toBe('INVALID_INTENT');
+    const response = await ask(h, injection);
+    expect(JSON.stringify(h.calls.listings)).not.toMatch(/userId|admin/);
+    expect(response.parts[0]?.query?.params ?? {}).not.toHaveProperty('endpoint');
   });
 });
 
@@ -230,7 +266,7 @@ describe('Уточнения', () => {
     expect(h.calls.listings).toHaveLength(0);
   });
 
-  it('раздел неясен — «Где искать?» с реальными разделами', async () => {
+  it('раздел неясен — «Что ищем?» с разделами и выбором кодом', async () => {
     const h = harness();
     h.ai.on(
       'что-нибудь интересное',
@@ -241,13 +277,17 @@ describe('Уточнения', () => {
       }),
     );
     const response = await ask(h, 'что-нибудь интересное');
-    expect(response.parts[0]!.clarification).toMatchObject({ reason: 'unknown_domain' });
-    expect(response.parts[0]!.clarification?.options.map((option) => option.value)).toEqual([
+    const clarification = response.parts[0]!.clarification!;
+    expect(clarification).toMatchObject({ reason: 'unknown_domain', question: 'Что ищем?' });
+    expect(clarification.options.map((option) => option.value)).toEqual([
       'listings',
+      'places',
+      'delivery',
       'cinema',
       'news',
-      'delivery',
+      'weather',
     ]);
+    expect(clarification.options.every((option) => option.choice?.kind === 'domain')).toBe(true);
   });
 
   it('«посмотреть Форсаж» — несколько фильмов в расписании: выбрать из реальных названий', async () => {
@@ -375,7 +415,9 @@ describe('Контекст: уточнения следующей фразой',
     const first = await ask(h, 'Toyota Succeed');
     h.clock.now += 1201 * 1000;
     const second = await ask(h, 'А автомат?', { sessionId: first.sessionId });
-    expect(second.status).toBe('error');
+    // Прошлого поиска уже нет — не ошибка, а вопрос «Что ищем?», и объявления не ищутся
+    expect(second.status).toBe('clarification');
+    expect(h.calls.listings).toHaveLength(1);
   });
 
   it('контекст привязан к пользователю: чужая сессия не продолжается', async () => {
@@ -408,7 +450,8 @@ describe('Контекст: уточнения следующей фразой',
     h.ai.on('А автомат?', intent({ intent: 'refine', filters: { gearbox: 'автомат' } }));
     const first = await ask(h, 'Toyota Succeed');
     const second = await ask(h, 'А автомат?', { sessionId: first.sessionId, reset: true });
-    expect(second.status).toBe('error');
+    expect(second.status).toBe('clarification');
+    expect(h.calls.listings).toHaveLength(1);
   });
 });
 

@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { SmartSearchIntentCore } from '@dagestan/shared';
+import type {
+  SmartSearchIntentCore,
+  SmartSearchNavigation,
+  SmartSearchNormalizedQuery,
+} from '@dagestan/shared';
 
 import { ListingCategoriesService } from '../../listings/listing-categories.service.js';
 import { ListingsService } from '../../listings/listings.service.js';
@@ -72,5 +76,21 @@ export class ListingsSearchAdapter implements DomainAdapter<ListingPlan> {
       count: page.items.length,
       ...(page.total !== undefined ? { total: page.total } : {}),
     };
+  }
+
+  /**
+   * Путь раздела по каталогу: «Транспорт → Автомобили». Условия экрана у
+   * объявлений — `query.params` (их принимает лента), здесь не дублируются.
+   */
+  async navigation(query: SmartSearchNormalizedQuery): Promise<SmartSearchNavigation> {
+    const slug = typeof query.params.category === 'string' ? query.params.category : null;
+    const catalogue = await this.categories.catalogue();
+    const path: string[] = [];
+    let current = slug ? catalogue.findBySlug(slug) : null;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+      path.unshift(current.name);
+      current = current.parentId ? catalogue.findById(current.parentId) : null;
+    }
+    return { section: 'listings', path: path.length > 0 ? path : ['Все объявления'], filters: {} };
   }
 }

@@ -155,6 +155,9 @@ function cityInText(city: string, text: string): boolean {
  * автомат» → «снять посуточно»). Список убранных полей возвращается — по нему
  * сервер переспросит или пометит условие как не применённое.
  */
+/** Признаки объёма двигателя во фразе (после norm: без знаков, ё → е). */
+const ENGINE_VOLUME_WORDS = /(^| )(л|литр\p{L}*|объем\p{L}*|куб\p{L}*)( |$)/u;
+
 export function groundIntent(
   intent: SmartSearchIntentCore,
   text: string,
@@ -179,6 +182,12 @@ export function groundIntent(
           dropped.push(key);
           continue;
         }
+      }
+      // Объём двигателя без «л», «литр», «объём» или дробного числа — догадка модели:
+      // «камри до 2 ляма» Qwen3 прочла как 2 литра
+      if (key === 'engineVolume' && !ENGINE_VOLUME_WORDS.test(lower) && !/\d[.,]\d/.test(text)) {
+        dropped.push(key);
+        continue;
       }
       const grounded = groundValue(key, value, text);
       if (grounded === null) dropped.push(key);

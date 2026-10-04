@@ -70,6 +70,9 @@ export class OllamaProvider implements AiProvider {
       model: this.settings.model,
       stream: false,
       think: false,
+      // Модель остаётся в памяти полчаса после фразы: по умолчанию Ollama выгружает
+      // её через 5 минут, и следующая фраза ждёт загрузки ~15 с (аудит, SS-10)
+      keep_alive: '30m',
       format,
       // Разбор фразы — не творчество: одинаковый вход должен давать одинаковый ответ
       options: { temperature: 0, num_ctx: this.settings.contextTokens, num_predict: 1024 },

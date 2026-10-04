@@ -157,11 +157,46 @@ if (live) {
   );
 
   const car = await ask('Хочу машину');
+  const toyota = car.body?.parts?.[0]?.suggestions?.find((option) => option.label === 'Toyota');
   check(
-    car.body?.status === 'clarification' &&
-      car.body?.parts?.[0]?.clarification?.options?.some((option) => option.label === 'Toyota'),
-    '«Хочу машину» — уточнение с марками',
+    car.body?.status === 'results' &&
+      car.body?.parts?.[0]?.navigation?.path?.join(' → ') === 'Транспорт → Автомобили' &&
+      toyota?.choice?.kind === 'filter',
+    '«Хочу машину» — раздел «Транспорт → Автомобили» и марки быстрыми значениями',
     car.body?.status,
+  );
+  if (toyota?.choice) {
+    const started = Date.now();
+    const chosen = await ask('Toyota', {
+      sessionId: car.body.sessionId,
+      choice: { requestId: car.body.requestId, ...toyota.choice },
+    });
+    check(
+      /"brand":"toyota"/.test(chosen.body?.parts?.[0]?.query?.params?.attributes ?? '') &&
+        Date.now() - started < 2000,
+      'нажатие «Toyota» — выбор без модели (меньше 2 с)',
+      `${Date.now() - started} мс`,
+    );
+  }
+
+  const eat = await ask('Хочу покушать');
+  const places = eat.body?.parts?.[0]?.clarification?.options?.find(
+    (option) => option.choice?.value === 'places',
+  );
+  check(Boolean(places), '«Хочу покушать» — «Рестораны и кафе» или «Доставка еды»');
+  if (places) {
+    const chosen = await ask('Рестораны и кафе', {
+      sessionId: eat.body.sessionId,
+      choice: { requestId: eat.body.requestId, ...places.choice },
+    });
+    check(chosen.body?.parts?.[0]?.domain === 'places', 'выбор «Рестораны и кафе» → заведения');
+  }
+
+  const rides = await ask('Хочу найти попутчика');
+  check(
+    rides.body?.parts?.[0]?.domain === 'rides' && rides.body?.status === 'unsupported',
+    'попутчики — честное «скоро», не объявления',
+    rides.body?.status,
   );
 
   const cinema = await ask('Что сегодня посмотреть в кино в Махачкале?');

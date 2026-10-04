@@ -1,6 +1,8 @@
 import type {
   CityDto,
   SmartSearchClarification,
+  SmartSearchClarificationOption,
+  SmartSearchNavigation,
   SmartSearchDomain,
   SmartSearchIntentCore,
   SmartSearchNormalizedQuery,
@@ -28,6 +30,11 @@ export interface DomainRequestContext {
   latitude?: number;
   longitude?: number;
   listingCategory?: string;
+  /**
+   * Фраза — новый поиск (не уточнение прошлого и не нажатый вариант):
+   * предмет поиска должен быть назван в ней самой
+   */
+  fresh?: boolean;
   userId?: string;
   limit: number;
   now: Date;
@@ -36,7 +43,13 @@ export interface DomainRequestContext {
 }
 
 export type NormalizeOutcome<TPlan> =
-  | { kind: 'ready'; plan: TPlan; query: SmartSearchNormalizedQuery }
+  | {
+      kind: 'ready';
+      plan: TPlan;
+      query: SmartSearchNormalizedQuery;
+      /** Быстрые значения для уточнения без модели («Toyota», «Купить») — не больше 4 */
+      suggestions?: SmartSearchClarificationOption[];
+    }
   | {
       kind: 'clarify';
       clarification: SmartSearchClarification;
@@ -61,7 +74,51 @@ export interface DomainAdapter<TPlan = unknown> {
     context: DomainRequestContext,
   ): Promise<NormalizeOutcome<TPlan>>;
   execute(plan: TPlan, context: DomainRequestContext): Promise<ExecuteOutcome>;
+  /**
+   * Куда вести человека: путь раздела и условия для его экрана. Нет метода —
+   * путь из одной подписи раздела, условий нет.
+   */
+  navigation?(
+    query: SmartSearchNormalizedQuery,
+    context: DomainRequestContext,
+  ): SmartSearchNavigation | Promise<SmartSearchNavigation>;
 }
+
+/** Город запроса — только если его назвали (иначе экран берёт город приложения). */
+export function namedCityId(query: SmartSearchNormalizedQuery): string | null {
+  const location = query.location;
+  return location && location.cityId && (location.mode === 'exact' || location.mode === 'near_me')
+    ? location.cityId
+    : null;
+}
+
+/** «сегодня», «завтра», «5 октября» — для пути раздела. */
+export function dayLabel(date: string, today: string): string {
+  const shift = Math.round(
+    (new Date(`${date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) /
+      86_400_000,
+  );
+  if (shift === 0) return 'сегодня';
+  if (shift === 1) return 'завтра';
+  if (shift === 2) return 'послезавтра';
+  const [, month, day] = date.split('-').map(Number) as [number, number, number];
+  return `${day} ${MONTHS_GENITIVE[month - 1] ?? ''}`.trim();
+}
+
+const MONTHS_GENITIVE = [
+  'января',
+  'февраля',
+  'марта',
+  'апреля',
+  'мая',
+  'июня',
+  'июля',
+  'августа',
+  'сентября',
+  'октября',
+  'ноября',
+  'декабря',
+];
 
 export const DOMAIN_ADAPTERS_REGISTRY = Symbol('SMART_SEARCH_DOMAIN_REGISTRY');
 

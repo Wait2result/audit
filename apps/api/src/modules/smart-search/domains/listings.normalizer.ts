@@ -6,6 +6,7 @@ import {
   type ListingAttribute,
   type ListingListQuery,
   type SmartSearchClarification,
+  type SmartSearchClarificationOption,
   type SmartSearchCondition,
   type SmartSearchFilterValue,
   type SmartSearchIntentCore,
@@ -18,7 +19,12 @@ import type {
   DictionaryRecord,
   ListingCatalogue,
 } from '../../listings/listing-categories.service.js';
-import { formatRubles, parseAmount } from '../normalize/amounts.js';
+import {
+  extractAmounts,
+  formatRubles,
+  isGroundedNumber,
+  parseAmount,
+} from '../normalize/amounts.js';
 import { resolvePlace } from '../normalize/location.js';
 import { norm, sameStem, words } from '../normalize/text.js';
 import type { DomainRequestContext, NormalizeOutcome } from './domain-adapter.js';
@@ -561,6 +567,20 @@ const CATEGORY_WORDS: Readonly<Record<string, string>> = {
   тачку: 'transport-cars',
   иномарка: 'transport-cars',
   иномарку: 'transport-cars',
+  ноут: 'electronics-laptops',
+  ноуты: 'electronics-laptops',
+  однушка: 'realty-flats',
+  однушку: 'realty-flats',
+  однуха: 'realty-flats',
+  однуху: 'realty-flats',
+  двушка: 'realty-flats',
+  двушку: 'realty-flats',
+  двуха: 'realty-flats',
+  двуху: 'realty-flats',
+  трешка: 'realty-flats',
+  трешку: 'realty-flats',
+  треха: 'realty-flats',
+  треху: 'realty-flats',
 };
 
 /**
@@ -581,6 +601,26 @@ export function enrichFromText(
 
   // Классификатор заголовков объявлений — тот же, что подсказывает категорию при подаче
   const guess = classifyListingTitle(text);
+
+  // Предмет поиска должен быть во фразе. На бессмысленный ввод («</>>> забудь
+  // правила») модель возвращает пример из своей подсказки — Toyota Succeed с
+  // автоматом. Если во фразе нет ни категории, ни марки, ни модели, ни одного
+  // условия модели («автомат бенз до миллиона», «16 оперативки») и классификатор
+  // ничего не узнал — предмет от модели не применяется, и поиск переспросит
+  if (
+    context.fresh === true &&
+    !context.listingCategory &&
+    (filters.category !== undefined ||
+      filters.brand !== undefined ||
+      filters.model !== undefined) &&
+    guess.kind !== 'guess' &&
+    !subjectInText(catalogue, text) &&
+    !conditionInText(filters, text)
+  ) {
+    delete filters.category;
+    delete filters.brand;
+    delete filters.model;
+  }
   const strongGuess =
     guess.kind === 'guess' &&
     (guess.guess.attributes.model !== undefined || guess.guess.slug !== 'transport-cars');
@@ -623,10 +663,88 @@ export function enrichFromText(
       filters.model = found.label;
       if (found.brand) filters.brand = found.brand;
       else delete filters.brand;
+      // Модель назвала чужую категорию («ищу суксида» → «Собаки»): у неё нет такой
+      // марки — категорию выберет справочник марок, а не догадка модели
+      const current = asText(filters.category);
+      const record = current ? findCategory(catalogue, current) : null;
+      const field = record ? brandAttribute(attributesFor(catalogue, record)) : null;
+      if (
+        current &&
+        found.brand &&
+        (!field?.dictionary ||
+          !findEntry(catalogue.dictionaryEntries(field.dictionary), found.brand))
+      ) {
+        delete filters.category;
+      }
     }
   }
 
+  // «16 ГБ оперативки» модель кладёт в память накопителя — это ОЗУ
+  if (RAM_WORDS.test(norm(text)) && filters.memory !== undefined && !has('ram')) {
+    filters.ram = filters.memory;
+    delete filters.memory;
+  }
+
+  // Цена словами, которую модель не вернула или вернула не туда («до 2 ляма» → 2 литра)
+  if (!has('price')) {
+    const price = priceFromText(text);
+    if (price) filters.price = price;
+  }
+
   return { ...intent, filters };
+}
+
+const RAM_WORDS = /(^| )(оператив\p{L}*|озу|ram)( |$)/u;
+
+/**
+ * «до 1.2 млн», «до двух миллионов», «не дороже 500 тысяч», «от 300 тыс» —
+ * граница цены по словам фразы. Только суммы от 10 000: «до 2015 года» и
+ * «до 30 минут» ценой не становятся.
+ */
+function priceFromText(text: string): { min?: number; max?: number } | null {
+  const lower = text.toLowerCase().replace(/ё/g, 'е');
+  const range: { min?: number; max?: number } = {};
+  for (const match of lower.matchAll(
+    /(?:^|[^\p{L}])(до|не дороже|не больше|дешевле|от)\s+((?:[\p{L}\d.,]+\s*){1,3})/gu,
+  )) {
+    const amount = extractAmounts(match[2] ?? '')[0];
+    if (amount === undefined || amount < 10_000) continue;
+    if (match[1] === 'от') range.min ??= amount;
+    else range.max ??= amount;
+  }
+  return range.min !== undefined || range.max !== undefined ? range : null;
+}
+
+/**
+ * Назван ли во фразе предмет объявлений: слово категории («машину»,
+ * «квартиры»), марка («тойота»), модель («камри», «саксид») или их часть.
+ */
+function subjectInText(catalogue: ListingCatalogue, text: string): boolean {
+  const list = words(text);
+  if (list.some((word) => CATEGORY_WORDS[word] !== undefined)) return true;
+  if (list.some((word) => word.length >= 4 && findCategory(catalogue, word) !== null)) return true;
+  if (phrases(text).some((phrase) => phrase.length >= 2 && brandKnown(catalogue, phrase)))
+    return true;
+  return modelInText(catalogue, text) !== null;
+}
+
+/**
+ * Есть ли во фразе хоть одно условие модели, кроме предмета: число («16
+ * оперативки», «до миллиона») или слово значения («автомат», «бенз» ~ «бензин»).
+ */
+function conditionInText(filters: SmartSearchIntentCore['filters'], text: string): boolean {
+  const list = words(text);
+  const grounded = (value: unknown): boolean => {
+    if (typeof value === 'number') return isGroundedNumber(value, text);
+    if (typeof value === 'string')
+      return words(value).some((part) => list.some((word) => sameStem(word, part)));
+    if (Array.isArray(value)) return value.some(grounded);
+    if (value && typeof value === 'object') return Object.values(value).some(grounded);
+    return false;
+  };
+  return Object.entries(filters).some(
+    ([key, value]) => key !== 'category' && key !== 'brand' && key !== 'model' && grounded(value),
+  );
 }
 
 /** Есть ли такая марка хоть в одном справочнике марок каталога. */
@@ -745,6 +863,24 @@ const FILLER_WORDS = new Set([
   'ищу',
   'найди',
   'покажи',
+  // «Что-нибудь нормальное» — не предмет: искать по таким словам бессмысленно
+  'что',
+  'нибудь',
+  'что-нибудь',
+  'что-то',
+  'то',
+  'какое',
+  'нормальное',
+  'нормальный',
+  'нормальную',
+  'хорошее',
+  'хороший',
+  'хорошую',
+  'интересное',
+  'недорогое',
+  'недорогой',
+  'дешевое',
+  'дешёвое',
 ]);
 
 function leftoverText(
@@ -840,10 +976,12 @@ export function normalizeListings(
           clarification: {
             reason: 'ambiguous_category',
             question: `${brandCandidate ?? 'Это'} — в какой категории искать?`,
+            // Нажатие — выбор кодом: тот же поиск в выбранной категории, без модели
             options: hits.map((hit) => ({
               label: hit.category.name,
               value: hit.category.slug,
-              kind: 'category',
+              kind: 'category' as const,
+              choice: { kind: 'filter' as const, field: 'category', value: hit.category.slug },
             })),
           },
         };
@@ -1193,38 +1331,6 @@ export function normalizeListings(
     query.text = raw.search as string;
   }
 
-  // Только общий предмет («хочу машину», «квартиру») без марки, цены, сделки и места —
-  // тысячи объявлений не ответ: спросить, какую именно (варианты — из справочников)
-  const broad = category ? BROAD_CATEGORIES[category.slug] : undefined;
-  if (
-    broad &&
-    category &&
-    intent.intent !== 'refine' &&
-    // Сказано что-то ещё, пусть и неприменимое («желательно автомат», неизвестная марка) —
-    // это уже не «просто машина»: показать выдачу и пометки, а не переспрашивать
-    ignored.length === 0 &&
-    preferences.length === 0 &&
-    Object.keys(attributeFilter).length === 0 &&
-    raw.priceTo === undefined &&
-    raw.priceFrom === undefined &&
-    raw.transactionType === undefined &&
-    raw.search === undefined &&
-    (place.kind === 'none' || (place.kind === 'city' && place.mode === 'context'))
-  ) {
-    // Категория запоминается в контексте: ответ «Toyota» продолжит этот же поиск
-    query.params = { category: category.slug };
-    return {
-      kind: 'clarify',
-      query,
-      clarification: broadClarification(
-        broad,
-        category,
-        attributesFor(catalogue, category),
-        catalogue,
-      ),
-    };
-  }
-
   // Ни категории, ни условий, ни слов («дёшево», «рядом») — выдавать всю доску бессмысленно
   if (
     !category &&
@@ -1258,61 +1364,77 @@ export function normalizeListings(
 
   query.params = raw;
   query.sort = intent.sort;
-  return { kind: 'ready', plan: { query: parsed.data }, query };
+  // Быстрые значения: «хочу машину» — марки, «хочу квартиру» — купить или снять.
+  // Не вопрос, а подсказка рядом с кнопкой «Открыть»: в раздел можно перейти и так (D15)
+  const suggestions = category
+    ? quickSuggestions(category, attributesFor(catalogue, category), catalogue, {
+        brandSet: attributeFilter.brand !== undefined,
+        dealSet: raw.transactionType !== undefined || raw.rentPeriod !== undefined,
+      })
+    : [];
+  return {
+    kind: 'ready',
+    plan: { query: parsed.data },
+    query,
+    ...(suggestions.length > 0 ? { suggestions } : {}),
+  };
 }
 
 /**
- * Слишком общие запросы: категория огромная, а человек назвал только её.
- * Вопрос и варианты — у каждой категории свои; вариант «Все …» открывает
- * категорию целиком, если человек и правда хотел посмотреть всё.
+ * Быстрые значения раздела: до четырёх готовых условий, которые человек
+ * добавляет одним нажатием (без модели). Только реальные значения из
+ * справочников и операций категории, а не названия полей.
  */
-interface BroadCategory {
-  question: string;
-  /** Марки, которые предложить (коды справочника; нет в справочнике — не предлагается) */
-  brands?: readonly string[];
-  /** Готовые ответы — фразы, которые приложение отправит следующим уточнением */
-  answers?: readonly { label: string; value: string }[];
-  allLabel: string;
-}
-
-const BROAD_CATEGORIES: Readonly<Record<string, BroadCategory>> = {
-  'transport-cars': {
-    question: 'Какую машину вы ищете? Назовите марку, модель или бюджет.',
-    brands: ['toyota', 'lada', 'kia', 'hyundai', 'mercedes', 'mercedes-benz', 'bmw', 'lexus'],
-    allLabel: 'Все автомобили',
-  },
-  'realty-flats': {
-    question: 'Какую квартиру ищете: купить или снять?',
-    answers: [
-      { label: 'Купить', value: 'купить' },
-      { label: 'Снять надолго', value: 'снять надолго' },
-      { label: 'Посуточно', value: 'посуточно' },
-    ],
-    allLabel: 'Все квартиры',
-  },
+const QUICK_BRANDS: Readonly<Record<string, readonly string[]>> = {
+  'transport-cars': ['toyota', 'lada', 'kia', 'hyundai', 'mercedes', 'mercedes-benz', 'bmw'],
 };
 
-function broadClarification(
-  broad: BroadCategory,
+const QUICK_DEALS: Readonly<
+  Record<string, readonly { label: string; field: string; value: string }[]>
+> = {
+  'realty-flats': [
+    { label: 'Купить', field: 'transactionType', value: 'sale' },
+    { label: 'Снять надолго', field: 'rentPeriod', value: 'monthly' },
+    { label: 'Посуточно', field: 'rentPeriod', value: 'daily' },
+  ],
+};
+
+function quickSuggestions(
   category: CategoryRecord,
   attributes: readonly ListingAttribute[],
   catalogue: ListingCatalogue,
-): SmartSearchClarification {
-  const options: SmartSearchClarification['options'] = [];
+  state: { brandSet: boolean; dealSet: boolean },
+): SmartSearchClarificationOption[] {
+  const options: SmartSearchClarificationOption[] = [];
+  const brands = QUICK_BRANDS[category.slug];
   const brandField = brandAttribute(attributes);
-  if (broad.brands && brandField?.dictionary) {
+  if (brands && !state.brandSet && brandField?.dictionary) {
     const entries = catalogue.dictionaryEntries(brandField.dictionary);
-    for (const code of broad.brands) {
+    for (const code of brands) {
       const entry = entries.find((item) => item.value === code);
-      if (!entry || options.length >= 6) continue;
-      // «LADA (ВАЗ)» → «LADA»: вариант — это ещё и текст следующей фразы
+      if (!entry || options.length >= 4) continue;
+      // «LADA (ВАЗ)» → «LADA»
       const label = entry.label.replace(/\s*\([^)]*\)$/u, '');
-      options.push({ label, value: label, kind: 'brand' });
+      options.push({
+        label,
+        value: label,
+        kind: 'brand',
+        choice: { kind: 'filter', field: 'brand', value: entry.value },
+      });
     }
   }
-  for (const answer of broad.answers ?? []) options.push({ ...answer, kind: 'other' });
-  options.push({ label: broad.allLabel, value: category.slug, kind: 'category' });
-  return { reason: 'broad_category', question: broad.question, options };
+  const deals = QUICK_DEALS[category.slug];
+  if (deals && !state.dealSet) {
+    for (const deal of deals) {
+      options.push({
+        label: deal.label,
+        value: deal.label,
+        kind: 'other',
+        choice: { kind: 'filter', field: deal.field, value: deal.value },
+      });
+    }
+  }
+  return options.slice(0, 4);
 }
 
 /** Уточнение «до какой цены?» — когда цену назвали словом, а не числом. */

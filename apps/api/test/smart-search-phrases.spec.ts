@@ -530,9 +530,11 @@ const CASES: PhraseCase[] = [
   {
     text: 'закажи шаурму',
     ai: intent({ intent: 'action', domain: 'delivery', filters: { dish: 'шаурма' } }),
-    status: 'unsupported',
+    // «Заказать» — найти, где заказать: поиск доставки шаурмы, сам заказ — в карточке
+    status: 'results',
     domain: 'delivery',
-    check: (calls) => expect(calls.places).toHaveLength(0),
+    check: (calls) =>
+      expect(calls.places[0]).toMatchObject({ hasDelivery: true, search: 'шаурма' }),
   },
   {
     text: 'где мой курьер?',

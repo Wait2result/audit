@@ -169,14 +169,21 @@ describe('Другие разделы — их существующие серв
     expect(h.calls.news[0]).toMatchObject({ scope: 'dagestan' });
   });
 
-  it('«Хочу заказать пиццу в Каспийске» → доставка; заказ не оформляется', async () => {
+  it('«Хочу заказать пиццу в Каспийске» → поиск доставки пиццы, без оформления заказа', async () => {
     const h = harness();
     const text = 'Хочу заказать пиццу в Каспийске';
     real(h, text);
     const response = await ask(h, text);
-    expect(response.parts[0]).toMatchObject({ domain: 'delivery', status: 'unsupported' });
-    expect(h.calls.places).toHaveLength(0);
-    expect(smartSearchOutcome(response).kind).toBe('parts');
+    expect(response.parts[0]).toMatchObject({ domain: 'delivery', status: 'results' });
+    expect(h.calls.places[0]).toMatchObject({
+      cityId: KASPIYSK.id,
+      hasDelivery: true,
+      search: 'пицца',
+    });
+    expect(response.parts[0]!.navigation).toMatchObject({
+      section: 'delivery',
+      filters: { cityId: KASPIYSK.id, search: 'пицца', hasDelivery: true },
+    });
   });
 
   it('«Где поесть хинкал в Каспийске?» → заведения Каспийска с доставкой', async () => {
@@ -193,50 +200,76 @@ describe('Другие разделы — их существующие серв
   });
 });
 
-describe('Уточнение вместо «ничего не найдено»', () => {
-  it('«Хочу машину» — какую? Марки из справочника и «Все автомобили»', async () => {
-    const h = harness();
+describe('Карточка раздела вместо лишнего вопроса (D15)', () => {
+  it('«Хочу машину» → Транспорт → Автомобили, кнопка «Открыть», марки — быстрыми значениями', async () => {
+    const h = harness({ traces: new MemoryTraceStore() });
     real(h, 'Хочу машину');
     const response = await ask(h, 'Хочу машину');
-    expect(response.status).toBe('clarification');
-    const clarification = response.parts[0]!.clarification!;
-    expect(clarification.reason).toBe('broad_category');
-    expect(clarification.question).toMatch(/Какую машину/);
-    expect(clarification.options).toContainEqual({
-      label: 'Toyota',
-      value: 'Toyota',
-      kind: 'brand',
+    expect(response.status).toBe('results');
+    const part = response.parts[0]!;
+    expect(part.navigation).toEqual({
+      section: 'listings',
+      path: ['Транспорт', 'Автомобили'],
+      filters: {},
     });
-    expect(clarification.options).toContainEqual({
-      label: 'Все автомобили',
-      value: 'transport-cars',
-      kind: 'category',
+    expect(part.suggestions?.map((option) => option.label)).toEqual([
+      'Toyota',
+      'LADA',
+      'KIA',
+      'Hyundai',
+    ]);
+    expect(part.suggestions?.[0]?.choice).toEqual({
+      kind: 'filter',
+      field: 'brand',
+      value: 'toyota',
     });
-    expect(clarification.options.every((option) => option.label.length > 0)).toBe(true);
-    expect(h.calls.listings).toHaveLength(0);
-    expect(listingPartOf(response)).toBeNull();
 
-    // Ответ вариантом продолжает тот же поиск: категория запомнена
-    real(h, 'Toyota');
-    const next = await ask(h, 'Toyota', { sessionId: response.sessionId });
+    // Нажатие «Toyota» — без модели: тот же поиск плюс марка
+    const before = h.ai.requests.length;
+    const next = await h.service.search({
+      text: 'Toyota',
+      limit: 10,
+      sessionId: response.sessionId,
+      choice: { requestId: response.requestId, ...part.suggestions![0]!.choice! },
+      context: { cityId: MAKHACHKALA.id, screen: 'home' },
+    });
+    expect(h.ai.requests.length).toBe(before);
     expect(screenFilters(next)).toMatchObject({
       category: 'transport-cars',
       attributes: { brand: 'toyota' },
     });
+    // Марка уже выбрана — марки больше не предлагаются
+    expect(next.parts[0]!.suggestions).toBeUndefined();
   });
 
-  it('«Хочу квартиру» — купить или снять', async () => {
-    const h = harness();
+  it('«Хочу квартиру» → квартиры, быстрые значения «Купить / Снять надолго / Посуточно»', async () => {
+    const h = harness({ traces: new MemoryTraceStore() });
     real(h, 'Хочу квартиру');
     const response = await ask(h, 'Хочу квартиру');
-    expect(response.status).toBe('clarification');
-    expect(response.parts[0]!.clarification!.options.map((option) => option.value)).toEqual([
-      'купить',
-      'снять надолго',
-      'посуточно',
-      'realty-flats',
+    expect(response.status).toBe('results');
+    expect(response.parts[0]!.navigation?.path).toEqual(['Недвижимость', 'Квартиры']);
+    expect(response.parts[0]!.suggestions?.map((option) => option.choice)).toEqual([
+      { kind: 'filter', field: 'transactionType', value: 'sale' },
+      { kind: 'filter', field: 'rentPeriod', value: 'monthly' },
+      { kind: 'filter', field: 'rentPeriod', value: 'daily' },
     ]);
-    expect(h.calls.listings).toHaveLength(0);
+    const daily = await h.service.search({
+      text: 'Посуточно',
+      limit: 10,
+      sessionId: response.sessionId,
+      choice: {
+        requestId: response.requestId,
+        kind: 'filter',
+        field: 'rentPeriod',
+        value: 'daily',
+      },
+      context: { cityId: MAKHACHKALA.id, screen: 'home' },
+    });
+    expect(screenFilters(daily)).toMatchObject({
+      category: 'realty-flats',
+      transactionType: 'rent',
+      rentPeriod: 'daily',
+    });
   });
 
   it('«машины в Каспийске» — с местом это уже поиск, а не общий вопрос', async () => {
@@ -307,8 +340,8 @@ describe('Запасной путь: умный поиск не сработал
     ['модель недоступна', new AiProviderError('AI_UNAVAILABLE', 'down'), 'AI_UNAVAILABLE'],
     ['ответ не JSON', 'вот что я нашёл: камри', 'INVALID_AI_OUTPUT'],
     [
-      'раздел, которого нет (погода)',
-      JSON.stringify({ ...REAL_MOBILE['Хочу тойота суксид'], domain: 'weather' }),
+      'раздел, которого нет (магазины)',
+      JSON.stringify({ ...REAL_MOBILE['Хочу тойота суксид'], domain: 'shops' }),
       'INVALID_AI_OUTPUT',
     ],
   ];

@@ -25,13 +25,18 @@ import type {
 import { AiProviderError } from '../../src/modules/smart-search/ai/ai-provider.js';
 import { MemoryContextStore } from '../../src/modules/smart-search/context/context-store.js';
 import { CinemaSearchAdapter } from '../../src/modules/smart-search/domains/cinema.adapter.js';
-import { DeliverySearchAdapter } from '../../src/modules/smart-search/domains/delivery.adapter.js';
+import {
+  DeliverySearchAdapter,
+  PlacesSearchAdapter,
+} from '../../src/modules/smart-search/domains/delivery.adapter.js';
 import {
   DomainRegistry,
   type DomainRequestContext,
 } from '../../src/modules/smart-search/domains/domain-adapter.js';
 import { ListingsSearchAdapter } from '../../src/modules/smart-search/domains/listings.adapter.js';
 import { NewsSearchAdapter } from '../../src/modules/smart-search/domains/news.adapter.js';
+import { RidesSearchAdapter } from '../../src/modules/smart-search/domains/rides.adapter.js';
+import { WeatherSearchAdapter } from '../../src/modules/smart-search/domains/weather.adapter.js';
 import type { TraceStore } from '../../src/modules/smart-search/feedback/search-trace-store.js';
 import { SmartSearchService } from '../../src/modules/smart-search/smart-search.service.js';
 import {
@@ -322,10 +327,11 @@ export interface Calls {
   cinema: { cityId: string; date?: string }[];
   news: { cityId: string; scope: string }[];
   places: PlaceListQuery[];
+  weather: string[];
 }
 
 export function fakeServices(options: { listingsTotal?: number; placesFound?: number } = {}) {
-  const calls: Calls = { listings: [], cinema: [], news: [], places: [] };
+  const calls: Calls = { listings: [], cinema: [], news: [], places: [], weather: [] };
   const listingsTotal = options.listingsTotal ?? 3;
   const placesFound = options.placesFound ?? 2;
 
@@ -367,12 +373,33 @@ export function fakeServices(options: { listingsTotal?: number; placesFound?: nu
     cuisines: () => Promise.resolve(['Дагестанская', 'Европейская', 'Японская']),
   };
   const placeCategories = { list: () => Promise.resolve(PLACE_CATEGORIES) };
+  // Прогноз на неделю от «сегодня» тестов (3 октября)
+  const weather = {
+    getForecast: (cityId: string) => {
+      calls.weather.push(cityId);
+      const daily = Array.from({ length: 7 }, (_, index) => ({
+        date: `2026-10-0${3 + index}`,
+        tempMin: 14 + index,
+        tempMax: 22 + index,
+        conditionCode: 0,
+        conditionText: 'Ясно',
+      }));
+      return Promise.resolve({
+        cityId,
+        current: { temperature: 20, conditionCode: 0, conditionText: 'Ясно' },
+        daily,
+      });
+    },
+  };
 
   const adapters = [
     new ListingsSearchAdapter(categories as never, listings as never),
     new CinemaSearchAdapter(cinema as never),
     new NewsSearchAdapter(newsService as never),
     new DeliverySearchAdapter(places as never, placeCategories as never),
+    new PlacesSearchAdapter(places as never, placeCategories as never),
+    new WeatherSearchAdapter(weather as never),
+    new RidesSearchAdapter(),
   ];
   return { calls, registry: new DomainRegistry(adapters), adapters };
 }

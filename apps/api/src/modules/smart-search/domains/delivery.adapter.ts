@@ -6,6 +6,8 @@ import {
   type PlaceListQuery,
   type PlaceType,
   type SmartSearchIntentCore,
+  type SmartSearchNavigation,
+  type SmartSearchNormalizedQuery,
 } from '@dagestan/shared';
 
 import { CategoriesService } from '../../places/categories.service.js';
@@ -18,7 +20,7 @@ import type {
   ExecuteOutcome,
   NormalizeOutcome,
 } from './domain-adapter.js';
-import { emptyQuery } from './domain-adapter.js';
+import { emptyQuery, namedCityId } from './domain-adapter.js';
 
 /**
  * Доставка — это витрина заведений с доставкой (`GET /places`): поиск по
@@ -57,6 +59,34 @@ function typeLabels(value: unknown): string[] {
   );
 }
 
+/** Слова, которые описывают желание поесть, а не блюдо или заведение. */
+const GENERIC_FOOD_WORDS = new Set([
+  'где',
+  'хочу',
+  'поесть',
+  'покушать',
+  'кушать',
+  'есть',
+  'еда',
+  'еду',
+  'еды',
+  'перекусить',
+  'пообедать',
+  'поужинать',
+  'позавтракать',
+  'заказать',
+  'закажи',
+  'доставка',
+  'доставку',
+  'доставкой',
+  'с',
+  'в',
+  'на',
+  'можно',
+  'вкусно',
+  'рядом',
+]);
+
 /** Значение (или каждое из значений) встречается во фразе с точностью до падежа. */
 function namedInText(value: unknown, text: string): boolean {
   const items = (Array.isArray(value) ? value : [value]).map(String);
@@ -70,13 +100,17 @@ function namedInText(value: unknown, text: string): boolean {
   );
 }
 
-/** Намерение «доставка» → запрос витрины заведений с доставкой. */
+/**
+ * Намерение → запрос витрины заведений. Режим «доставка» добавляет условие
+ * «с доставкой»; режим «заведения» — тот же поиск без него («где поесть»).
+ */
 export function normalizeDelivery(
   intent: SmartSearchIntentCore,
   context: DomainRequestContext,
   catalogue: DeliveryCatalogue,
+  mode: 'delivery' | 'places' = 'delivery',
 ): NormalizeOutcome<DeliveryPlan> {
-  const query = emptyQuery('delivery', intent);
+  const query = emptyQuery(mode, intent);
 
   const place = resolvePlace(intent, context, { allowRegion: false });
   if (place.kind === 'clarify')
@@ -87,28 +121,36 @@ export function normalizeDelivery(
       query,
       clarification: {
         reason: 'city_required',
-        question: 'В какой город доставить?',
+        question: mode === 'delivery' ? 'В какой город доставить?' : 'В каком городе искать?',
         options: cityOptions(context.cities),
       },
     };
   }
   query.location = { cityId: place.city.id, cityName: place.city.name, mode: place.mode };
 
-  const raw: Record<string, unknown> = {
-    cityId: place.city.id,
-    hasDelivery: true,
-    limit: context.limit,
-  };
-  query.conditions.push({
-    field: 'hasDelivery',
-    label: 'Доставка',
-    value: true,
-    display: 'с доставкой',
-  });
+  const raw: Record<string, unknown> = { cityId: place.city.id, limit: context.limit };
+  if (mode === 'delivery') {
+    raw.hasDelivery = true;
+    query.conditions.push({
+      field: 'hasDelivery',
+      label: 'Доставка',
+      value: true,
+      display: 'с доставкой',
+    });
+  }
 
   // Город в поле «заведение» («пицца в Каспийске» → place «Каспийск») — это место, а не что искать
-  const notCity = (value: string | null) =>
-    value && matchCity(value, context.cities).kind === 'unknown' ? value : null;
+  // Город в поле «блюдо» — это место; общие слова («где поесть», «хочу покушать») —
+  // не то, что искать: иначе пустая выдача по названию «где поесть»
+  const notCity = (value: string | null) => {
+    if (!value || matchCity(value, context.cities).kind !== 'unknown') return null;
+    const rest = value
+      .split(/\s+/)
+      .filter((word) => !GENERIC_FOOD_WORDS.has(norm(word)))
+      .join(' ')
+      .trim();
+    return rest || null;
+  };
   const search =
     notCity(asText(intent.filters.dish)) ??
     notCity(asText(intent.query)) ??
@@ -152,6 +194,17 @@ export function normalizeDelivery(
         label: 'Категория',
         value: category.slug,
         display: category.name,
+      });
+    } else if (!raw.search && notCity(categoryRaw)) {
+      // Модель кладёт блюдо в плитку витрины («пицца»), а плиток в городе нет —
+      // это то, что ищут: поиск по названию и меню, а не «всё подряд»
+      raw.search = categoryRaw.slice(0, 120);
+      query.text = raw.search as string;
+      query.conditions.push({
+        field: 'search',
+        label: 'Что ищем',
+        value: raw.search,
+        display: raw.search as string,
       });
     } else {
       query.ignored.push({ field: 'category', reason: `Категории «${categoryRaw}» нет` });
@@ -260,10 +313,11 @@ export class DeliverySearchAdapter implements DomainAdapter<DeliveryPlan> {
   promptSection(): Promise<string> {
     return Promise.resolve(
       [
-        'delivery — заведения города с доставкой: рестораны, кафе, магазины и их блюда. Только поиск, без оформления заказа.',
+        'delivery — доставка еды: заведения города, которые привезут блюдо. Только поиск, без оформления заказа.',
         `  Фильтры: ${DELIVERY_FILTER_KEYS.join(', ')}. dish — блюдо или товар; place — название заведения; cuisine — кухня;`,
         '  category — плитка витрины (шашлык, пицца …); placeType — ресторан, кафе, фастфуд, пекарня, магазин, супермаркет;',
-        '  openNow — true; maxMinutes — «привезут за N минут». «Закажи», «оплати», «где курьер» — intent "action".',
+        '  openNow — true; maxMinutes — «привезут за N минут». «Хочу пиццу», «закажи суши», «доставка шашлыка» — search в delivery',
+        '  (блюдо — в dish). «Оплати», «где курьер», «оформи заказ» — intent "action".',
       ].join('\n'),
     );
   }
@@ -289,5 +343,81 @@ export class DeliverySearchAdapter implements DomainAdapter<DeliveryPlan> {
   async execute(plan: DeliveryPlan, context: DomainRequestContext): Promise<ExecuteOutcome> {
     const page = await this.places.list(plan.query, context.userId);
     return { kind: 'results', results: { domain: 'delivery', page }, count: page.items.length };
+  }
+
+  navigation(query: SmartSearchNormalizedQuery): SmartSearchNavigation {
+    return placesNavigation('delivery', query);
+  }
+}
+
+/** Путь и условия экрана заведений: тот же экран для доставки и для «поесть на месте». */
+export function placesNavigation(
+  section: 'delivery' | 'places',
+  query: SmartSearchNormalizedQuery,
+): SmartSearchNavigation {
+  const params = query.params;
+  const filters: SmartSearchNavigation['filters'] = {};
+  const cityId = namedCityId(query);
+  if (cityId) filters.cityId = cityId;
+  for (const key of ['search', 'category', 'openNow', 'maxMinutes', 'hasDelivery'] as const) {
+    const value = params[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+      filters[key] = value;
+  }
+  return {
+    section,
+    path: [query.location?.cityName ?? (section === 'delivery' ? 'Доставка' : 'Заведения')],
+    filters,
+  };
+}
+
+/**
+ * Заведения — «где поесть», «ресторан», «кафе»: та же витрина `GET /places`
+ * и тот же разбор, но без условия «с доставкой».
+ */
+@Injectable()
+export class PlacesSearchAdapter implements DomainAdapter<DeliveryPlan> {
+  readonly domain = 'places' as const;
+  readonly label = 'Рестораны и кафе';
+
+  constructor(
+    private readonly places: PlacesService,
+    private readonly categories: CategoriesService,
+  ) {}
+
+  promptSection(): Promise<string> {
+    return Promise.resolve(
+      [
+        'places — рестораны, кафе, столовые города: где поесть, поужинать, пообедать, конкретное блюдо в заведении.',
+        `  Фильтры: ${DELIVERY_FILTER_KEYS.join(', ')} — те же, что у delivery. Доставку не подразумевать:`,
+        '  «где поесть хинкал» → places, dish «хинкал»; «закажи / привезите / доставка» → это delivery.',
+      ].join('\n'),
+    );
+  }
+
+  allowedFilterKeys(): Promise<ReadonlySet<string>> {
+    return Promise.resolve(new Set(DELIVERY_FILTER_KEYS));
+  }
+
+  async normalize(
+    intent: SmartSearchIntentCore,
+    context: DomainRequestContext,
+  ): Promise<NormalizeOutcome<DeliveryPlan>> {
+    const place = resolvePlace(intent, context, { allowRegion: false });
+    const city = place.kind === 'city' ? place.city.id : undefined;
+    const [categories, cuisines] = await Promise.all([
+      this.categories.list(),
+      city ? this.places.cuisines(city) : Promise.resolve([]),
+    ]);
+    return normalizeDelivery(intent, context, { categories, cuisines }, 'places');
+  }
+
+  async execute(plan: DeliveryPlan, context: DomainRequestContext): Promise<ExecuteOutcome> {
+    const page = await this.places.list(plan.query, context.userId);
+    return { kind: 'results', results: { domain: 'places', page }, count: page.items.length };
+  }
+
+  navigation(query: SmartSearchNormalizedQuery): SmartSearchNavigation {
+    return placesNavigation('places', query);
   }
 }

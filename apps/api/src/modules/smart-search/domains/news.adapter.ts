@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import type { NewsScope, NewsSummaryDto, SmartSearchIntentCore } from '@dagestan/shared';
+import type {
+  NewsScope,
+  NewsSummaryDto,
+  SmartSearchIntentCore,
+  SmartSearchNavigation,
+  SmartSearchNormalizedQuery,
+} from '@dagestan/shared';
 
 import { NewsService } from '../../news/news.service.js';
 import { resolvePlace, cityOptions } from '../normalize/location.js';
@@ -11,7 +17,7 @@ import type {
   ExecuteOutcome,
   NormalizeOutcome,
 } from './domain-adapter.js';
-import { emptyQuery } from './domain-adapter.js';
+import { emptyQuery, namedCityId } from './domain-adapter.js';
 
 export const NEWS_FILTER_KEYS = ['topic', 'scope'] as const;
 
@@ -238,5 +244,26 @@ export class NewsSearchAdapter implements DomainAdapter<NewsPlan> {
     }
     const limited = items.slice(0, context.limit);
     return { kind: 'results', results: { domain: 'news', items: limited }, count: limited.length };
+  }
+
+  /**
+   * Экран новостей умеет только ленту (и город для городской ленты). Темы и
+   * дня на экране нет — их приложение честно помечает как «не применено».
+   */
+  navigation(query: SmartSearchNormalizedQuery): SmartSearchNavigation {
+    const filters: SmartSearchNavigation['filters'] = {};
+    const scope = typeof query.params.scope === 'string' ? query.params.scope : null;
+    if (scope) filters.scope = scope;
+    const cityId = namedCityId(query);
+    if (cityId && scope === 'city') filters.cityId = cityId;
+    const label =
+      scope === 'city'
+        ? (query.location?.cityName ?? 'Город')
+        : scope === 'russia'
+          ? 'Россия'
+          : scope === 'world'
+            ? 'Мир'
+            : 'Дагестан';
+    return { section: 'news', path: [label], filters };
   }
 }

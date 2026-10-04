@@ -15,6 +15,63 @@ const MULTIPLIERS: readonly [RegExp, number][] = [
   [/^(тысяч\p{L}*|тыщ\p{L}*|тыс|тыс\.|тр|т\.р\.?|к|k)$/u, 1_000],
 ];
 
+/** Числительные прописью перед «миллион» / «тысяча» (ё уже заменена на е). */
+const NUMBER_WORDS: Readonly<Record<string, number>> = {
+  один: 1,
+  одного: 1,
+  два: 2,
+  две: 2,
+  двух: 2,
+  три: 3,
+  трех: 3,
+  четыре: 4,
+  четырех: 4,
+  пять: 5,
+  пяти: 5,
+  шесть: 6,
+  шести: 6,
+  семь: 7,
+  семи: 7,
+  восемь: 8,
+  восьми: 8,
+  девять: 9,
+  девяти: 9,
+  десять: 10,
+  десяти: 10,
+  двадцать: 20,
+  двадцати: 20,
+  тридцать: 30,
+  тридцати: 30,
+  сорок: 40,
+  сорока: 40,
+  пятьдесят: 50,
+  пятидесяти: 50,
+  шестьдесят: 60,
+  шестидесяти: 60,
+  семьдесят: 70,
+  семидесяти: 70,
+  восемьдесят: 80,
+  восьмидесяти: 80,
+  девяносто: 90,
+  девяноста: 90,
+  сто: 100,
+  ста: 100,
+  двести: 200,
+  двухсот: 200,
+  триста: 300,
+  трехсот: 300,
+  пятьсот: 500,
+  пятисот: 500,
+};
+const NUMBER_WORDS_PATTERN = Object.keys(NUMBER_WORDS)
+  .sort((a, b) => b.length - a.length)
+  .join('|');
+const NUMBER_WORD_AMOUNT = new RegExp(
+  `(?:^|[^\\p{L}])(${NUMBER_WORDS_PATTERN})\\s+(миллион\\p{L}*|млн|лям\\p{L}*|тысяч\\p{L}*|тыщ\\p{L}*|тыс)`,
+  'gu',
+);
+const ENDS_WITH_NUMBER_WORD = new RegExp(`(?:^|[^\\p{L}])(${NUMBER_WORDS_PATTERN})$`, 'u');
+
 function multiplierOf(word: string | undefined): number | null {
   if (!word) return null;
   for (const [pattern, value] of MULTIPLIERS) if (pattern.test(word)) return value;
@@ -53,11 +110,18 @@ export function extractAmounts(text: string): number[] {
     if (multiplier) result.push(1.5 * multiplier);
   }
   if (/(?:^|[^\p{L}])пол\s?миллиона/u.test(value)) result.push(500_000);
+  // Числительные прописью: «до двух миллионов», «пять тысяч»
+  for (const match of value.matchAll(NUMBER_WORD_AMOUNT)) {
+    const count = NUMBER_WORDS[match[1] ?? ''];
+    const multiplier = multiplierOf(match[2]);
+    if (count && multiplier) result.push(count * multiplier);
+  }
   for (const match of value.matchAll(
     /(?:^|[^\p{L}\d.,]\s*)(миллион\p{L}*|тысяч[ауи]?)(?!\p{L})/gu,
   )) {
     const before = value.slice(0, match.index ?? 0).trimEnd();
     if (/[\d.,]$/.test(before) || /(полтора|полторы|полутора)$/.test(before)) continue;
+    if (ENDS_WITH_NUMBER_WORD.test(before)) continue;
     const multiplier = multiplierOf(match[1]);
     if (multiplier) result.push(multiplier);
   }

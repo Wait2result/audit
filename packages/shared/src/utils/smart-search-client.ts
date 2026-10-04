@@ -237,6 +237,40 @@ export function understoodParts(query: SmartSearchNormalizedQuery): string[] {
   return parts.filter((part) => part.trim().length > 0);
 }
 
+/** Условия, которые карточка раздела не показывает чипсами: они уже в пути раздела. */
+const PATH_FIELDS = new Set(['category', 'date', 'scope', 'hasDelivery']);
+
+/**
+ * Чипсы карточки раздела: применённые условия без того, что уже видно в пути
+ * («Транспорт → Автомобили», «Махачкала · сегодня»). Город — чипсом только у
+ * объявлений (там это место поиска с радиусом), у остальных он в пути.
+ */
+export function cardConditions(query: SmartSearchNormalizedQuery): string[] {
+  const conditions = query.conditions.filter(
+    (item) =>
+      !PATH_FIELDS.has(item.field) &&
+      (item.field !== 'location' ||
+        (query.domain === 'listings' && query.location?.mode !== 'context')),
+  );
+  const parts: string[] = [];
+  const brand = conditions.find((item) => item.field === 'brand');
+  const model = conditions.find((item) => item.field === 'model');
+  if (brand || model) {
+    const brandText = brand?.display ?? '';
+    const modelText = model?.display ?? '';
+    parts.push(
+      modelText && modelText.toLowerCase().startsWith(brandText.toLowerCase())
+        ? modelText
+        : [brandText, modelText].filter(Boolean).join(' '),
+    );
+  }
+  for (const condition of conditions) {
+    if (condition.field === 'brand' || condition.field === 'model') continue;
+    parts.push(conditionText(condition));
+  }
+  return parts.filter((part) => part.trim().length > 0);
+}
+
 export function understoodSummary(query: SmartSearchNormalizedQuery): string {
   return understoodParts(query).join(' · ');
 }
@@ -246,12 +280,38 @@ export function understoodSummary(query: SmartSearchNormalizedQuery): string {
  * условие не применено», «Такого числа нет в запросе». Без служебных пометок
  * (день по умолчанию, поле не на своём месте) — они человеку ничего не дают.
  */
+/** Подписи условий для пометок «не учтено» — для полей, имя которых не говорит само. */
+const NOTE_LABELS: Readonly<Record<string, string>> = {
+  price: 'Цена',
+  brand: 'Марка',
+  model: 'Модель',
+  category: 'Категория',
+  location: 'Город',
+  transactionType: 'Сделка',
+  rentPeriod: 'Срок',
+  color: 'Цвет',
+  gearbox: 'Коробка',
+  fuel: 'Топливо',
+  year: 'Год',
+  mileage: 'Пробег',
+  cuisine: 'Кухня',
+  movie: 'Фильм',
+  genre: 'Жанр',
+  topic: 'Тема',
+  sort: 'Порядок',
+  условие: 'Условие',
+};
+
 export function understoodNotes(query: SmartSearchNormalizedQuery, limit = 2): string[] {
   const notes = [
     ...query.ignored
       .filter((item) => item.field !== 'date' && item.field !== 'time')
       .filter((item) => !/не на своём месте/u.test(item.reason))
-      .map((item) => item.reason),
+      .map((item) => {
+        // «Цена: такого числа нет в запросе» — понятно, о каком условии речь
+        const label = NOTE_LABELS[item.field];
+        return label ? `${label}: ${lowerFirst(item.reason)}` : item.reason;
+      }),
     ...query.preferences.filter((item) => !item.applied).map((item) => item.note),
   ];
   return [...new Set(notes)].slice(0, limit);

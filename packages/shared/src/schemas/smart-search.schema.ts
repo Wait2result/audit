@@ -23,7 +23,17 @@ export const SMART_SEARCH_SCHEMA_VERSION = '1' as const;
  * Разделы, с которыми умеет работать умный поиск. Новый раздел — новое
  * значение здесь и новый адаптер на сервере; маршрутизатор не меняется.
  */
-export const SMART_SEARCH_DOMAINS = ['listings', 'cinema', 'news', 'delivery'] as const;
+export const SMART_SEARCH_DOMAINS = [
+  'listings',
+  'cinema',
+  'news',
+  'delivery',
+  /** Заведения — поесть на месте: рестораны, кафе (та же витрина, что доставка, без условия доставки) */
+  'places',
+  'weather',
+  /** Попутчики — раздела пока нет: честный ответ «скоро» вместо чужого раздела */
+  'rides',
+] as const;
 export type SmartSearchDomain = (typeof SMART_SEARCH_DOMAINS)[number];
 
 /** Пределы: защищают модель и сервер от огромных запросов и ответов. */
@@ -43,7 +53,8 @@ export const SMART_SEARCH_LIMITS = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Имя фильтра: латиница, как у ключей характеристик («gearbox», «priceMax» нельзя — см. range). */
-const filterKey = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/, 'Недопустимое имя фильтра');
+export const SMART_SEARCH_FILTER_KEY = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
+const filterKey = z.string().regex(SMART_SEARCH_FILTER_KEY, 'Недопустимое имя фильтра');
 
 const scalar = z.union([z.string().trim().min(1).max(80), z.number().finite(), z.boolean()]);
 
@@ -181,8 +192,29 @@ export const SMART_SEARCH_SCREENS = [
   'cinema',
   'news',
   'delivery',
+  'places',
+  'weather',
   'other',
 ] as const;
+
+/**
+ * Выбор человека в ответе поиска: нажал вариант уточнения или быстрое
+ * значение. Исполняется сервером детерминированно — по разбору прошлого
+ * ответа (`requestId`), без повторного обращения к модели.
+ *   domain — «Рестораны и кафе» → раздел places;
+ *   filter — «Toyota» → brand: Toyota, «Купить» → transactionType: sale.
+ */
+export const smartSearchChoiceSchema = z
+  .object({
+    requestId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Некорректный номер запроса'),
+    kind: z.enum(['domain', 'filter']),
+    field: z.string().regex(SMART_SEARCH_FILTER_KEY, 'Недопустимое имя условия').optional(),
+    value: z.union([z.string().trim().min(1).max(80), z.number().finite(), z.boolean()]),
+  })
+  .strict()
+  .refine((choice) => choice.kind === 'domain' || choice.field !== undefined, 'Не указано условие');
+
+export type SmartSearchChoice = z.infer<typeof smartSearchChoiceSchema>;
 
 export const smartSearchRequestSchema = z
   .object({
@@ -198,6 +230,8 @@ export const smartSearchRequestSchema = z
       .optional(),
     /** Начать заново: прежний контекст не учитывается */
     reset: z.boolean().optional(),
+    /** Нажатый вариант ответа — исполняется без модели (`text` — подпись варианта, для журнала) */
+    choice: smartSearchChoiceSchema.optional(),
     context: z
       .object({
         /** Выбранный в приложении город */

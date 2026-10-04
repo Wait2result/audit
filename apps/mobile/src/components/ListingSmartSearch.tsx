@@ -1,6 +1,7 @@
 import {
   listingPartOf,
   smartSearchOutcome,
+  type SmartSearchChoice,
   type SmartSearchClarificationOption,
   type SmartSearchPart,
 } from '@dagestan/shared';
@@ -47,9 +48,9 @@ export function useListingSmartSearch({
   const [feedback, setFeedback] = useState<SmartFeedbackTarget | null>(null);
 
   const submit = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, choice?: SmartSearchChoice) => {
       const text = rawText.trim();
-      const next = await smart.run(text);
+      const next = await smart.run(text, choice ? { choice } : {});
       if (next.phase === 'failed') {
         onFallback(text);
         return;
@@ -118,6 +119,19 @@ export function ListingSmartPanel({
   };
 
   const pick = (option: SmartSearchClarificationOption, text: string) => {
+    const response = state.phase === 'done' ? state.response : null;
+    // Вариант с выбором кодом — без модели: «Автомобили» к «Toyota», раздел и т. п.
+    if (option.choice && response) {
+      const choice = { requestId: response.requestId, ...option.choice };
+      if (option.choice.kind === 'domain' && option.choice.value !== 'listings') {
+        // Другой раздел — продолжаем в общем поиске тем же выбором
+        setHandoff({ text: option.label, choice, phrase: text });
+        router.push('/search');
+        return;
+      }
+      void controller.submit(text, choice);
+      return;
+    }
     if (option.kind === 'category') {
       onOpenCategory(option.value);
       return;

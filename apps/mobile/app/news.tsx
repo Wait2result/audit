@@ -1,5 +1,5 @@
 import type { NewsScope, NewsSummaryDto } from '@dagestan/shared';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -19,19 +19,31 @@ import { radius, spacing, typography, useThemeColors } from '../src/theme';
  * и отбираются по правилам (см. docs/ADR/0005-новости-агрегатор.md). «Дагестан»
  * одинаков во всех городах, «Город» — только выбранный.
  */
+const NEWS_SCOPES: readonly string[] = ['city', 'dagestan', 'russia', 'world'];
+
 export default function NewsScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
-  const cityName = useCityStore((s) => s.cityName);
-  const cityId = useCityStore((s) => s.cityId);
+  // Лента и город от умного поиска («новости Дербента»): город запроса — только
+  // для этого экрана, выбранный город приложения не меняется (D8)
+  const params = useLocalSearchParams<{ scope?: string; cityId?: string }>();
+  const { data: citiesForName } = useCities();
+  const appCityName = useCityStore((s) => s.cityName);
+  const appCityId = useCityStore((s) => s.cityId);
+  const cityId = params.cityId ?? appCityId;
+  const cityName = params.cityId
+    ? (citiesForName?.find((city) => city.id === params.cityId)?.name ?? appCityName)
+    : appCityName;
 
   const { data: cities } = useCities();
   const timeZone = cities?.find((city) => city.id === cityId)?.timezone ?? 'Europe/Moscow';
 
   // Раздел открывается на «Дагестане»: это главная лента, одинаковая для всех
   // городов. Городская вкладка рядом — у небольших городов новостей в ней мало
-  const [scope, setScope] = useState<NewsScope>('dagestan');
+  const [scope, setScope] = useState<NewsScope>(
+    NEWS_SCOPES.includes(params.scope as NewsScope) ? (params.scope as NewsScope) : 'dagestan',
+  );
 
   const feed = useNewsFeed(cityId, scope);
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);

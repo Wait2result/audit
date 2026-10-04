@@ -73,7 +73,7 @@ export function SmartUnderstood({
   summary: string;
   /** Что сказано, но не учтено: «Цен билетов в поиске сеансов нет» */
   notes?: readonly string[];
-  /** «Я имел в виду другое» */
+  /** «Искал не то?» */
   onWrong: () => void;
   /** Закрыть строку (фильтры остаются) */
   onClose?: () => void;
@@ -121,7 +121,7 @@ function WrongLink({ onPress }: { onPress: () => void }) {
       hitSlop={6}
       style={({ pressed }) => [styles.wrongLink, pressed && styles.pressed]}
     >
-      <Text style={styles.wrongLinkText}>Я имел в виду другое</Text>
+      <Text style={styles.wrongLinkText}>Искал не то?</Text>
     </Pressable>
   );
 }
@@ -216,7 +216,7 @@ export function SmartNotice({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  «Я имел в виду другое»
+//  «Искал не то?»
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FAILURE_LABELS: Record<SmartSearchFailureType, string> = {
@@ -303,7 +303,7 @@ export function SmartFeedbackSheet({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>Я имел в виду другое</Text>
+          <Text style={styles.sheetTitle}>Искал не то?</Text>
           <Pressable
             onPress={onClose}
             hitSlop={12}
@@ -392,14 +392,14 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     summary: { ...typography.body, color: colors.text, fontWeight: '600' },
     hint: { ...typography.caption, color: colors.textMuted },
 
-    wrongLink: { alignSelf: 'flex-start', minHeight: 28, justifyContent: 'center' },
+    wrongLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
     wrongLinkText: { ...typography.caption, color: colors.primary },
 
     options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     option: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
-      minHeight: 36,
+      minHeight: 40,
       justifyContent: 'center',
       borderRadius: radius.full,
       backgroundColor: colors.surfaceMuted,

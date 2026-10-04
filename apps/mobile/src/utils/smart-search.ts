@@ -4,29 +4,12 @@ import {
   understoodNotes,
   understoodSummary,
   type ListingRadiusKm,
-  type SmartSearchDomain,
   type SmartSearchPart,
 } from '@dagestan/shared';
 
-import type { IconName } from '../components/Icon';
 import { useListingAreaStore } from '../store/listing-area-store';
 import { useListingFilterStore, type ExtraListingFilters } from '../store/listing-filter-store';
 import { useSmartSearchStore } from '../store/smart-search-store';
-
-/**
- * Разделы умного поиска в приложении: подпись, значок и экран раздела.
- *
- * Новый раздел (погода, магазины) — новая строка здесь и свой блок выдачи на
- * экране «Поиск»; разбор ответа и общие состояния не меняются.
- */
-export const SMART_SEARCH_SECTIONS: Readonly<
-  Record<SmartSearchDomain, { label: string; icon: IconName; route: string }>
-> = {
-  listings: { label: 'Объявления', icon: 'tag', route: '/listings' },
-  cinema: { label: 'Кино', icon: 'cinema', route: '/cinema' },
-  news: { label: 'Новости', icon: 'news', route: '/news' },
-  delivery: { label: 'Доставка', icon: 'food', route: '/places' },
-};
 
 /** Куда открыть выдачу объявлений после умного поиска. */
 export type SmartListingTarget = {

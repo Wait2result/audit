@@ -4,7 +4,7 @@ import {
   type PlaceDto,
   type PromoBannerDto,
 } from '@dagestan/shared';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 
 import {
+  useCities,
   usePlaceCategories,
   usePlaces,
   usePromoBanners,
@@ -102,8 +103,30 @@ export default function PlacesScreen() {
     () => toSlides(promoBanners.data, colors),
     [promoBanners.data, colors],
   );
-  const cityId = useCityStore((s) => s.cityId);
-  const cityName = useCityStore((s) => s.cityName);
+  // Условия от умного поиска: что искать, с доставкой ли, город запроса.
+  // Город запроса не меняет город приложения — он только для этого экрана (D8)
+  const params = useLocalSearchParams<{
+    section?: string;
+    search?: string;
+    hasDelivery?: string;
+    openNow?: string;
+    maxMinutes?: string;
+    category?: string;
+    cityId?: string;
+  }>();
+  const appCityId = useCityStore((s) => s.cityId);
+  const appCityName = useCityStore((s) => s.cityName);
+  const { data: cities } = useCities();
+  const [cityOverride, setCityOverride] = useState(params.cityId ?? null);
+  // Человек сам сменил город приложения — запрошенный город больше не держим
+  const firstAppCity = useRef(appCityId);
+  useEffect(() => {
+    if (appCityId !== firstAppCity.current) setCityOverride(null);
+  }, [appCityId]);
+  const cityId = cityOverride ?? appCityId;
+  const cityName = cityOverride
+    ? (cities?.find((city) => city.id === cityOverride)?.name ?? appCityName)
+    : appCityName;
 
   const listRef = useRef<FlatList<PlaceDto>>(null);
   const listTop = useRef(0);
@@ -111,12 +134,14 @@ export default function PlacesScreen() {
   const scrollUntil = useRef(0);
   const [listOffset, setListOffset] = useState(0);
 
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState(params.search ?? '');
+  const [query, setQuery] = useState(params.search ?? '');
   const [category, setCategory] = useState<PlaceCategoryDto | null>(null);
-  const [openNow, setOpenNow] = useState(false);
-  const [fastOnly, setFastOnly] = useState(false);
-  const [hasDelivery, setHasDelivery] = useState(false);
+  const [openNow, setOpenNow] = useState(params.openNow === 'true');
+  const [fastOnly, setFastOnly] = useState(
+    params.maxMinutes !== undefined && Number(params.maxMinutes) <= FAST_MINUTES,
+  );
+  const [hasDelivery, setHasDelivery] = useState(params.hasDelivery === 'true');
   const [sort, setSort] = useState<Sort>('default');
   const [sortOpen, setSortOpen] = useState(false);
 
@@ -131,6 +156,14 @@ export default function PlacesScreen() {
   const tileWidth = categoryTileWidth(screenWidth - spacing.lg * 2);
 
   const { data: categories = [] } = usePlaceCategories();
+  // Плитка из умного поиска выбирается, когда список плиток загрузится
+  const requestedCategory = useRef(params.category ?? null);
+  useEffect(() => {
+    if (!requestedCategory.current || categories.length === 0) return;
+    const found = categories.find((item) => item.slug === requestedCategory.current);
+    requestedCategory.current = null;
+    if (found) setCategory(found);
+  }, [categories]);
   const { togglePlace } = useFavoriteActions();
 
   const filters = useMemo<PlaceFilters>(
@@ -251,7 +284,7 @@ export default function PlacesScreen() {
           </View>
         </View>
 
-        <Text style={styles.title}>Доставка</Text>
+        <Text style={styles.title}>{params.section === 'places' ? 'Заведения' : 'Доставка'}</Text>
         <Pressable
           onPress={() => router.push('/city-picker')}
           accessibilityRole="button"

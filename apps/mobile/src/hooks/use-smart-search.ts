@@ -1,4 +1,4 @@
-import type { SmartSearchResponse, SmartSearchRequest } from '@dagestan/shared';
+import type { SmartSearchChoice, SmartSearchRequest, SmartSearchResponse } from '@dagestan/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -30,6 +30,8 @@ export interface RunOptions {
   screen?: Screen;
   /** Начать заново, без прошлого контекста */
   fresh?: boolean;
+  /** Нажатый вариант ответа: сервер исполнит его без модели */
+  choice?: SmartSearchChoice;
 }
 
 /** Ответ модели не разобрался — есть смысл спросить ещё раз без контекста. */
@@ -69,6 +71,7 @@ export function useSmartSearch(
           {
             text,
             ...(withSession ? { sessionId: withSession } : {}),
+            ...(options.choice ? { choice: options.choice } : {}),
             context: {
               ...(cityId ? { cityId } : {}),
               screen: options.screen ?? defaults.screen,
@@ -81,7 +84,12 @@ export function useSmartSearch(
         let response = await ask(session);
         // С прошлым поиском фраза не разобралась («хочу машину» после Succeed) —
         // одна попытка без него: новая фраза часто вовсе не уточнение
-        if (session && response.status === 'error' && UNPARSED.has(response.error?.code ?? '')) {
+        if (
+          session &&
+          !options.choice &&
+          response.status === 'error' &&
+          UNPARSED.has(response.error?.code ?? '')
+        ) {
           response = await ask(undefined);
         }
         if (controller.signal.aborted) return { phase: 'idle' };

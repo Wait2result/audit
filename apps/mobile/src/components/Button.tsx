@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 
 import { MIN_TOUCH_SIZE, radius, spacing, typography, useThemeColors } from '../theme';
+import { Icon, type IconName } from './Icon';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'md' | 'lg';
@@ -28,6 +29,8 @@ interface ButtonProps {
   style?: StyleProp<ViewStyle>;
   /** Подпись для незрячих, если текста кнопки недостаточно */
   accessibilityLabel?: string;
+  /** Значок после подписи: «›» у кнопки, которая открывает раздел */
+  trailingIcon?: IconName;
 }
 
 /**
@@ -48,6 +51,7 @@ export function Button({
   singleLine = false,
   style,
   accessibilityLabel,
+  trailingIcon,
 }: ButtonProps) {
   const colors = useThemeColors();
   const variantStyles = useMemo(() => buildVariantStyles(colors), [colors]);
@@ -85,6 +89,9 @@ export function Button({
           >
             {label}
           </Text>
+          {trailingIcon && (
+            <Icon name={trailingIcon} size={18} color={variantStyles[variant].label.color} />
+          )}
         </View>
       )}
     </Pressable>

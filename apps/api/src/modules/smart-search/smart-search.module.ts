@@ -7,14 +7,17 @@ import { CitiesModule } from '../cities/cities.module.js';
 import { ListingsModule } from '../listings/listings.module.js';
 import { NewsModule } from '../news/news.module.js';
 import { PlacesModule } from '../places/places.module.js';
+import { WeatherModule } from '../weather/weather.module.js';
 import { AI_PROVIDER, DisabledAiProvider, type AiProvider } from './ai/ai-provider.js';
 import { OllamaProvider } from './ai/ollama.provider.js';
 import { CONTEXT_STORE, RedisContextStore } from './context/context-store.js';
 import { CinemaSearchAdapter } from './domains/cinema.adapter.js';
-import { DeliverySearchAdapter } from './domains/delivery.adapter.js';
+import { DeliverySearchAdapter, PlacesSearchAdapter } from './domains/delivery.adapter.js';
 import { DOMAIN_ADAPTERS_REGISTRY, DomainRegistry } from './domains/domain-adapter.js';
 import { ListingsSearchAdapter } from './domains/listings.adapter.js';
 import { NewsSearchAdapter } from './domains/news.adapter.js';
+import { RidesSearchAdapter } from './domains/rides.adapter.js';
+import { WeatherSearchAdapter } from './domains/weather.adapter.js';
 import { RedisTraceStore, TRACE_STORE } from './feedback/search-trace-store.js';
 import { SmartSearchFeedbackService } from './feedback/smart-search-feedback.service.js';
 import { SmartSearchController } from './smart-search.controller.js';
@@ -26,7 +29,7 @@ import { SmartSearchService } from './smart-search.service.js';
  * запросы. Выключенная модель или флаг не мешают разделам работать.
  */
 @Module({
-  imports: [ListingsModule, CinemaModule, NewsModule, PlacesModule, CitiesModule],
+  imports: [ListingsModule, CinemaModule, NewsModule, PlacesModule, CitiesModule, WeatherModule],
   controllers: [SmartSearchController],
   providers: [
     SmartSearchService,
@@ -35,6 +38,9 @@ import { SmartSearchService } from './smart-search.service.js';
     CinemaSearchAdapter,
     NewsSearchAdapter,
     DeliverySearchAdapter,
+    PlacesSearchAdapter,
+    WeatherSearchAdapter,
+    RidesSearchAdapter,
     {
       provide: AI_PROVIDER,
       inject: [APP_CONFIG],
@@ -67,6 +73,9 @@ import { SmartSearchService } from './smart-search.service.js';
         CinemaSearchAdapter,
         NewsSearchAdapter,
         DeliverySearchAdapter,
+        PlacesSearchAdapter,
+        WeatherSearchAdapter,
+        RidesSearchAdapter,
       ],
       useFactory: (...adapters: ConstructorParameters<typeof DomainRegistry>[0]) =>
         new DomainRegistry(adapters),

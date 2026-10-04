@@ -3,6 +3,8 @@ import type {
   CinemaScheduleDto,
   SmartSearchClarification,
   SmartSearchIntentCore,
+  SmartSearchNavigation,
+  SmartSearchNormalizedQuery,
 } from '@dagestan/shared';
 
 import { CinemaService } from '../../cinema/cinema.service.js';
@@ -15,7 +17,7 @@ import type {
   ExecuteOutcome,
   NormalizeOutcome,
 } from './domain-adapter.js';
-import { emptyQuery } from './domain-adapter.js';
+import { dayLabel, emptyQuery, namedCityId } from './domain-adapter.js';
 
 /** Сколько дней вперёд у кинотеатров обычно есть расписание. */
 const MAX_DAYS_AHEAD = 14;
@@ -38,6 +40,10 @@ function text(value: unknown): string | null {
 
 /** Слова, которые не являются названием фильма: «кино», «фильмы сегодня», «что идёт». */
 const GENERIC_CINEMA_WORDS = new Set([
+  'сейчас',
+  'предложи',
+  'посоветуй',
+  'хочу',
   'кино',
   'фильм',
   'фильмы',
@@ -263,6 +269,31 @@ export class CinemaSearchAdapter implements DomainAdapter<CinemaPlan> {
       results: { domain: 'cinema', cityId: plan.cityId, date: plan.date, schedule: limited },
       count: limited.length,
       total: filtered.schedule.length,
+    };
+  }
+
+  /** Экран кино умеет дату, город, фильм, жанр и время — остальное в карточке не обещаем. */
+  navigation(
+    query: SmartSearchNormalizedQuery,
+    context: DomainRequestContext,
+  ): SmartSearchNavigation {
+    const filters: SmartSearchNavigation['filters'] = {};
+    const cityId = namedCityId(query);
+    if (cityId) filters.cityId = cityId;
+    const date = query.time?.date ?? null;
+    if (date) filters.date = date;
+    if (query.time?.from) filters.from = query.time.from;
+    if (query.time?.to && query.time.to !== '23:59') filters.to = query.time.to;
+    for (const field of ['movie', 'genre'] as const) {
+      const condition = query.conditions.find((item) => item.field === field);
+      if (condition && typeof condition.value === 'string') filters[field] = condition.value;
+    }
+    const city = context.cities.find((item) => item.id === query.location?.cityId);
+    const today = todayIn(city?.timezone ?? 'Europe/Moscow', context.now);
+    return {
+      section: 'cinema',
+      path: [query.location?.cityName ?? 'Кино', ...(date ? [dayLabel(date, today)] : [])],
+      filters,
     };
   }
 }

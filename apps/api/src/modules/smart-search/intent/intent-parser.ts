@@ -1,4 +1,9 @@
-import { smartSearchIntentSchema, type SmartSearchIntent } from '@dagestan/shared';
+import {
+  SMART_SEARCH_FILTER_KEY,
+  smartSearchFilterValueSchema,
+  smartSearchIntentSchema,
+  type SmartSearchIntent,
+} from '@dagestan/shared';
 import { z } from 'zod';
 
 import type { AiFailureCode, AiProvider } from '../ai/ai-provider.js';
@@ -8,7 +13,13 @@ import type { AiMessage } from '../ai/ai-provider.js';
 export type IntentFailureCode = AiFailureCode | 'INVALID_AI_OUTPUT';
 
 export type IntentParseResult =
-  | { ok: true; intent: SmartSearchIntent; latencyMs: number }
+  | {
+      ok: true;
+      intent: SmartSearchIntent;
+      latencyMs: number;
+      /** Условия, убранные до проверки: неверное имя или значение */
+      stripped: string[];
+    }
   | { ok: false; code: IntentFailureCode; detail: string };
 
 /**
@@ -31,12 +42,40 @@ export function extractJson(text: string): unknown {
   }
 }
 
+/**
+ * Отдельное условие, которое модель назвала неверно (кириллическое имя
+ * «желательно», значение null, вложенный объект), не роняет весь ответ:
+ * оно убирается и станет пометкой «не применено». Структура ответа, раздел и
+ * версия по-прежнему проверяются схемой целиком — их порча ответ отклоняет.
+ */
+export function stripBadConditions(json: unknown): string[] {
+  const stripped: string[] = [];
+  if (!json || typeof json !== 'object') return stripped;
+  const root = json as Record<string, unknown>;
+  const parts = [root, ...(Array.isArray(root.subqueries) ? root.subqueries : [])];
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') continue;
+    for (const field of ['filters', 'preferences'] as const) {
+      const record = (part as Record<string, unknown>)[field];
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
+        const goodKey = SMART_SEARCH_FILTER_KEY.test(key);
+        if (goodKey && smartSearchFilterValueSchema.safeParse(value).success) continue;
+        delete (record as Record<string, unknown>)[key];
+        stripped.push(goodKey ? key : 'unknown');
+      }
+    }
+  }
+  return stripped;
+}
+
 /** Проверка ответа модели схемой. Невалидное не исполняется — никогда. */
 export function validateIntent(text: string): IntentParseResult {
   const json = extractJson(text);
   if (json === undefined) {
     return { ok: false, code: 'INVALID_AI_OUTPUT', detail: 'Ответ модели — не JSON' };
   }
+  const stripped = stripBadConditions(json);
   const parsed = smartSearchIntentSchema.safeParse(json);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -47,7 +86,7 @@ export function validateIntent(text: string): IntentParseResult {
         `Ответ модели не по схеме: ${issue?.path.join('.') ?? ''} ${issue?.message ?? ''}`.trim(),
     };
   }
-  return { ok: true, intent: parsed.data, latencyMs: 0 };
+  return { ok: true, intent: parsed.data, latencyMs: 0, stripped };
 }
 
 let cachedJsonSchema: Record<string, unknown> | undefined;

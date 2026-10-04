@@ -17,7 +17,7 @@ import {
   View,
 } from 'react-native';
 
-import { useWeather } from '../src/api/queries';
+import { useCities, useWeather } from '../src/api/queries';
 import { Button } from '../src/components/Button';
 import { FormHeader } from '../src/components/FormHeader';
 import { GlassCard } from '../src/components/GlassCard';
@@ -66,13 +66,29 @@ const ON_BACKGROUND = {
 export default function WeatherScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const cityName = useCityStore((s) => s.cityName);
-  const cityId = useCityStore((s) => s.cityId);
+  /**
+   * Час, выбранный на главной (тап по часу в виджете погоды); город и день —
+   * от умного поиска («погода завтра в Дербенте»). Город запроса — только для
+   * этого экрана: выбранный город приложения не меняется (D8)
+   */
+  const {
+    hour,
+    cityId: requestedCity,
+    day,
+  } = useLocalSearchParams<{
+    hour?: string;
+    cityId?: string;
+    day?: string;
+  }>();
+  const appCityName = useCityStore((s) => s.cityName);
+  const appCityId = useCityStore((s) => s.cityId);
+  const { data: allCities } = useCities();
+  const cityId = requestedCity ?? appCityId;
+  const cityName = requestedCity
+    ? (allCities?.find((city) => city.id === requestedCity)?.name ?? appCityName)
+    : appCityName;
 
   const { data, isLoading, isError, refetch, isFetching, refresh } = useWeather(cityId);
-
-  /** Час, выбранный на главной (тап по часу в виджете погоды) */
-  const { hour } = useLocalSearchParams<{ hour?: string }>();
 
   /**
    * Выбранный момент — само время точки, а не её номер в ряду: ряд
@@ -80,7 +96,8 @@ export default function WeatherScreen() {
    * на другой момент. `null` — «сейчас».
    */
   const [selectedTime, setSelectedTime] = useState<string | null>(hour ?? null);
-  const [openDay, setOpenDay] = useState<string | null>(null);
+  // День из умного поиска раскрывается сразу — его прогноз виден без лишнего нажатия
+  const [openDay, setOpenDay] = useState<string | null>(day ?? null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Час с главной должен пережить первое обновление при заходе на экран —

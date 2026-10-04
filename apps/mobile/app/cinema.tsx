@@ -1,5 +1,6 @@
 import type { MovieDto, MovieShowtimesDto, ShowtimeDto } from '@dagestan/shared';
-import { useMemo, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,6 +14,7 @@ import {
 
 import { useCinemaSchedule, useCities } from '../src/api/queries';
 import { Button } from '../src/components/Button';
+import { ConditionChip } from '../src/components/ConditionChip';
 import { FormHeader } from '../src/components/FormHeader';
 import { GlassCard } from '../src/components/GlassCard';
 import { Icon } from '../src/components/Icon';
@@ -73,6 +75,75 @@ function formatShowtime(iso: string): string {
   return iso.slice(11, 16);
 }
 
+/** Слова для сравнения: строчные, «ё» как «е», без знаков. */
+function words(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .split(/[^\p{L}\d]+/u)
+    .filter(Boolean);
+}
+
+/** Все слова условия — начала слов названия («дюна» ~ «Дюна: Часть вторая»). */
+function matchesWords(title: string, wanted: string): boolean {
+  const titleWords = words(title);
+  return words(wanted).every((word) =>
+    titleWords.some((item) => item.startsWith(word.slice(0, Math.max(3, word.length - 2)))),
+  );
+}
+
+/** Минуты от начала дня расписания: сеанс в 00:10 следующих суток — это 24:10. */
+function minutesOf(startTime: string, date: string): number {
+  const [hours, minutes] = startTime.slice(11, 16).split(':').map(Number) as [number, number];
+  return (startTime.slice(0, 10) > date ? 24 * 60 : 0) + hours * 60 + minutes;
+}
+
+function toMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number) as [number, number];
+  return hours * 60 + minutes;
+}
+
+function filterSchedule(
+  schedule: MovieShowtimesDto[],
+  filter: {
+    movie: string | null;
+    genre: string | null;
+    window: { from: string; to: string } | null;
+    date: string;
+  },
+): MovieShowtimesDto[] {
+  return schedule
+    .filter((item) => !filter.movie || matchesWords(item.movie.title, filter.movie))
+    .filter(
+      (item) =>
+        !filter.genre || item.movie.genres.some((name) => matchesWords(name, filter.genre!)),
+    )
+    .map((item) => {
+      if (!filter.window) return item;
+      const from = toMinutes(filter.window.from);
+      // «Вечер» без конца включает ночные сеансы после полуночи
+      const to = filter.window.to === '23:59' ? 30 * 60 : toMinutes(filter.window.to);
+      return {
+        ...item,
+        showtimes: item.showtimes.filter((showtime) => {
+          const minutes = minutesOf(showtime.startTime, filter.date);
+          return minutes >= from && minutes <= to;
+        }),
+      };
+    })
+    .filter((item) => item.showtimes.length > 0);
+}
+
+function windowLabel(range: { from: string; to: string }): string {
+  if (range.to === '23:59') return `с ${range.from}`;
+  if (range.from === '00:00') return `до ${range.to}`;
+  return `${range.from}–${range.to}`;
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 /** «от 300 ₽», если цена зависит от места в зале, и просто «300 ₽», если нет. */
 function formatPrice(min: number, max: number): string {
   return min === max ? `${min} ₽` : `от ${min} ₽`;
@@ -108,24 +179,68 @@ function formatEndTime(iso: string, durationMinutes: number | null): string | nu
 export default function CinemaScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const cityName = useCityStore((s) => s.cityName);
-  const cityId = useCityStore((s) => s.cityId);
+  // Условия от умного поиска: день, фильм, жанр, время и город запроса.
+  // Город запроса не меняет город приложения — он только для этого экрана (D8)
+  const params = useLocalSearchParams<{
+    date?: string;
+    movie?: string;
+    genre?: string;
+    from?: string;
+    to?: string;
+    cityId?: string;
+  }>();
+  const appCityName = useCityStore((s) => s.cityName);
+  const appCityId = useCityStore((s) => s.cityId);
+  const [cityOverride, setCityOverride] = useState(params.cityId ?? null);
+  const firstAppCity = useRef(appCityId);
+  useEffect(() => {
+    if (appCityId !== firstAppCity.current) setCityOverride(null);
+  }, [appCityId]);
+  const cityId = cityOverride ?? appCityId;
 
   // Пояс города нужен, чтобы «Сегодня» означало сегодня в этом городе.
   // До загрузки списка городов берём общий для всех наших городов пояс —
   // он же стоит значением по умолчанию в базе.
   const { data: cities } = useCities();
   const timezone = cities?.find((city) => city.id === cityId)?.timezone ?? 'Europe/Moscow';
+  const cityName = cityOverride
+    ? (cities?.find((city) => city.id === cityOverride)?.name ?? appCityName)
+    : appCityName;
 
   const dateTabs = useDateTabs(timezone);
   // Храним именно выбранный день, а не дату строкой: даты пересчитываются,
   // когда становится известен часовой пояс города, и строка бы устарела.
-  const [dayIndex, setDayIndex] = useState<0 | 1>(0);
+  const [dayIndex, setDayIndex] = useState<0 | 1>(
+    params.date && params.date === dateTabs[1].value ? 1 : 0,
+  );
   const date = dateTabs[dayIndex].value;
+
+  // Отбор по расписанию — снимается чипсом, как фильтр в объявлениях
+  const [movie, setMovie] = useState(params.movie ?? null);
+  const [genre, setGenre] = useState(params.genre ?? null);
+  const [timeWindow, setTimeWindow] = useState(
+    params.from || params.to ? { from: params.from ?? '00:00', to: params.to ?? '23:59' } : null,
+  );
 
   const [trailerMovie, setTrailerMovie] = useState<MovieDto | null>(null);
 
-  const { data, isLoading, isError, refetch, isFetching } = useCinemaSchedule(cityId, date);
+  const {
+    data: schedule,
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useCinemaSchedule(cityId, date);
+  const data = useMemo(
+    () =>
+      schedule ? filterSchedule(schedule, { movie, genre, window: timeWindow, date }) : schedule,
+    [schedule, movie, genre, timeWindow, date],
+  );
+  const conditions = [
+    movie ? { label: capitalize(movie), clear: () => setMovie(null) } : null,
+    genre ? { label: genre, clear: () => setGenre(null) } : null,
+    timeWindow ? { label: windowLabel(timeWindow), clear: () => setTimeWindow(null) } : null,
+  ].filter((item): item is { label: string; clear: () => void } => item !== null);
 
   return (
     <Screen scroll>
@@ -151,6 +266,14 @@ export default function CinemaScreen() {
           );
         })}
       </View>
+
+      {conditions.length > 0 && (
+        <View style={styles.conditions}>
+          {conditions.map((item) => (
+            <ConditionChip key={item.label} label={item.label} onRemove={item.clear} />
+          ))}
+        </View>
+      )}
 
       {isLoading && (
         <View style={styles.center}>
@@ -180,7 +303,9 @@ export default function CinemaScreen() {
           <Icon name="cinema" size={40} color={colors.textFaint} />
           <Text style={styles.emptyTitle}>Сеансов нет</Text>
           <Text style={styles.errorText}>
-            На эту дату в вашем городе сеансов не найдено — попробуйте другой день.
+            {conditions.length > 0
+              ? 'Под эти условия сеансов нет — снимите одно из них или выберите другой день.'
+              : 'На эту дату в вашем городе сеансов не найдено — попробуйте другой день.'}
           </Text>
         </View>
       )}
@@ -319,6 +444,7 @@ function ShowtimeCard({
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     tabs: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+    conditions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
     tab: {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,

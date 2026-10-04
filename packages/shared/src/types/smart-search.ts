@@ -1,9 +1,16 @@
 import type {
+  SmartSearchChoice,
   SmartSearchDomain,
   SmartSearchIntentKind,
   SmartSearchSort,
 } from '../schemas/smart-search.schema.js';
-import type { CinemaScheduleDto, NewsSummaryDto, PaginatedResponse } from './api.js';
+import type {
+  CinemaScheduleDto,
+  CurrentWeatherDto,
+  DailyForecastDto,
+  NewsSummaryDto,
+  PaginatedResponse,
+} from './api.js';
 import type { ListingDto } from './listings.js';
 import type { PlaceDto } from './places.js';
 
@@ -82,7 +89,34 @@ export type SmartSearchResults =
       schedule: CinemaScheduleDto;
     }
   | { domain: 'news'; items: NewsSummaryDto[] }
-  | { domain: 'delivery'; page: PaginatedResponse<PlaceDto> };
+  | { domain: 'delivery'; page: PaginatedResponse<PlaceDto> }
+  | { domain: 'places'; page: PaginatedResponse<PlaceDto> }
+  | {
+      domain: 'weather';
+      cityId: string;
+      cityName: string;
+      date: string;
+      /** Прогноз на этот день (нет, если день вне прогноза) */
+      day: DailyForecastDto | null;
+      /** Погода сейчас — только если спрашивают про сегодня */
+      current: CurrentWeatherDto | null;
+    };
+
+/**
+ * Куда вести человека: раздел, путь внутри него и условия для экрана
+ * раздела. Условия — на языке раздела (город, дата, фильм, лента, блюдо), а
+ * не экрана: как их применить, решает приложение. У объявлений условия
+ * экрана — `query.params` (те же, что принимает лента).
+ */
+export interface SmartSearchNavigation {
+  section: SmartSearchDomain;
+  /** «Транспорт → Автомобили», «Махачкала · сегодня» — по частям */
+  path: string[];
+  filters: Record<string, string | number | boolean>;
+}
+
+/** Выбор, который приложение отправит, если человек нажмёт вариант (номер ответа добавит само). */
+export type SmartSearchOptionChoice = Omit<SmartSearchChoice, 'requestId'>;
 
 export interface SmartSearchClarificationOption {
   label: string;
@@ -90,6 +124,10 @@ export interface SmartSearchClarificationOption {
   value: string;
   /** Что это за вариант: категория, раздел, фильм, город … */
   kind: 'domain' | 'category' | 'brand' | 'model' | 'movie' | 'city' | 'price' | 'other';
+  /** Выбор кодом: нажатие исполняется без модели. Нет — подпись уходит обычной фразой */
+  choice?: SmartSearchOptionChoice;
+  /** Пояснение под вариантом: «Поесть в заведении» */
+  hint?: string;
 }
 
 export interface SmartSearchClarification {
@@ -107,6 +145,10 @@ export interface SmartSearchPart {
   clarification: SmartSearchClarification | null;
   /** Короткая фраза для человека: «Нашлось 12 объявлений» */
   message: string;
+  /** Куда открыть раздел с этими условиями (есть у найденного и у «ничего не нашлось») */
+  navigation?: SmartSearchNavigation | null;
+  /** Быстрые значения для уточнения без модели: марки, «купить / снять» — не больше 4 */
+  suggestions?: SmartSearchClarificationOption[];
 }
 
 export interface SmartSearchResponse {

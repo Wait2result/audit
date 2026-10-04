@@ -64,7 +64,8 @@ type Target =
   'listings' | 'cinema' | 'news' | 'delivery' | 'restaurants' | 'weather' | 'rides' | 'clarify';
 
 /** Разделы, которых в умном поиске нет: правильно ответить он не может. */
-const GAP_TARGETS = new Set<Target>(['restaurants', 'weather', 'rides']);
+// После этапа навигатора все три подключены (заведения, погода, попутчики — «скоро»)
+const GAP_TARGETS = new Set<Target>([]);
 
 interface Expect {
   target: Target;
@@ -240,9 +241,15 @@ const CASES: Case[] = [
     expect: { target: 'delivery' as const, hasDelivery: true, ...extra },
   })),
 
-  // ── Заведения / рестораны (10) — раздела в умном поиске нет ─────────────────
+  // ── Заведения / рестораны (10) ──────────────────────────────────────────────
+  // «Хочу покушать» — непонятно где: вопрос «рестораны или доставка»
+  ...['хочу покушать', 'Хочу покушать'].map((text, index) => ({
+    id: index === 0 ? 'R01' : 'R10',
+    group: 'Заведения',
+    text,
+    expect: { target: 'clarify' as const, status: ['clarification'] },
+  })),
   ...[
-    'хочу покушать',
     'где поесть',
     'где поесть хинкал',
     'хороший ресторан рядом',
@@ -251,9 +258,8 @@ const CASES: Case[] = [
     'где поесть вечером',
     'Где поесть хинкал в Махачкале?',
     'Найди ресторан рядом',
-    'Хочу покушать',
   ].map((text, index) => ({
-    id: `R${str(index + 1).padStart(2, '0')}`,
+    id: `R${str(index + 2).padStart(2, '0')}`,
     group: 'Заведения',
     text,
     expect: { target: 'restaurants' as const },
@@ -284,7 +290,7 @@ const CASES: Case[] = [
     id: `T0${index + 1}`,
     group: 'Попутчики',
     text,
-    expect: { target: 'rides' as const },
+    expect: { target: 'rides' as const, status: ['unsupported'] },
   })),
 
   // ── Неоднозначные (5) и одиночные слова ────────────────────────────────────
@@ -322,7 +328,7 @@ const CASES: Case[] = [
     id: 'A09',
     group: 'Одиночные слова',
     text: 'хинкал',
-    expect: { target: 'restaurants' },
+    expect: { target: 'restaurants', status: BROAD },
   },
 ];
 
@@ -344,7 +350,13 @@ interface Call {
 
 async function ask(
   text: string,
-  extra: { sessionId?: string; screen?: string; cityId?: string | null; reset?: boolean } = {},
+  extra: {
+    sessionId?: string;
+    screen?: string;
+    cityId?: string | null;
+    reset?: boolean;
+    choice?: Record<string, unknown>;
+  } = {},
 ): Promise<Call> {
   calls += 1;
   const started = Date.now();
@@ -357,6 +369,7 @@ async function ask(
       limit: 10,
       ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
       ...(extra.reset ? { reset: true } : {}),
+      ...(extra.choice ? { choice: extra.choice } : {}),
       context: { ...(cityId ? { cityId } : {}), screen: extra.screen ?? 'home' },
     }),
   });
@@ -420,6 +433,9 @@ const DOMAIN_OF: Partial<Record<Target, string>> = {
   cinema: 'cinema',
   news: 'news',
   delivery: 'delivery',
+  restaurants: 'places',
+  weather: 'weather',
+  rides: 'rides',
 };
 
 function attrsOf(params: Record<string, unknown> | null): Record<string, unknown> {
@@ -453,15 +469,16 @@ async function evaluate(item: Case, call: Call): Promise<Row> {
   const results = part?.results ?? null;
   const count = !results
     ? null
-    : results.domain === 'listings' || results.domain === 'delivery'
+    : 'page' in results
       ? results.page.items.length
       : results.domain === 'cinema'
         ? results.schedule.length
-        : results.items.length;
-  const total =
-    results && (results.domain === 'listings' || results.domain === 'delivery')
-      ? (results.page.total ?? null)
-      : count;
+        : results.domain === 'news'
+          ? results.items.length
+          : results.day || results.current
+            ? 1
+            : 0;
+  const total = results && 'page' in results ? (results.page.total ?? count) : count;
 
   const row: Row = {
     id: item.id,
@@ -602,7 +619,8 @@ async function evaluate(item: Case, call: Call): Promise<Row> {
       (row.clarification?.options.length ?? 0) > 0 ||
       ['empty_query', 'price_not_grounded'].includes(row.clarification?.reason ?? '');
   else if (row.status === 'results' || row.status === 'no_results')
-    row.layers.ui = row.domain === 'cinema' || row.domain === 'news' || summary.length > 0;
+    // Навигатор: экран покажет карточку раздела — нужен путь, куда вести
+    row.layers.ui = (body.parts?.[0]?.navigation?.path.length ?? 0) > 0;
   else row.layers.ui = true;
   if (row.layers.ui === false)
     reasons.push(
@@ -631,7 +649,7 @@ async function crossCheck(row: Row): Promise<boolean> {
       };
       return (direct.total ?? direct.items?.length ?? -1) === (row.total ?? row.count ?? -2);
     }
-    if (row.domain === 'delivery') {
+    if (row.domain === 'delivery' || row.domain === 'places') {
       const direct = (await (await fetch(`${API}/places?${query.toString()}`)).json()) as {
         items?: unknown[];
       };
@@ -716,7 +734,13 @@ const CHAINS: { id: string; title: string; steps: Step[] }[] = [
     steps: [
       {
         text: 'Хочу квартиру',
-        check: (c) => need(c.body.status === 'clarification', 'ждали «купить или снять?»'),
+        // D15: карточка «Недвижимость → Квартиры» с быстрыми «Купить / Снять надолго / Посуточно»
+        check: (c) =>
+          need(
+            c.body.status === 'results' &&
+              (c.body.parts?.[0]?.suggestions ?? []).some((option) => option.label === 'Купить'),
+            'ждали карточку квартир с «Купить»',
+          ),
       },
       {
         text: 'купить',
@@ -776,26 +800,31 @@ const CHAINS: { id: string; title: string; steps: Step[] }[] = [
   },
   {
     id: 'S4',
-    title: 'Где поесть? → хинкал → в Каспийске (заведений в умном поиске нет)',
+    title: 'Где поесть? → хинкал → в Каспийске',
     steps: [
       {
         text: 'Где поесть?',
-        check: (c) => need(false, `GAP: ${c.body.status}/${c.body.parts?.[0]?.domain ?? '—'}`),
+        check: (c) =>
+          need(
+            c.body.parts?.[0]?.domain === 'places',
+            `ждали заведения: ${c.body.status}/${c.body.parts?.[0]?.domain ?? '—'}`,
+          ),
       },
       {
         text: 'хинкал',
         check: (c) =>
           need(
-            false,
-            `GAP: ${c.body.status}/${c.body.parts?.[0]?.domain ?? '—'} search=${str(paramsOf(c).search)}`,
+            c.body.parts?.[0]?.domain === 'places' && /хинкал/.test(str(paramsOf(c).search)),
+            `ждали заведения с хинкалом: ${str(paramsOf(c).search)}`,
           ),
       },
       {
         text: 'в Каспийске',
         check: (c) =>
           need(
-            false,
-            `GAP: ${c.body.status}/${c.body.parts?.[0]?.domain ?? '—'} город=${c.body.parts?.[0]?.query?.location?.cityName ?? '—'}`,
+            c.body.parts?.[0]?.domain === 'places' &&
+              c.body.parts?.[0]?.query?.location?.cityName === 'Каспийск',
+            `ждали Каспийск: ${c.body.parts?.[0]?.query?.location?.cityName ?? '—'}`,
           ),
       },
     ],
@@ -922,7 +951,19 @@ async function replayDomainOptions(texts: string[]) {
     for (const option of options) {
       // Каждое нажатие — с исходного состояния: новый первый запрос и его сессия
       const base = await ask(text);
-      const tap = await ask(text, { sessionId: base.body.sessionId, screen: option.value });
+      // Как в приложении: вариант с выбором — кодом, без модели
+      const optionChoice = (base.body.parts?.[0]?.clarification?.options ?? []).find(
+        (item) => item.label === option.label,
+      )?.choice;
+      const tap = await ask(
+        optionChoice ? option.label : text,
+        optionChoice
+          ? {
+              sessionId: base.body.sessionId,
+              choice: { requestId: base.body.requestId, ...optionChoice },
+            }
+          : { sessionId: base.body.sessionId, screen: option.value },
+      );
       const domain = tap.body.parts?.[0]?.domain ?? null;
       taps.push({
         option: option.label,

@@ -1,4 +1,4 @@
-import type { SmartSearchResponse } from '@dagestan/shared';
+import type { SmartSearchChoice, SmartSearchResponse } from '@dagestan/shared';
 import { create } from 'zustand';
 
 /**
@@ -42,22 +42,55 @@ export interface SmartSearchHandoff {
   text: string;
   response?: SmartSearchResponse;
   screen?: 'cinema' | 'news' | 'delivery' | 'home';
+  /** Нажатый на экране объявлений вариант «другой раздел» — исполняется без модели */
+  choice?: SmartSearchChoice;
+  /** Исходная фраза для этого выбора */
+  phrase?: string;
+}
+
+/**
+ * Реплика диалога на экране «Поиск»: фраза человека и ответ на неё. Живёт до
+ * «Новый поиск» или перезапуска приложения — переход в раздел и обратно
+ * диалог не стирает.
+ */
+export interface SmartDialogTurn {
+  id: string;
+  /** Фраза или подпись нажатого варианта */
+  text: string;
+  /** Исходная фраза: у нажатого варианта — та, к которой он относился */
+  phrase: string;
+  /** Уточнение прошлого поиска (короткая фраза или выбор условия) */
+  refined: boolean;
+  phase: 'thinking' | 'done' | 'failed';
+  response?: SmartSearchResponse;
+  /** Сообщение, если ответа нет вовсе (сеть, не дождались) */
+  failure?: string;
 }
 
 interface SmartSearchState {
   sessions: Partial<Record<SmartSearchChannel, string>>;
   listing: ListingUnderstanding | null;
   handoff: SmartSearchHandoff | null;
+  dialog: SmartDialogTurn[];
 
   setSession: (channel: SmartSearchChannel, sessionId: string | null) => void;
   setListing: (listing: ListingUnderstanding | null) => void;
   setHandoff: (handoff: SmartSearchHandoff | null) => void;
+  pushTurn: (turn: SmartDialogTurn) => void;
+  updateTurn: (id: string, patch: Partial<SmartDialogTurn>) => void;
+  dropTurn: (id: string) => void;
+  /** «Новый поиск»: диалог и сессия общего поиска — с чистого листа */
+  clearDialog: () => void;
 }
+
+/** Не больше стольких реплик: старые уходят, экран не растёт бесконечно. */
+const DIALOG_LIMIT = 20;
 
 export const useSmartSearchStore = create<SmartSearchState>((set) => ({
   sessions: {},
   listing: null,
   handoff: null,
+  dialog: [],
 
   setSession: (channel, sessionId) =>
     set((state) => {
@@ -70,4 +103,20 @@ export const useSmartSearchStore = create<SmartSearchState>((set) => ({
   setListing: (listing) => set({ listing }),
 
   setHandoff: (handoff) => set({ handoff }),
+
+  pushTurn: (turn) => set((state) => ({ dialog: [...state.dialog, turn].slice(-DIALOG_LIMIT) })),
+
+  updateTurn: (id, patch) =>
+    set((state) => ({
+      dialog: state.dialog.map((turn) => (turn.id === id ? { ...turn, ...patch } : turn)),
+    })),
+
+  dropTurn: (id) => set((state) => ({ dialog: state.dialog.filter((turn) => turn.id !== id) })),
+
+  clearDialog: () =>
+    set((state) => {
+      const sessions = { ...state.sessions };
+      delete sessions.global;
+      return { dialog: [], sessions };
+    }),
 }));
