@@ -54,6 +54,8 @@ interface RequestOptions {
   /** Дополнительные заголовки: например, Idempotency-Key при оформлении заказа */
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Свой предел ожидания: умному поиску нужно больше обычного — фразу разбирает модель */
+  timeoutMs?: number;
 }
 
 /**
@@ -126,7 +128,7 @@ async function performRequest(path: string, options: RequestOptions): Promise<Re
   const token = options.anonymous ? null : await secureStorage.get(StorageKey.ACCESS_TOKEN);
 
   // Ограничение времени ожидания: сигнал прерывания срабатывает сам
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
 
   try {

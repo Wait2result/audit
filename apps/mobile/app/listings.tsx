@@ -21,6 +21,7 @@ import {
 import { Icon, type IconName } from '../src/components/Icon';
 import { ListingCard } from '../src/components/ListingCard';
 import { ListingSearchBox } from '../src/components/ListingSearchBox';
+import { ListingSmartPanel, useListingSmartSearch } from '../src/components/ListingSmartSearch';
 import { Screen } from '../src/components/Screen';
 import { useFavoriteActions } from '../src/hooks/use-favorite-actions';
 import { useListingArea } from '../src/hooks/use-listing-area';
@@ -84,10 +85,26 @@ export default function ListingsScreen() {
   const favoriteCount = user ? favoriteSummary.data?.listings : undefined;
   const mineCount = user ? mine.data?.pages[0]?.total : undefined;
 
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 350);
-    return () => clearTimeout(timer);
-  }, [search]);
+  // Фраза уходит в умный поиск по «Найти», а не на каждую букву: «хочу тойота
+  // суксид» — это марка и модель, а не слова для поиска по буквам. Обычный
+  // поиск по словам остаётся запасным путём, если умный не ответил
+  const smart = useListingSmartSearch({
+    category: section,
+    onListings: (target) =>
+      router.push({ pathname: '/listings/list', params: { ...target, smart: '1' } }),
+    onFallback: (text) => setQuery(text),
+  });
+
+  const submitSearch = (text: string) => {
+    const clean = text.trim();
+    if (!clean) {
+      setQuery('');
+      smart.reset();
+      return;
+    }
+    setQuery('');
+    void smart.submit(clean);
+  };
 
   const searching = query.length >= 2;
 
@@ -151,7 +168,7 @@ export default function ListingsScreen() {
           <ListingSearchBox
             value={search}
             onChange={setSearch}
-            onSubmit={(text) => setQuery(text.trim())}
+            onSubmit={submitSearch}
             onOpenCategory={(slug) => router.push({ pathname: '/listings/list', params: { slug } })}
             cityId={cityId}
           />
@@ -187,6 +204,15 @@ export default function ListingsScreen() {
           )}
         </Pressable>
       </View>
+
+      {smart.visible && (
+        <View style={styles.smartPanel}>
+          <ListingSmartPanel
+            controller={smart}
+            onOpenCategory={(slug) => router.push({ pathname: '/listings/list', params: { slug } })}
+          />
+        </View>
+      )}
 
       <Pressable
         onPress={() => router.push('/listings/location')}
@@ -471,6 +497,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       marginTop: spacing.lg,
     },
     searchCell: { flex: 1 },
+    smartPanel: { marginTop: spacing.sm },
 
     filterButton: {
       width: 46,

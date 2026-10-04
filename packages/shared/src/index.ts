@@ -47,3 +47,4 @@ export * from './constants/listing-card-facts.js';
 export * from './utils/price-compact.js';
 export * from './schemas/smart-search.schema.js';
 export * from './types/smart-search.js';
+export * from './utils/smart-search-client.js';

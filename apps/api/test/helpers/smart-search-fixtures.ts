@@ -32,6 +32,7 @@ import {
 } from '../../src/modules/smart-search/domains/domain-adapter.js';
 import { ListingsSearchAdapter } from '../../src/modules/smart-search/domains/listings.adapter.js';
 import { NewsSearchAdapter } from '../../src/modules/smart-search/domains/news.adapter.js';
+import type { TraceStore } from '../../src/modules/smart-search/feedback/search-trace-store.js';
 import { SmartSearchService } from '../../src/modules/smart-search/smart-search.service.js';
 import {
   ListingCatalogue,
@@ -390,6 +391,8 @@ export function harness(
     ai?: AiProvider;
     listingsTotal?: number;
     placesFound?: number;
+    /** След ответов для «Я имел в виду другое» */
+    traces?: TraceStore;
   } = {},
 ): Harness {
   const ai = new ScriptedAiProvider();
@@ -408,6 +411,7 @@ export function harness(
     store,
     cities as never,
     () => new Date(clock.now),
+    options.traces,
   );
   return { service, ai, calls, store, clock };
 }

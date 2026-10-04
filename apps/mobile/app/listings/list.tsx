@@ -11,7 +11,7 @@ import {
   type ListingCategoryDto,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -20,23 +20,34 @@ import {
   StyleSheet,
   Text,
   View,
+  type TextInput,
 } from 'react-native';
 
-import { useListingCategories, useListings, type ListingFilters } from '../../src/api/queries';
+import {
+  useDictionary,
+  useListingCategories,
+  useListings,
+  type ListingFilters,
+} from '../../src/api/queries';
 import { Icon } from '../../src/components/Icon';
 import { ListingCard } from '../../src/components/ListingCard';
 import { ListingSearchBox } from '../../src/components/ListingSearchBox';
+import { ListingSmartPanel, useListingSmartSearch } from '../../src/components/ListingSmartSearch';
+import { SmartNotice, SmartUnderstood } from '../../src/components/SmartSearchBlocks';
 import { ListingsMapView } from '../../src/components/ListingsMapView';
 import { Screen } from '../../src/components/Screen';
 import { useFavoriteActions } from '../../src/hooks/use-favorite-actions';
 import { useListingArea } from '../../src/hooks/use-listing-area';
 import { useCityStore } from '../../src/store/city-store';
+import { useListingAreaStore } from '../../src/store/listing-area-store';
 import {
   useListingFilterStore,
   type ExtraListingFilters,
 } from '../../src/store/listing-filter-store';
+import { useSmartSearchStore } from '../../src/store/smart-search-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
 import { formatMoney } from '../../src/utils/money';
+import { listingFiltersKey, widerRadius } from '../../src/utils/smart-search';
 
 /**
  * Объявления выбранной категории (Этап 7).
@@ -52,9 +63,17 @@ export default function ListingsListScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const cityId = useCityStore((s) => s.cityId);
-  // q — запрос с первого экрана раздела: поиск там продолжается здесь,
-  // уже с фильтрами и сортировкой
-  const { slug, q } = useLocalSearchParams<{ slug?: string; q?: string }>();
+  // q — слова для поиска (с первого экрана раздела или остаток умного
+  // поиска); smart — экран открыт умным поиском, фильтры уже разложены
+  const {
+    slug,
+    q,
+    smart: fromSmart,
+  } = useLocalSearchParams<{
+    slug?: string;
+    q?: string;
+    smart?: string;
+  }>();
   const { toggleListing } = useFavoriteActions();
 
   const [sortOpen, setSortOpen] = useState(false);
@@ -77,13 +96,51 @@ export default function ListingsListScreen() {
   const setSort = (next: ListingSort) => setFilters({ ...extraFilters, sort: next });
   const resetFilters = () => resetScoped(scope);
 
-  const [search, setSearch] = useState(q ?? '');
+  // Понятый умным поиском запрос — строка «Понял запрос» над выдачей. Пока
+  // фильтры те же, что он разложил: снял чипс — строка про другое и скрывается
+  const understood = useSmartSearchStore((s) => s.listing);
+  const setUnderstood = useSmartSearchStore((s) => s.setListing);
+  const showUnderstood =
+    understood !== null &&
+    understood.scope === scope &&
+    understood.filtersKey === listingFiltersKey(extraFilters);
+
+  // В поле — фраза человека; в поиск по словам уходит только то, что умный
+  // поиск не разложил по фильтрам (или вся фраза, если он не ответил)
+  const [search, setSearch] = useState(
+    fromSmart && understood?.scope === scope ? understood.text : (q ?? ''),
+  );
   const [query, setQuery] = useState(q ?? '');
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 400);
-    return () => clearTimeout(timer);
-  }, [search]);
   const searching = query.length >= 2;
+  const inputRef = useRef<TextInput>(null);
+
+  const smart = useListingSmartSearch({
+    category: slug ?? null,
+    onListings: (target) => {
+      if ((target.slug ?? '') !== scope) {
+        router.replace({ pathname: '/listings/list', params: { ...target, smart: '1' } });
+        return;
+      }
+      setQuery(target.q ?? '');
+    },
+    onFallback: (text) => {
+      setUnderstood(null);
+      setQuery(text);
+    },
+  });
+
+  const submitSearch = (text: string) => {
+    const clean = text.trim();
+    if (!clean) {
+      setQuery('');
+      setUnderstood(null);
+      smart.reset();
+      return;
+    }
+    void smart.submit(clean);
+  };
+
+  const setRadius = useListingAreaStore((s) => s.setRadius);
 
   const categories = useListingCategories();
   const category = findCategory(categories.data ?? [], slug);
@@ -112,9 +169,24 @@ export default function ListingsListScreen() {
   // Квартиры, вакансии и услуги читают, а не разглядывают — им нужен список
   const layout = resolveCardLayout(category);
 
+  // Подписи моделей выбранной марки: в чипсе «Succeed», а не код справочника
+  const modelField = fields.find((field) => field.type === 'model' && field.dictionary);
+  const chosenBrand = modelField?.parentKey
+    ? extraFilters.attributes?.[modelField.parentKey]
+    : undefined;
+  // Без марки модели не запрашиваются: весь справочник моделей — тысячи строк
+  const models = useDictionary(
+    typeof chosenBrand === 'string' ? modelField?.dictionary : undefined,
+    typeof chosenBrand === 'string' ? chosenBrand : null,
+  );
+  const modelLabels = useMemo(
+    () => Object.fromEntries((models.data ?? []).map((entry) => [entry.value, entry.label])),
+    [models.data],
+  );
+
   const chips = useMemo(
-    () => describeFilters(extraFilters, fields, slug),
-    [extraFilters, fields, slug],
+    () => describeFilters(extraFilters, fields, slug, modelLabels),
+    [extraFilters, fields, slug, modelLabels],
   );
 
   const mapFilters = useMemo<ListingFilters>(
@@ -189,9 +261,10 @@ export default function ListingsListScreen() {
 
       <View style={styles.searchRow}>
         <ListingSearchBox
+          inputRef={inputRef}
           value={search}
           onChange={setSearch}
-          onSubmit={(text) => setQuery(text.trim())}
+          onSubmit={submitSearch}
           onOpenCategory={(target) =>
             router.replace({ pathname: '/listings/list', params: { slug: target } })
           }
@@ -199,6 +272,35 @@ export default function ListingsListScreen() {
           placeholder={category ? `Поиск в «${category.name}»` : 'Поиск объявлений'}
         />
       </View>
+
+      {smart.visible && (
+        <View style={styles.smartPanel}>
+          <ListingSmartPanel
+            controller={smart}
+            onOpenCategory={(target) =>
+              router.replace({ pathname: '/listings/list', params: { slug: target } })
+            }
+          />
+        </View>
+      )}
+
+      {showUnderstood && understood && smart.state.phase !== 'thinking' && (
+        <View style={styles.smartPanel}>
+          <SmartUnderstood
+            summary={understood.summary}
+            notes={understood.notes}
+            onWrong={() =>
+              smart.openFeedback({
+                requestId: understood.requestId,
+                originalQuery: understood.text,
+                failureType: 'wrong_conditions',
+                screen: 'listings',
+              })
+            }
+            onClose={() => setUnderstood(null)}
+          />
+        </View>
+      )}
 
       <View style={styles.modeSwitch} accessibilityRole="tablist">
         {(
@@ -391,6 +493,30 @@ export default function ListingsListScreen() {
                 <Text style={styles.resetLink}>Повторить</Text>
               </Pressable>
             </View>
+          ) : showUnderstood ? (
+            <SmartNotice
+              title="По вашему запросу ничего не найдено"
+              actions={[
+                { label: 'Изменить запрос', onPress: () => inputRef.current?.focus() },
+                { label: 'Изменить город', onPress: () => router.push('/city-picker') },
+                ...(area.radiusKm !== null
+                  ? [
+                      {
+                        label: 'Увеличить радиус',
+                        onPress: () => setRadius(widerRadius(area.radiusKm)),
+                      },
+                    ]
+                  : []),
+                ...(chips.length > 0
+                  ? [
+                      {
+                        label: 'Убрать один из фильтров',
+                        onPress: () => removeChip(lastChip(chips)),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
@@ -428,10 +554,21 @@ interface FilterChipInfo {
  * Названия полей берутся из описания категории — те же, по которым построен
  * экран фильтров, поэтому подписи не разъедутся с формой.
  */
+/**
+ * Какое условие снять первым, чтобы расширить выдачу: последнее добавленное,
+ * но не марку и модель — без них запрос теряет смысл, а модель без марки
+ * сервер не примет.
+ */
+function lastChip(chips: readonly FilterChipInfo[]): string {
+  const loose = chips.filter((chip) => chip.key !== 'brand' && chip.key !== 'model');
+  return (loose[loose.length - 1] ?? chips.find((chip) => chip.key === 'model') ?? chips[0]!).key;
+}
+
 function describeFilters(
   filters: ExtraListingFilters,
   fields: readonly ListingAttribute[],
   categorySlug: string | undefined,
+  dictionaryLabels: Readonly<Record<string, string>> = {},
 ): FilterChipInfo[] {
   const chips: FilterChipInfo[] = [];
 
@@ -457,15 +594,19 @@ function describeFilters(
   for (const [key, value] of Object.entries(filters.attributes ?? {})) {
     const field = fields.find((item) => item.key === key);
     if (!field) continue;
-    chips.push({ key, label: valueLabel(field, value) });
+    chips.push({ key, label: valueLabel(field, value, dictionaryLabels) });
   }
 
   return chips;
 }
 
-function valueLabel(field: ListingAttribute, value: unknown): string {
+function valueLabel(
+  field: ListingAttribute,
+  value: unknown,
+  dictionaryLabels: Readonly<Record<string, string>>,
+): string {
   if (Array.isArray(value)) {
-    const labels = value.map((item) => attributeValueLabel(field, item));
+    const labels = value.map((item) => attributeValueLabel(field, item, dictionaryLabels));
     // Три значения в чипсе уже не читаются: «2, 3 и ещё 1»
     return labels.length > 2 ? `${field.label}: ${labels.length}` : labels.join(', ');
   }
@@ -484,7 +625,7 @@ function valueLabel(field: ListingAttribute, value: unknown): string {
   if (field.type === 'boolean') return field.label;
   // Текстовый фильтр без названия поля не читается: «cam» — что это?
   if (field.filter === 'text') return `${field.label}: ${String(value)}`;
-  return attributeValueLabel(field, value);
+  return attributeValueLabel(field, value, dictionaryLabels);
 }
 
 /** «до 3 млн», «от 500 тыс», «1–3 млн» — короче, чем полная сумма в чипсе. */
@@ -572,6 +713,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
 
     searchRow: { marginBottom: spacing.sm },
+    smartPanel: { marginBottom: spacing.sm },
     hScroll: { flexGrow: 0, marginBottom: spacing.sm },
     chips: { gap: spacing.sm, paddingRight: spacing.lg },
     chip: {

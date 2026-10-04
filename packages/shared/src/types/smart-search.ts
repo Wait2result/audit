@@ -111,6 +111,11 @@ export interface SmartSearchPart {
 
 export interface SmartSearchResponse {
   schemaVersion: 1;
+  /**
+   * Номер этого ответа: по нему человек может сказать «я имел в виду другое»,
+   * а сервер — найти, что поняла модель. Сам разбор модели в ответ не попадает.
+   */
+  requestId: string;
   /** Сессия: передать в следующем запросе, чтобы продолжить поиск */
   sessionId: string;
   status: SmartSearchStatus;
@@ -131,4 +136,10 @@ export interface SmartSearchHealthDto {
   status: 'ok' | 'unavailable' | 'disabled';
   latencyMs: number | null;
   message: string | null;
+}
+
+/** Ответ на «Я имел в виду другое»: сообщение сохранено для разбора. */
+export interface SmartSearchFeedbackResponse {
+  id: string;
+  status: 'received';
 }

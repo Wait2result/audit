@@ -1193,6 +1193,38 @@ export function normalizeListings(
     query.text = raw.search as string;
   }
 
+  // Только общий предмет («хочу машину», «квартиру») без марки, цены, сделки и места —
+  // тысячи объявлений не ответ: спросить, какую именно (варианты — из справочников)
+  const broad = category ? BROAD_CATEGORIES[category.slug] : undefined;
+  if (
+    broad &&
+    category &&
+    intent.intent !== 'refine' &&
+    // Сказано что-то ещё, пусть и неприменимое («желательно автомат», неизвестная марка) —
+    // это уже не «просто машина»: показать выдачу и пометки, а не переспрашивать
+    ignored.length === 0 &&
+    preferences.length === 0 &&
+    Object.keys(attributeFilter).length === 0 &&
+    raw.priceTo === undefined &&
+    raw.priceFrom === undefined &&
+    raw.transactionType === undefined &&
+    raw.search === undefined &&
+    (place.kind === 'none' || (place.kind === 'city' && place.mode === 'context'))
+  ) {
+    // Категория запоминается в контексте: ответ «Toyota» продолжит этот же поиск
+    query.params = { category: category.slug };
+    return {
+      kind: 'clarify',
+      query,
+      clarification: broadClarification(
+        broad,
+        category,
+        attributesFor(catalogue, category),
+        catalogue,
+      ),
+    };
+  }
+
   // Ни категории, ни условий, ни слов («дёшево», «рядом») — выдавать всю доску бессмысленно
   if (
     !category &&
@@ -1227,6 +1259,60 @@ export function normalizeListings(
   query.params = raw;
   query.sort = intent.sort;
   return { kind: 'ready', plan: { query: parsed.data }, query };
+}
+
+/**
+ * Слишком общие запросы: категория огромная, а человек назвал только её.
+ * Вопрос и варианты — у каждой категории свои; вариант «Все …» открывает
+ * категорию целиком, если человек и правда хотел посмотреть всё.
+ */
+interface BroadCategory {
+  question: string;
+  /** Марки, которые предложить (коды справочника; нет в справочнике — не предлагается) */
+  brands?: readonly string[];
+  /** Готовые ответы — фразы, которые приложение отправит следующим уточнением */
+  answers?: readonly { label: string; value: string }[];
+  allLabel: string;
+}
+
+const BROAD_CATEGORIES: Readonly<Record<string, BroadCategory>> = {
+  'transport-cars': {
+    question: 'Какую машину вы ищете? Назовите марку, модель или бюджет.',
+    brands: ['toyota', 'lada', 'kia', 'hyundai', 'mercedes', 'mercedes-benz', 'bmw', 'lexus'],
+    allLabel: 'Все автомобили',
+  },
+  'realty-flats': {
+    question: 'Какую квартиру ищете: купить или снять?',
+    answers: [
+      { label: 'Купить', value: 'купить' },
+      { label: 'Снять надолго', value: 'снять надолго' },
+      { label: 'Посуточно', value: 'посуточно' },
+    ],
+    allLabel: 'Все квартиры',
+  },
+};
+
+function broadClarification(
+  broad: BroadCategory,
+  category: CategoryRecord,
+  attributes: readonly ListingAttribute[],
+  catalogue: ListingCatalogue,
+): SmartSearchClarification {
+  const options: SmartSearchClarification['options'] = [];
+  const brandField = brandAttribute(attributes);
+  if (broad.brands && brandField?.dictionary) {
+    const entries = catalogue.dictionaryEntries(brandField.dictionary);
+    for (const code of broad.brands) {
+      const entry = entries.find((item) => item.value === code);
+      if (!entry || options.length >= 6) continue;
+      // «LADA (ВАЗ)» → «LADA»: вариант — это ещё и текст следующей фразы
+      const label = entry.label.replace(/\s*\([^)]*\)$/u, '');
+      options.push({ label, value: label, kind: 'brand' });
+    }
+  }
+  for (const answer of broad.answers ?? []) options.push({ ...answer, kind: 'other' });
+  options.push({ label: broad.allLabel, value: category.slug, kind: 'category' });
+  return { reason: 'broad_category', question: broad.question, options };
 }
 
 /** Уточнение «до какой цены?» — когда цену назвали словом, а не числом. */

@@ -8,6 +8,7 @@ import {
   type SmartSearchClarification,
   type SmartSearchDomain,
   type SmartSearchHealthDto,
+  type SmartSearchIntent,
   type SmartSearchIntentCore,
   type SmartSearchPart,
   type SmartSearchRequest,
@@ -31,6 +32,7 @@ import {
   type DomainRequestContext,
 } from './domains/domain-adapter.js';
 import { priceClarification } from './domains/listings.normalizer.js';
+import { TRACE_STORE, type TraceStore } from './feedback/search-trace-store.js';
 import { buildMessages, buildSystemPrompt } from './intent/intent-prompt.js';
 import { parseIntent, type IntentFailureCode } from './intent/intent-parser.js';
 import { sanitizeUserText } from './normalize/text.js';
@@ -92,6 +94,7 @@ export class SmartSearchService {
     @Inject(CONTEXT_STORE) private readonly contexts: ContextStore,
     private readonly cities: CitiesService,
     @Optional() @Inject(SMART_SEARCH_CLOCK) clock?: () => Date,
+    @Optional() @Inject(TRACE_STORE) private readonly traces?: TraceStore,
   ) {
     this.clock = clock ?? (() => new Date());
   }
@@ -99,12 +102,26 @@ export class SmartSearchService {
   private readonly clock: () => Date;
 
   async search(request: SmartSearchRequest, userId?: string): Promise<SmartSearchResponse> {
+    const requestId = randomBytes(12).toString('base64url');
+    const text = sanitizeUserText(request.text, SMART_SEARCH_LIMITS.maxTextLength);
+    const trace: { intent: SmartSearchIntent | null } = { intent: null };
+    const response = await this.answer(request, text, requestId, trace, userId);
+    await this.saveTrace(requestId, text, response, trace.intent);
+    return response;
+  }
+
+  private async answer(
+    request: SmartSearchRequest,
+    text: string,
+    requestId: string,
+    trace: { intent: SmartSearchIntent | null },
+    userId?: string,
+  ): Promise<SmartSearchResponse> {
     const started = Date.now();
     const sessionId = request.sessionId ?? randomBytes(16).toString('base64url');
-    const text = sanitizeUserText(request.text, SMART_SEARCH_LIMITS.maxTextLength);
 
     if (!this.config.SMART_SEARCH_ENABLED)
-      return this.failure(sessionId, text, 'SMART_SEARCH_DISABLED');
+      return this.failure(requestId, sessionId, text, 'SMART_SEARCH_DISABLED');
 
     const key = contextKey(sessionId, userId);
     const previous = request.reset ? null : await this.loadContext(key);
@@ -120,10 +137,16 @@ export class SmartSearchService {
       buildMessages(text, previous?.intent ?? null),
     );
     if (!parsed.ok) {
-      this.log('error', { code: parsed.code, latencyMs: Date.now() - started });
+      this.log('error', {
+        requestId,
+        code: parsed.code,
+        fallback: true,
+        latencyMs: Date.now() - started,
+      });
       if (this.config.AI_DEBUG_LOG) this.logger.debug(`Разбор не удался: ${parsed.detail}`);
-      return this.failure(sessionId, text, parsed.code);
+      return this.failure(requestId, sessionId, text, parsed.code);
     }
+    trace.intent = parsed.intent;
 
     const context: DomainRequestContext = {
       text,
@@ -172,13 +195,18 @@ export class SmartSearchService {
 
       const status = results.some((part) => part.status === 'results') ? 'results' : first.status;
       this.log(status, {
+        requestId,
         domains: results.map((part) => part.domain).join(','),
+        confidence: parsed.intent.confidence,
+        clarification: results.some((part) => part.status === 'clarification'),
+        fallback: false,
         refined: merged.refined,
         aiLatencyMs: parsed.latencyMs,
         latencyMs: Date.now() - started,
       });
       return {
         schemaVersion: 1,
+        requestId,
         sessionId,
         status,
         message: first.message,
@@ -188,14 +216,19 @@ export class SmartSearchService {
       };
     } catch (error) {
       if (error instanceof InvalidIntentError) {
-        this.log('error', { code: 'INVALID_INTENT', latencyMs: Date.now() - started });
+        this.log('error', {
+          requestId,
+          code: 'INVALID_INTENT',
+          fallback: true,
+          latencyMs: Date.now() - started,
+        });
         if (this.config.AI_DEBUG_LOG) this.logger.debug(error.message);
-        return this.failure(sessionId, text, 'INVALID_INTENT');
+        return this.failure(requestId, sessionId, text, 'INVALID_INTENT');
       }
       this.logger.error(
         `Умный поиск: ошибка раздела — ${error instanceof Error ? error.message : 'неизвестно'}`,
       );
-      return this.failure(sessionId, text, 'SEARCH_FAILED');
+      return this.failure(requestId, sessionId, text, 'SEARCH_FAILED');
     }
   }
 
@@ -364,7 +397,31 @@ export class SmartSearchService {
     }
   }
 
+  /** След ответа — для «Я имел в виду другое». Не сохранился — поиск от этого не страдает. */
+  private async saveTrace(
+    requestId: string,
+    text: string,
+    response: SmartSearchResponse,
+    intent: SmartSearchIntent | null,
+  ): Promise<void> {
+    if (!this.traces) return;
+    try {
+      await this.traces.save(requestId, {
+        v: 1,
+        text,
+        status: response.status,
+        domain: response.parts[0]?.domain ?? intent?.domain ?? null,
+        intent,
+        confidence: intent?.confidence ?? null,
+        createdAt: this.clock().getTime(),
+      });
+    } catch {
+      this.logger.warn('Умный поиск: след ответа не сохранён');
+    }
+  }
+
   private failure(
+    requestId: string,
     sessionId: string,
     text: string,
     code: keyof typeof FAILURE_MESSAGES,
@@ -372,6 +429,7 @@ export class SmartSearchService {
     const message = FAILURE_MESSAGES[code];
     return {
       schemaVersion: 1,
+      requestId,
       sessionId,
       status: 'error',
       message,

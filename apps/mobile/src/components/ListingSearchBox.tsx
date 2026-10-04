@@ -1,5 +1,5 @@
 import type { ListingSuggestionDto } from '@dagestan/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useListingSuggestions } from '../api/queries';
@@ -27,6 +27,8 @@ interface Props {
   onOpenCategory: (slug: string) => void;
   cityId: string | null;
   placeholder?: string;
+  /** Чтобы экран мог вернуть фокус в поле: «Изменить запрос» */
+  inputRef?: Ref<TextInput>;
 }
 
 export function ListingSearchBox({
@@ -36,6 +38,7 @@ export function ListingSearchBox({
   onOpenCategory,
   cityId,
   placeholder = 'Поиск объявлений',
+  inputRef,
 }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -101,6 +104,7 @@ export function ListingSearchBox({
       <View style={styles.searchBox}>
         <Icon name="search" size={18} color={colors.textFaint} />
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChange}
           onFocus={() => setFocused(true)}

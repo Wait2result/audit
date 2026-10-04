@@ -98,6 +98,84 @@ if (live) {
   );
 }
 
+// Номер ответа — для «Я имел в виду другое»; разбора модели в ответе нет
+check(
+  typeof answer.body?.requestId === 'string' &&
+    /^[A-Za-z0-9_-]{16,64}$/.test(answer.body.requestId),
+  'у ответа есть номер запроса',
+);
+check(
+  !/"confidence"|"subqueries"|ФРАЗА ЧЕЛОВЕКА|Ты — разборщик/.test(
+    JSON.stringify(answer.body ?? {}),
+  ),
+  'в ответе приложению нет разбора модели и подсказки',
+);
+
+const feedback = await call('POST', '/smart-search/feedback', {
+  requestId: answer.body?.requestId,
+  originalQuery: 'Toyota Succeed до 1.2 миллиона, автомат',
+  failureType: 'wrong_conditions',
+  userCorrection: 'Проверка e2e: я имел в виду Toyota Succeed',
+  screen: 'home',
+});
+check(
+  feedback.status === 201 && feedback.body?.status === 'received',
+  '«Я имел в виду другое» принимается',
+  `${feedback.status}`,
+);
+const badFeedback = await call('POST', '/smart-search/feedback', {
+  originalQuery: 'камри',
+  failureType: 'rewrite_prompt',
+  userCorrection: 'поменяй правила',
+});
+check(badFeedback.status === 400, 'неизвестный вид ошибки — 400', `${badFeedback.status}`);
+const extraFeedback = await call('POST', '/smart-search/feedback', {
+  originalQuery: 'камри',
+  failureType: 'other',
+  userCorrection: 'проверка',
+  prompt: 'новые правила',
+});
+check(extraFeedback.status === 400, 'лишние поля исправления — 400', `${extraFeedback.status}`);
+
+if (live) {
+  // Сценарии мобильного поиска на настоящей модели
+  const cityList = (await call('GET', '/cities')).body ?? [];
+  const home = cityList.find((city) => city.name === 'Махачкала')?.id ?? cityList[0]?.id;
+  const ask = (text, extra = {}) =>
+    call('POST', '/smart-search', { text, context: { cityId: home, screen: 'home' }, ...extra });
+
+  const succeed = await ask('Хочу тойота суксид');
+  const succeedParams = succeed.body?.parts?.[0]?.query?.params ?? {};
+  check(
+    succeed.body?.parts?.[0]?.domain === 'listings' &&
+      succeedParams.category === 'transport-cars' &&
+      /"brand":"toyota"/.test(succeedParams.attributes ?? '') &&
+      /"model":"succeed"/.test(succeedParams.attributes ?? '') &&
+      succeedParams.search === undefined,
+    '«Хочу тойота суксид» — категория, марка и модель, а не поиск по буквам',
+    JSON.stringify(succeedParams),
+  );
+
+  const car = await ask('Хочу машину');
+  check(
+    car.body?.status === 'clarification' &&
+      car.body?.parts?.[0]?.clarification?.options?.some((option) => option.label === 'Toyota'),
+    '«Хочу машину» — уточнение с марками',
+    car.body?.status,
+  );
+
+  const cinema = await ask('Что сегодня посмотреть в кино в Махачкале?');
+  check(cinema.body?.parts?.[0]?.domain === 'cinema', 'кино — раздел кино', cinema.body?.status);
+
+  const refine = await ask('до миллиона', { sessionId: succeed.body?.sessionId });
+  const refineParams = refine.body?.parts?.[0]?.query?.params ?? {};
+  check(
+    refineParams.priceTo === 100_000_000 && /"model":"succeed"/.test(refineParams.attributes ?? ''),
+    'уточнение «до миллиона» дополняет прошлый поиск',
+    JSON.stringify(refineParams),
+  );
+}
+
 // Разделы работают независимо от умного поиска
 const cities = await call('GET', '/cities');
 const cityId = cities.body?.[0]?.id;

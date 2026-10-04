@@ -217,3 +217,52 @@ export const smartSearchRequestSchema = z
   .strict();
 
 export type SmartSearchRequest = z.infer<typeof smartSearchRequestSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Обратная связь: «Я имел в виду другое»
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Что пошло не так, по словам человека. Это разметка для разбора, а не
+ * команда: одно сообщение не меняет ни подсказку модели, ни справочники —
+ * исправления копятся и проверяются отдельно (docs/ADR/0011).
+ */
+export const SMART_SEARCH_FAILURE_TYPES = [
+  /** Искал не в том разделе: «кино» вместо объявлений */
+  'wrong_domain',
+  /** Условия поняты неверно: «оперативка» ушла в память */
+  'wrong_conditions',
+  /** Часть сказанного потерялась: модель есть, марки нет */
+  'missing_conditions',
+  /** Запрос не понят вовсе: переспросил или ошибся */
+  'not_understood',
+  /** Понял верно, но найдено не то */
+  'wrong_results',
+  'other',
+] as const;
+export type SmartSearchFailureType = (typeof SMART_SEARCH_FAILURE_TYPES)[number];
+
+export const smartSearchFeedbackSchema = z
+  .object({
+    /** Номер ответа умного поиска — по нему сервер находит, что поняла модель */
+    requestId: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{16,64}$/, 'Некорректный номер запроса')
+      .optional(),
+    originalQuery: z
+      .string()
+      .trim()
+      .min(1, 'Нет исходного запроса')
+      .max(SMART_SEARCH_LIMITS.maxTextLength, 'Слишком длинный запрос'),
+    failureType: z.enum(SMART_SEARCH_FAILURE_TYPES),
+    /** Своими словами: «Я имел в виду Toyota Succeed, а не просто Toyota» */
+    userCorrection: z
+      .string()
+      .trim()
+      .min(3, 'Напишите, что вы имели в виду')
+      .max(500, 'Слишком длинно — хватит пары предложений'),
+    screen: z.enum(SMART_SEARCH_SCREENS).optional(),
+  })
+  .strict();
+
+export type SmartSearchFeedbackRequest = z.infer<typeof smartSearchFeedbackSchema>;

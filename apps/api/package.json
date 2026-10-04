@@ -27,7 +27,8 @@
     "db:category-images": "tsx scripts/seed-place-categories.ts",
     "db:migrate:listings-v2": "tsx scripts/migrate-listings-v2.ts",
     "db:migrate:listing-locations": "tsx scripts/migrate-listing-locations.ts",
-    "dev:load-listings": "tsx scripts/dev-load-listings.ts"
+    "dev:load-listings": "tsx scripts/dev-load-listings.ts",
+    "smart-search:feedback-report": "tsx scripts/smart-search-feedback-report.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1128.0",

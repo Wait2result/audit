@@ -15,6 +15,8 @@ import { DeliverySearchAdapter } from './domains/delivery.adapter.js';
 import { DOMAIN_ADAPTERS_REGISTRY, DomainRegistry } from './domains/domain-adapter.js';
 import { ListingsSearchAdapter } from './domains/listings.adapter.js';
 import { NewsSearchAdapter } from './domains/news.adapter.js';
+import { RedisTraceStore, TRACE_STORE } from './feedback/search-trace-store.js';
+import { SmartSearchFeedbackService } from './feedback/smart-search-feedback.service.js';
 import { SmartSearchController } from './smart-search.controller.js';
 import { SmartSearchService } from './smart-search.service.js';
 
@@ -28,6 +30,7 @@ import { SmartSearchService } from './smart-search.service.js';
   controllers: [SmartSearchController],
   providers: [
     SmartSearchService,
+    SmartSearchFeedbackService,
     ListingsSearchAdapter,
     CinemaSearchAdapter,
     NewsSearchAdapter,
@@ -50,6 +53,11 @@ import { SmartSearchService } from './smart-search.service.js';
       provide: CONTEXT_STORE,
       inject: [RedisService],
       useFactory: (redis: RedisService) => new RedisContextStore(redis.client),
+    },
+    {
+      provide: TRACE_STORE,
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => new RedisTraceStore(redis.client),
     },
     {
       // Новый раздел — новый адаптер здесь; маршрутизатор и разбор фраз не меняются

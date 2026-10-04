@@ -1699,3 +1699,50 @@ model NotificationPreference {
 
   @@map("notification_preferences")
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  УМНЫЙ ПОИСК
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// «Я имел в виду другое» (ADR-0011): исправление человека к разбору фразы.
+///
+/// Это накопленный датасет для разбора, а не команда: запись ничего не меняет
+/// в подсказке модели, справочниках и коде. Подтверждённое исправление
+/// превращается в правило справочника или нормализатора, пример подсказки и
+/// регрессионный тест — отдельным изменением кода с проверкой.
+///
+/// Без пользователя и адреса: для разбора важно, что сказали и что поняли,
+/// а не кто.
+model SmartSearchFeedback {
+  id              String  @id @default(uuid()) @db.Uuid
+  /// Номер ответа умного поиска, к которому исправление
+  requestId       String? @map("request_id") @db.VarChar(64)
+  originalQuery   String  @map("original_query") @db.VarChar(300)
+  /// Намерение, которое вернула модель и пропустила схема (не сырой текст ответа)
+  modelIntent     Json?   @map("model_intent")
+  modelConfidence Float?  @map("model_confidence")
+  /// Чем закончился поиск: results, clarification, no_results, unsupported, error
+  responseStatus  String? @map("response_status") @db.VarChar(20)
+  domain          String? @db.VarChar(20)
+  screen          String? @db.VarChar(20)
+
+  /// wrong_domain, wrong_conditions, missing_conditions, not_understood, wrong_results, other
+  failureType     String @map("failure_type") @db.VarChar(40)
+  userCorrection  String @map("user_correction") @db.VarChar(500)
+  /// Правильное намерение — заполняет тот, кто разбирает исправление
+  correctedIntent Json?  @map("corrected_intent")
+
+  /// new → reviewed → accepted / rejected
+  status     String    @default("new") @db.VarChar(20)
+  /// Во что превратилось: dictionary_rule, normalization_rule, prompt_example, regression_test
+  resolution String?   @db.VarChar(40)
+  reviewNote String?   @map("review_note") @db.VarChar(1000)
+  reviewedAt DateTime? @map("reviewed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Очередь разбора и выборки «что чаще всего не понимают в объявлениях»
+  @@index([status, createdAt])
+  @@index([domain, failureType])
+  @@map("smart_search_feedback")
+}
