@@ -188,10 +188,29 @@ function modelAttribute(attributes: readonly ListingAttribute[]): ListingAttribu
 
 type Converted = { ok: true; value: unknown; display: string } | { ok: false; reason: string };
 
+/** Длина общего начала двух слов. */
+function commonPrefix(a: string, b: string): number {
+  let index = 0;
+  while (index < a.length && index < b.length && a[index] === b[index]) index += 1;
+  return index;
+}
+
+/**
+ * Слово фразы — форма подписи варианта: «бензиновые» ~ «Бензин»,
+ * «механическая» ~ «Механика», «полный (привод)» ~ «Полный». Общее начало —
+ * не короче четырёх букв и почти вся подпись.
+ */
+function wordMatchesLabel(word: string, label: string): boolean {
+  const target = norm(label);
+  if (target.length < 3 || /[^\p{L}]/u.test(target)) return word === target;
+  const common = commonPrefix(word, target);
+  return word === target || (common >= 4 && common >= target.length - 2);
+}
+
 function optionFor(attribute: ListingAttribute, candidate: string | number) {
   const value = norm(String(candidate));
   const synonym = VALUE_SYNONYMS[attribute.key]?.[value];
-  return (
+  const exact =
     attribute.options?.find(
       (option) =>
         option.value === synonym ||
@@ -199,8 +218,13 @@ function optionFor(attribute: ListingAttribute, candidate: string | number) {
         norm(option.label) === value ||
         (option.aliases ?? []).map(norm).includes(value) ||
         sameStem(option.label, value),
-    ) ?? null
+    ) ?? null;
+  if (exact) return exact;
+  // Несколько слов или другая форма слова: вариант — если он один такой
+  const loose = (attribute.options ?? []).filter((option) =>
+    value.split(' ').some((word) => wordMatchesLabel(word, option.label)),
   );
+  return loose.length === 1 ? loose[0]! : null;
 }
 
 function rangeOf(value: SmartSearchFilterValue): { min?: number; max?: number } | null {
@@ -368,6 +392,22 @@ function familyOf(entries: readonly DictionaryRecord[], candidate: string): Dict
   return picked.length <= MAX_FAMILY ? picked : [];
 }
 
+/**
+ * Модель по концу названия: «15 Pro» → iPhone 15 Pro, «15 про» → «айфон 15
+ * про». Только если такая запись одна — иначе это не модель, а догадка.
+ */
+function bySuffix(
+  entries: readonly DictionaryRecord[],
+  candidate: string,
+): DictionaryRecord | null {
+  const value = norm(candidate);
+  if (value.length < 2) return null;
+  const picked = entries.filter((entry) =>
+    formsOf(entry).some((form) => form.endsWith(` ${value}`)),
+  );
+  return picked.length === 1 ? picked[0]! : null;
+}
+
 /** Модели по значению фильтра: одна, список или «от … и новее». */
 function resolveModels(
   entries: readonly DictionaryRecord[],
@@ -394,7 +434,7 @@ function resolveModels(
   const missing: string[] = [];
   let display: string | undefined;
   for (const item of items) {
-    const entry = findEntry(entries, item);
+    const entry = findEntry(entries, item) ?? bySuffix(entries, item);
     if (entry) {
       models.push(entry);
       continue;
@@ -499,11 +539,228 @@ function hintedByWord(
   return matching.length > 0 ? matching : [...hits];
 }
 
+/** Слова фразы, пары и тройки слов — для сверки со справочниками. */
+function phrases(text: string): string[] {
+  const list = words(text);
+  const result = [...list];
+  for (let size = 2; size <= 3; size += 1) {
+    for (let index = 0; index + size <= list.length; index += 1)
+      result.push(list.slice(index, index + size).join(' '));
+  }
+  return result;
+}
+
+/** Разговорные названия категорий, которых нет в подписях каталога. */
+const CATEGORY_WORDS: Readonly<Record<string, string>> = {
+  машина: 'transport-cars',
+  машину: 'transport-cars',
+  машины: 'transport-cars',
+  машин: 'transport-cars',
+  авто: 'transport-cars',
+  тачка: 'transport-cars',
+  тачку: 'transport-cars',
+  иномарка: 'transport-cars',
+  иномарку: 'transport-cars',
+};
+
+/**
+ * Страховка поверх модели: то, что человек назвал, а модель пропустила, —
+ * из тех же справочников. Реальный прогон Qwen3 показал: «Камри до 2
+ * миллионов» → только цена, без модели; «двушка» → без комнат; «машину
+ * автомат бензин» → без категории. Заполняется ТОЛЬКО отсутствующее и только
+ * по точному совпадению со справочником — ничего не придумывается.
+ */
+export function enrichFromText(
+  intent: SmartSearchIntentCore,
+  catalogue: ListingCatalogue,
+  context: DomainRequestContext,
+): SmartSearchIntentCore {
+  const filters = { ...intent.filters };
+  const has = (key: string) => key in filters || key in intent.preferences;
+  const text = context.text;
+
+  // Классификатор заголовков объявлений — тот же, что подсказывает категорию при подаче
+  const guess = classifyListingTitle(text);
+  const strongGuess =
+    guess.kind === 'guess' &&
+    (guess.guess.attributes.model !== undefined || guess.guess.slug !== 'transport-cars');
+  if (!has('category') && !context.listingCategory && !has('brand') && !has('model')) {
+    if (strongGuess && guess.kind === 'guess') {
+      filters.category = guess.guess.slug;
+    } else {
+      for (const word of words(text)) {
+        const slug = CATEGORY_WORDS[word] ?? findCategory(catalogue, word)?.slug;
+        if (slug) {
+          filters.category = slug;
+          break;
+        }
+      }
+    }
+  }
+  if (guess.kind === 'guess') {
+    const category = asText(filters.category) ?? context.listingCategory;
+    const sameCategory =
+      category !== undefined && findCategory(catalogue, category)?.slug === guess.guess.slug;
+    if (sameCategory || (!category && strongGuess)) {
+      for (const [key, value] of Object.entries(guess.guess.attributes)) {
+        if (!has(key)) filters[key] = value;
+      }
+    }
+  }
+
+  // Модель, названная во фразе, но пропущенная моделью («камри», «саксид»)
+  // или разобранная неверно (реальный ответ Qwen3 на «Макбук» — марка «Mac»,
+  // модель «Book»: ни того, ни другого в справочниках нет)
+  const brandRaw = asText(filters.brand ?? intent.preferences.brand);
+  const modelRawValue = filters.model ?? intent.preferences.model;
+  const unknownPair =
+    (has('brand') || has('model')) &&
+    brandModelHits(catalogue, brandRaw, modelRawValue, null).length === 0 &&
+    (brandRaw === null || !brandKnown(catalogue, brandRaw));
+  if ((!has('brand') && !has('model')) || unknownPair) {
+    const found = modelInText(catalogue, text);
+    if (found) {
+      filters.model = found.label;
+      if (found.brand) filters.brand = found.brand;
+      else delete filters.brand;
+    }
+  }
+
+  return { ...intent, filters };
+}
+
+/** Есть ли такая марка хоть в одном справочнике марок каталога. */
+function brandKnown(catalogue: ListingCatalogue, candidate: string): boolean {
+  for (const category of searchableCategories(catalogue)) {
+    const field = brandAttribute(attributesFor(catalogue, category));
+    if (field?.dictionary && findEntry(catalogue.dictionaryEntries(field.dictionary), candidate))
+      return true;
+  }
+  return false;
+}
+
+/** Модель справочника, названная во фразе одним, двумя или тремя словами. */
+function modelInText(
+  catalogue: ListingCatalogue,
+  text: string,
+): { label: string; brand: string | null } | null {
+  const wanted = new Set(
+    phrases(text).filter((phrase) => phrase.length >= 4 && !/^[\d ]+$/.test(phrase)),
+  );
+  if (wanted.size === 0) return null;
+  const kinds = new Set<string>();
+  for (const category of searchableCategories(catalogue)) {
+    const field = modelAttribute(attributesFor(catalogue, category));
+    if (field?.dictionary) kinds.add(field.dictionary);
+  }
+  const hits = new Map<string, DictionaryRecord>();
+  for (const kind of kinds) {
+    for (const entry of catalogue.dictionaryEntries(kind)) {
+      if (formsOf(entry).some((form) => wanted.has(form)))
+        hits.set(`${entry.parentValue}/${entry.value}`, entry);
+    }
+  }
+  const labels = new Set([...hits.values()].map((entry) => norm(entry.label)));
+  if (labels.size !== 1) return null;
+  const parents = new Set([...hits.values()].map((entry) => entry.parentValue));
+  const first = [...hits.values()][0]!;
+  return { label: first.label, brand: parents.size === 1 ? first.parentValue : null };
+}
+
+/**
+ * Значения характеристик, которые человек назвал словом, а модель не
+ * разложила («автомат» → коробка «Автомат», «ИЖС» → назначение земли).
+ * Только поля категории с вариантами, только если подходит ровно одно поле
+ * и один вариант.
+ */
+function optionsInText(
+  attributes: readonly ListingAttribute[],
+  text: string,
+  skip: ReadonlySet<string>,
+  coveredWords: ReadonlySet<string>,
+): Map<
+  string,
+  { attribute: ListingAttribute; option: NonNullable<ListingAttribute['options']>[number] }
+> {
+  const found = new Map<
+    string,
+    { attribute: ListingAttribute; option: NonNullable<ListingAttribute['options']>[number] }
+  >();
+  const candidates = phrases(text).filter(
+    (phrase) => !phrase.split(' ').every((word) => coveredWords.has(word)),
+  );
+  for (const phrase of candidates) {
+    const matches: {
+      attribute: ListingAttribute;
+      option: NonNullable<ListingAttribute['options']>[number];
+    }[] = [];
+    for (const attribute of attributes) {
+      if (
+        skip.has(attribute.key) ||
+        !attribute.options ||
+        attribute.type === 'brand' ||
+        attribute.type === 'model'
+      )
+        continue;
+      if (attribute.filter !== 'select' && attribute.filter !== 'multiselect') continue;
+      for (const option of attribute.options) {
+        const label = norm(option.label);
+        if (label.length < 3 || option.value === 'other') continue;
+        const single = !phrase.includes(' ') && !label.includes(' ');
+        if (label === phrase || (single && wordMatchesLabel(phrase, option.label)))
+          matches.push({ attribute, option });
+      }
+    }
+    if (matches.length === 1) {
+      const [match] = matches;
+      if (!found.has(match!.attribute.key)) found.set(match!.attribute.key, match!);
+    }
+  }
+  return found;
+}
+
 /** Слова, уже ушедшие в фильтры, не нужны в текстовом поиске. */
-function leftoverText(query: string | null, covered: readonly string[]): string | null {
+/** Слова запроса, которые сами по себе ничего не ищут. */
+const FILLER_WORDS = new Set([
+  'купить',
+  'куплю',
+  'продам',
+  'продажа',
+  'продаю',
+  'снять',
+  'сниму',
+  'аренда',
+  'объявление',
+  'объявления',
+  'недорого',
+  'дешево',
+  'дёшево',
+  'дешевле',
+  'рядом',
+  'срочно',
+  'хочу',
+  'нужен',
+  'нужна',
+  'нужно',
+  'ищу',
+  'найди',
+  'покажи',
+]);
+
+function leftoverText(
+  query: string | null,
+  covered: readonly string[],
+  categorySlug?: string,
+): string | null {
   if (!query) return null;
   const coveredWords = new Set(covered.flatMap((item) => words(item)));
-  const rest = words(query).filter((word) => !coveredWords.has(word));
+  const rest = words(query).filter((word) => {
+    if (coveredWords.has(word) || FILLER_WORDS.has(word)) return false;
+    // «машины» в категории «Автомобили» — не слово для поиска, а сама категория
+    if (categorySlug && CATEGORY_WORDS[word] === categorySlug) return false;
+    const guess = categorySlug ? classifyListingTitle(word) : null;
+    return !(guess?.kind === 'guess' && guess.guess.slug === categorySlug);
+  });
   const text = rest.join(' ').trim();
   return text.length >= 2 ? text : null;
 }
@@ -514,10 +771,11 @@ function leftoverText(query: string | null, covered: readonly string[]): string 
  * город) или «не поддерживается».
  */
 export function normalizeListings(
-  intent: SmartSearchIntentCore,
+  rawIntent: SmartSearchIntentCore,
   catalogue: ListingCatalogue,
   context: DomainRequestContext,
 ): NormalizeOutcome<ListingPlan> {
+  const intent = enrichFromText(rawIntent, catalogue, context);
   const query: SmartSearchNormalizedQuery = emptyQuery('listings', intent);
   const conditions: SmartSearchCondition[] = query.conditions;
   const preferences: SmartSearchPreference[] = query.preferences;
@@ -711,7 +969,9 @@ export function normalizeListings(
   }
 
   // ── Сделка ────────────────────────────────────────────────────────────────
-  const dealRaw = asText(intent.filters.transactionType);
+  // «А посуточно?» — срок аренды без слова «снять»: это аренда
+  const dealRaw =
+    asText(intent.filters.transactionType) ?? (asText(intent.filters.rentPeriod) ? 'rent' : null);
   if (dealRaw) {
     const deal = TRANSACTION_VALUES[norm(dealRaw)];
     if (!deal) {
@@ -746,7 +1006,12 @@ export function normalizeListings(
     [intent.preferences.price, 'preferred'],
   ] as const) {
     if (source === undefined) continue;
-    const range = typeof source === 'number' ? { max: source } : rangeOf(source);
+    const parsedRange = typeof source === 'number' ? { max: source } : rangeOf(source);
+    // «От 0 ₽» — не условие: модель ставит ноль вместо пустой границы
+    const range =
+      parsedRange && parsedRange.min === 0
+        ? { ...(parsedRange.max !== undefined ? { max: parsedRange.max } : {}) }
+        : parsedRange;
     if (!range || (range.min === undefined && range.max === undefined)) {
       ignored.push({ field: 'price', reason: 'Непонятная цена' });
       continue;
@@ -828,6 +1093,28 @@ export function normalizeListings(
     }
   }
 
+  // Слова, которые модель не разложила, но они — вариант поля категории
+  const coveredWords = new Set(covered.flatMap((item) => words(item)));
+  const alreadySet = new Set([...Object.keys(attributeFilter), ...Object.keys(intent.preferences)]);
+  for (const [key, { attribute, option }] of optionsInText(
+    attributes,
+    context.text,
+    alreadySet,
+    coveredWords,
+  )) {
+    const value =
+      attribute.type === 'number'
+        ? [Number(option.value)]
+        : attribute.filter === 'multiselect'
+          ? [option.value]
+          : option.value;
+    attributeFilter[key] = value;
+    conditions.push({ field: key, label: attribute.label, value, display: option.label });
+    query.unresolved = query.unresolved.filter(
+      (word) => !wordMatchesLabel(norm(word), option.label) && norm(word) !== norm(option.label),
+    );
+  }
+
   // ── Место ─────────────────────────────────────────────────────────────────
   const place = resolvePlace(intent, context, { allowRegion: true });
   if (place.kind === 'clarify')
@@ -900,10 +1187,30 @@ export function normalizeListings(
   if (sort) raw.sort = sort;
 
   // ── Текст ─────────────────────────────────────────────────────────────────
-  const text = leftoverText(intent.query, covered);
+  const text = leftoverText(intent.query, covered, category?.slug);
   if (text) {
     raw.search = text.slice(0, 120);
     query.text = raw.search as string;
+  }
+
+  // Ни категории, ни условий, ни слов («дёшево», «рядом») — выдавать всю доску бессмысленно
+  if (
+    !category &&
+    Object.keys(attributeFilter).length === 0 &&
+    raw.priceTo === undefined &&
+    raw.priceFrom === undefined &&
+    raw.transactionType === undefined &&
+    raw.search === undefined
+  ) {
+    return {
+      kind: 'clarify',
+      query,
+      clarification: {
+        reason: 'empty_query',
+        question: 'Что ищете? Например: «Toyota Succeed до 1 млн» или «двушка в Каспийске».',
+        options: [],
+      },
+    };
   }
 
   if (Object.keys(attributeFilter).length > 0) raw.attributes = JSON.stringify(attributeFilter);

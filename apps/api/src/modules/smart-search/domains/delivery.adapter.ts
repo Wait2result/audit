@@ -11,7 +11,7 @@ import {
 import { CategoriesService } from '../../places/categories.service.js';
 import { PlacesService } from '../../places/places.service.js';
 import { resolvePlace, cityOptions } from '../normalize/location.js';
-import { norm, sameStem } from '../normalize/text.js';
+import { matchCity, norm, sameStem } from '../normalize/text.js';
 import type {
   DomainAdapter,
   DomainRequestContext,
@@ -50,6 +50,26 @@ function asText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+/** Код вида заведения → его подпись: модель может вернуть «restaurant» вместо «ресторан». */
+function typeLabels(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [value]).map(
+    (item) => PLACE_TYPE_LABELS[String(item) as PlaceType] ?? String(item),
+  );
+}
+
+/** Значение (или каждое из значений) встречается во фразе с точностью до падежа. */
+function namedInText(value: unknown, text: string): boolean {
+  const items = (Array.isArray(value) ? value : [value]).map(String);
+  const phrase = norm(text).split(' ');
+  return items.every((item) =>
+    norm(item)
+      .split(' ')
+      .every((part) =>
+        phrase.some((word) => sameStem(word, part) || word.startsWith(part.slice(0, 5))),
+      ),
+  );
+}
+
 /** Намерение «доставка» → запрос витрины заведений с доставкой. */
 export function normalizeDelivery(
   intent: SmartSearchIntentCore,
@@ -86,8 +106,13 @@ export function normalizeDelivery(
     display: 'с доставкой',
   });
 
+  // Город в поле «заведение» («пицца в Каспийске» → place «Каспийск») — это место, а не что искать
+  const notCity = (value: string | null) =>
+    value && matchCity(value, context.cities).kind === 'unknown' ? value : null;
   const search =
-    asText(intent.filters.dish) ?? asText(intent.filters.place) ?? asText(intent.query);
+    notCity(asText(intent.filters.dish)) ??
+    notCity(asText(intent.query)) ??
+    notCity(asText(intent.filters.place));
   if (search) {
     raw.search = search.slice(0, 120);
     query.text = raw.search as string;
@@ -133,8 +158,14 @@ export function normalizeDelivery(
     }
   }
 
+  // Вид заведения — только если он назван: к «пицце в Каспийске» модель дописывала «ресторан»
   const typeRaw = intent.filters.placeType;
-  if (typeRaw !== undefined) {
+  if (typeRaw !== undefined && !namedInText(typeLabels(typeRaw), context.text)) {
+    query.ignored.push({
+      field: 'placeType',
+      reason: 'Вид заведения не назван во фразе — не применён',
+    });
+  } else if (typeRaw !== undefined) {
     const items = (Array.isArray(typeRaw) ? typeRaw : [typeRaw]).map(String);
     const types = items
       .map(

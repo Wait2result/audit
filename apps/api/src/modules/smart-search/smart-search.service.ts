@@ -150,7 +150,7 @@ export class SmartSearchService {
       const parts = [
         { intent: effective, dropped: grounded.dropped },
         ...subqueries.map((part) => groundIntent(part, text)),
-      ];
+      ].map((part) => withoutUnsupported(part.intent, part.dropped));
       for (const part of parts) await this.assertKnownFilters(part.intent);
 
       const results: SmartSearchPart[] = [];
@@ -262,8 +262,14 @@ export class SmartSearchService {
       };
     }
 
-    // Цену назвали словом («недорого») — модель могла её досочинить: спросить
-    if (intent.domain === 'listings' && dropped.includes('price') && !intent.filters.price) {
+    // Цену назвали словом («недорого») — модель могла её досочинить: спросить.
+    // Без такого слова неподтверждённая цена просто не применяется (пометка ниже)
+    if (
+      intent.domain === 'listings' &&
+      dropped.includes('price') &&
+      !intent.filters.price &&
+      VAGUE_PRICE.test(context.text.toLowerCase())
+    ) {
       return this.clarificationPart(intent.domain, priceClarification());
     }
 
@@ -281,12 +287,7 @@ export class SmartSearchService {
       };
     }
 
-    for (const field of dropped) {
-      outcome.query.ignored.push({
-        field,
-        reason: 'Такого числа нет в запросе — условие не применено',
-      });
-    }
+    for (const field of dropped) outcome.query.ignored.push(droppedNote(field));
 
     const executed = await adapter.execute(outcome.plan, context);
     if (executed.kind === 'clarify')
@@ -387,6 +388,74 @@ export class SmartSearchService {
   }
 }
 
+/** Слова «цены словом»: только с ними неподтверждённая цена — повод переспросить. */
+const VAGUE_PRICE = /недорог|дешев|дешёв|бюджетн|подешевле|недорогой|копейки/u;
+
+/**
+ * Поля, которые модель вправе назвать, но раздел их не умеет: цены блюд нет
+ * в витрине заведений, цены билета — в поиске сеансов. Такое поле — не повод
+ * отклонить весь ответ: оно не применяется, и человек видит почему.
+ */
+const UNSUPPORTED_BY_DOMAIN: Readonly<Partial<Record<SmartSearchDomain, Record<string, string>>>> =
+  {
+    delivery: { price: 'Цен блюд в поиске заведений нет — условие не применено' },
+    cinema: { price: 'Цен билетов в поиске сеансов нет — условие не применено' },
+    news: { price: 'У новостей нет цены' },
+  };
+
+function withoutUnsupported(
+  intent: SmartSearchIntentCore,
+  dropped: readonly string[],
+): { intent: SmartSearchIntentCore; dropped: string[] } {
+  const unsupported = intent.domain ? UNSUPPORTED_BY_DOMAIN[intent.domain] : undefined;
+  if (!unsupported) return { intent, dropped: [...dropped] };
+  const removed: string[] = [];
+  const strip = (record: SmartSearchIntentCore['filters']) =>
+    Object.fromEntries(
+      Object.entries(record).filter(([key]) => {
+        if (!(key in unsupported)) return true;
+        removed.push(`unsupported:${intent.domain}:${key}`);
+        return false;
+      }),
+    );
+  return {
+    intent: { ...intent, filters: strip(intent.filters), preferences: strip(intent.preferences) },
+    dropped: [...dropped, ...removed],
+  };
+}
+
+/** Почему условие из ответа модели не применено — для поля ignored. */
+function droppedNote(code: string): { field: string; reason: string } {
+  if (code.startsWith('structural:')) {
+    const field = code.slice('structural:'.length);
+    return {
+      field,
+      reason: 'Поле не на своём месте (место и время задаются отдельно) — не применено',
+    };
+  }
+  if (code.startsWith('unsupported:')) {
+    const [, domain, field] = code.split(':') as [string, SmartSearchDomain, string];
+    return {
+      field,
+      reason: UNSUPPORTED_BY_DOMAIN[domain]?.[field] ?? 'Раздел это поле не поддерживает',
+    };
+  }
+  switch (code) {
+    case 'time.date':
+      return { field: 'date', reason: 'Дня нет во фразе — взят день по умолчанию' };
+    case 'time.from':
+    case 'time.to':
+      return { field: 'time', reason: 'Такого времени нет во фразе — не применено' };
+    case 'location.city':
+      return { field: 'location', reason: 'Этого города нет во фразе — не применён' };
+    case 'transactionType':
+    case 'rentPeriod':
+      return { field: code, reason: 'Во фразе нет такой сделки — условие не применено' };
+    default:
+      return { field: code, reason: 'Такого числа нет в запросе — условие не применено' };
+  }
+}
+
 export const DOMAIN_SCREENS: Readonly<Record<string, SmartSearchDomain>> = {
   listings: 'listings',
   cinema: 'cinema',
@@ -395,17 +464,55 @@ export const DOMAIN_SCREENS: Readonly<Record<string, SmartSearchDomain>> = {
 };
 
 /**
- * Категорию объявлений, которую сервер вывел сам (по модели, классификатору
- * или выбору человека), контекст запоминает: «а Nissan?» после «Toyota
- * Succeed» остаётся в легковых, а не спрашивает категорию заново.
+ * Контекст запоминает итог нормализации, а не только слова модели: категорию,
+ * которую сервер вывел сам («а Nissan?» после «Toyota Succeed» остаётся в
+ * легковых), и значения, найденные во фразе («автомат», которого модель не
+ * разложила, не теряется на следующей фразе «а бензиновые?»). Значения
+ * хранятся кодами справочников — нормализатор принимает их так же, как слова.
  */
 function withResolvedCategory(
   intent: SmartSearchIntentCore,
   part: SmartSearchPart,
 ): SmartSearchIntentCore {
-  const category = part.query?.domain === 'listings' ? part.query.params.category : undefined;
-  if (typeof category !== 'string' || intent.filters.category !== undefined) return intent;
-  return { ...intent, filters: { ...intent.filters, category } };
+  if (part.query?.domain !== 'listings') return intent;
+  const params = part.query.params;
+  const filters = { ...intent.filters };
+  const free = (key: string) => filters[key] === undefined && intent.preferences[key] === undefined;
+
+  if (typeof params.category === 'string' && free('category')) filters.category = params.category;
+  for (const key of ['transactionType', 'rentPeriod'] as const) {
+    if (typeof params[key] === 'string' && free(key)) filters[key] = params[key];
+  }
+  if (typeof params.attributes === 'string') {
+    for (const [key, value] of Object.entries(
+      JSON.parse(params.attributes) as Record<string, unknown>,
+    )) {
+      if (!free(key)) continue;
+      const stored = toFilterValue(value);
+      if (stored !== null) filters[key] = stored;
+    }
+  }
+  return { ...intent, filters };
+}
+
+/** Значение фильтра ленты → значение намерения: «{from, to}» → «{min, max}». */
+function toFilterValue(value: unknown): SmartSearchIntentCore['filters'][string] | null {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    return value;
+  if (Array.isArray(value)) {
+    const items = value.filter(
+      (item): item is string | number => typeof item === 'string' || typeof item === 'number',
+    );
+    return items.length > 0 ? items.slice(0, 12) : null;
+  }
+  if (value && typeof value === 'object') {
+    const range = value as { from?: unknown; to?: unknown };
+    const min = typeof range.from === 'number' ? range.from : undefined;
+    const max = typeof range.to === 'number' ? range.to : undefined;
+    if (min === undefined && max === undefined) return null;
+    return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
+  }
+  return null;
 }
 
 /** Экран, с которого спрашивают, подсказывает раздел для коротких фраз («а на завтра?»). */

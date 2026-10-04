@@ -7,7 +7,7 @@ import type {
 
 import { CinemaService } from '../../cinema/cinema.service.js';
 import { resolvePlace, cityOptions } from '../normalize/location.js';
-import { containsAllStems, norm } from '../normalize/text.js';
+import { containsAllStems, norm, words } from '../normalize/text.js';
 import { daysBetween, localTimeOf, resolveDay, timeWindow, todayIn } from '../normalize/time.js';
 import type {
   DomainAdapter,
@@ -34,6 +34,65 @@ export interface CinemaPlan {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** Слова, которые не являются названием фильма: «кино», «фильмы сегодня», «что идёт». */
+const GENERIC_CINEMA_WORDS = new Set([
+  'кино',
+  'фильм',
+  'фильмы',
+  'фильмов',
+  'фильма',
+  'сеанс',
+  'сеансы',
+  'сеансов',
+  'кинотеатр',
+  'кинотеатры',
+  'что',
+  'идет',
+  'идёт',
+  'посмотреть',
+  'смотреть',
+  'сегодня',
+  'завтра',
+  'вечером',
+  'утром',
+  'днем',
+  'днём',
+  'ночью',
+  'новинки',
+  'афиша',
+  'показывают',
+  'где',
+  'есть',
+  'ли',
+  'в',
+  'на',
+  'после',
+  'до',
+]);
+
+/**
+ * Название фильма из слов запроса, если модель не положила его в filters.movie
+ * (реальный ответ Qwen3: «Есть ли сегодня Форсаж?» → query «Форсаж»).
+ * Общие слова («кино», «фильмы сегодня») фильмом не становятся.
+ */
+export function movieFromQuery(query: string | null): string | null {
+  if (!query) return null;
+  const rest = words(query).filter((word) => !GENERIC_CINEMA_WORDS.has(word) && !/^\d/.test(word));
+  return rest.length > 0 ? rest.join(' ') : null;
+}
+
+/** Минуты от начала дня расписания: сеанс в 00:10 следующих суток — это 24:10. */
+function minutesInScheduleDay(startTime: string, date: string): number {
+  const [hours, minutes] = localTimeOf(startTime).split(':').map(Number) as [number, number];
+  const nextDay = startTime.slice(0, 10) > date;
+  return (nextDay ? 24 * 60 : 0) + hours * 60 + minutes;
+}
+
+function toMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number) as [number, number];
+  return hours * 60 + minutes;
 }
 
 /** Намерение «кино» → город, дата, время и что искать в расписании. */
@@ -82,7 +141,8 @@ export function normalizeCinema(
     cityId: city.id,
     date,
     window: window ? { from: window.from, to: window.to } : null,
-    movie: text(intent.filters.movie),
+    // «Фильмы», «кино» в поле фильма — не название (реальный ответ Qwen3: movie «фильмы»)
+    movie: movieFromQuery(text(intent.filters.movie)) ?? movieFromQuery(intent.query),
     genre: text(intent.filters.genre),
     cinema: text(intent.filters.cinema),
     format: text(intent.filters.format),
@@ -139,9 +199,17 @@ export function filterSchedule(
       .map((item) => ({
         movie: item.movie,
         showtimes: item.showtimes.filter((showtime) => {
-          const time = localTimeOf(showtime.startTime);
+          // Ночной сеанс (00:10 следующих суток) — продолжение дня расписания:
+          // «после 20:00» его включает, а не теряет
+          const time = minutesInScheduleDay(showtime.startTime, plan.date);
+          const to =
+            plan.window && plan.window.to === '23:59'
+              ? 30 * 60
+              : plan.window
+                ? toMinutes(plan.window.to)
+                : 0;
           return (
-            (!plan.window || (time >= plan.window.from && time <= plan.window.to)) &&
+            (!plan.window || (time >= toMinutes(plan.window.from) && time <= to)) &&
             (!plan.cinema || containsAllStems(showtime.cinemaName, plan.cinema)) &&
             (!plan.format ||
               containsAllStems(

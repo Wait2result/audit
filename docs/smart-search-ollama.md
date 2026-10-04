@@ -88,3 +88,24 @@ npx tsx apps/api/scripts/smart-search-eval.ts
 
 `AI_DEBUG_LOG=true` пишет в журнал причину отказа разбора. Только для
 разработки: в production сервер с этим флагом не запустится.
+
+## Реальная оценка (API → Ollama → данные)
+
+Автоматические тесты модель не вызывают. Проверка с настоящей Qwen3 — отдельный прогон,
+результаты прошлого — в [smart-search-real-evaluation.md](smart-search-real-evaluation.md).
+
+1. Записывающий прокси (пересылает в настоящую Ollama и запоминает сырой ответ модели):
+
+   ```powershell
+   node --import tsx apps/api/scripts/ollama-recording-proxy.ts 11435 http://127.0.0.1:11434
+   ```
+
+2. Временный `.env.local` в корне (перекрывает `.env`, в Git не попадает):
+   `OLLAMA_BASE_URL=http://127.0.0.1:11435`, затем перезапуск API.
+3. Прогон 72 случаев с оценкой по уровням A–E и сравнением со свободным чатом:
+
+   ```powershell
+   node --import tsx apps/api/scripts/smart-search-real-eval.ts docs
+   ```
+
+4. Убрать за собой: остановить прокси, удалить `.env.local`, перезапустить API.

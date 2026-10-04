@@ -3,7 +3,7 @@ import type { NewsScope, NewsSummaryDto, SmartSearchIntentCore } from '@dagestan
 
 import { NewsService } from '../../news/news.service.js';
 import { resolvePlace, cityOptions } from '../normalize/location.js';
-import { containsAllStems, norm } from '../normalize/text.js';
+import { containsAllStems, norm, words } from '../normalize/text.js';
 import { resolveDay } from '../normalize/time.js';
 import type {
   DomainAdapter,
@@ -50,6 +50,63 @@ export interface NewsPlan {
   topic: string | null;
 }
 
+/** Слова-признаки ленты во фразе. */
+function scopeFromText(text: string): NewsScope | null {
+  const value = norm(text);
+  if (/(^| )(мир|мира|мире|мировые|мировых|зарубеж)/u.test(value)) return 'world';
+  if (/(^| )(росси|рф( |$))/u.test(value)) return 'russia';
+  return null;
+}
+
+/** Слова, которые темой не являются: «новости», «что нового», «сегодня». */
+const GENERIC_NEWS_WORDS = new Set([
+  'новости',
+  'новость',
+  'новостей',
+  'нового',
+  'новое',
+  'что',
+  'произошло',
+  'случилось',
+  'было',
+  'сегодня',
+  'вчера',
+  'за',
+  'в',
+  'про',
+  'о',
+  'об',
+  'последние',
+  'свежие',
+  'главные',
+  'мир',
+  'мира',
+  'мире',
+  'мировые',
+  'россия',
+  'россии',
+  'дагестан',
+  'дагестана',
+  'дагестане',
+  'город',
+  'города',
+]);
+
+/**
+ * Тема без служебных слов и названий лент/городов: реальный ответ Qwen3 на
+ * «Новости Махачкалы» — тема «Новости», и лента города оказывалась пустой.
+ */
+export function cleanTopic(topic: string | null, cityNames: readonly string[]): string | null {
+  if (!topic) return null;
+  const cities = cityNames.map((name) => norm(name).slice(0, 5));
+  const rest = words(topic).filter(
+    (word) =>
+      !GENERIC_NEWS_WORDS.has(word) &&
+      !cities.some((city) => city.length >= 4 && word.startsWith(city)),
+  );
+  return rest.length > 0 ? rest.join(' ').slice(0, 80) : null;
+}
+
 /** Намерение «новости» → вкладка ленты, город, день и тема. */
 export function normalizeNews(
   intent: SmartSearchIntentCore,
@@ -66,9 +123,11 @@ export function normalizeNews(
   if (scopeRaw && !scope)
     query.ignored.push({ field: 'scope', reason: 'Нет такой ленты новостей' });
 
+  // «Новости мира», «новости России» — лента по слову, даже если модель её не назвала
+  if (!scope) scope = scopeFromText(context.text);
   // Город из фразы — лента города; «Дагестан» — общая лента
-  const named = intent.location?.city ? place : null;
-  if (!scope) scope = named?.kind === 'city' ? 'city' : 'dagestan';
+  const named = place.kind === 'city' && place.mode !== 'context' ? place : null;
+  if (!scope) scope = named ? 'city' : 'dagestan';
 
   const city =
     place.kind === 'city'
@@ -89,8 +148,10 @@ export function normalizeNews(
 
   const date = resolveDay(intent.time?.date ?? null, city.timezone, context.now);
   const topicRaw = intent.filters.topic ?? intent.query;
-  const topic =
-    typeof topicRaw === 'string' && topicRaw.trim() ? topicRaw.trim().slice(0, 80) : null;
+  const topic = cleanTopic(
+    typeof topicRaw === 'string' ? topicRaw : null,
+    context.cities.map((item) => item.name),
+  );
 
   query.location =
     scope === 'city'

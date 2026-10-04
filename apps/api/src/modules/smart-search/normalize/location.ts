@@ -6,7 +6,20 @@ import type {
 } from '@dagestan/shared';
 
 import type { DomainRequestContext } from '../domains/domain-adapter.js';
-import { matchCity, nearestCity } from './text.js';
+import { matchCity, nearestCity, norm, words } from './text.js';
+
+/** «Рядом», «поблизости» — это не город, а «от точки человека». */
+const NEAR_WORDS = new Set([
+  'рядом',
+  'поблизости',
+  'близко',
+  'недалеко',
+  'около',
+  'здесь',
+  'тут',
+  'рядом со мной',
+  'возле меня',
+]);
 
 export type ResolvedPlace =
   | {
@@ -33,7 +46,24 @@ export function resolvePlace(
   context: DomainRequestContext,
   options: { allowRegion: boolean },
 ): ResolvedPlace {
-  const location = intent.location;
+  const named = intent.location;
+  const nearWord = named?.city ? NEAR_WORDS.has(norm(named.city)) : false;
+  let location = nearWord && named ? { ...named, city: null, nearMe: true } : named;
+
+  // Модель не вернула город, а во фразе он есть («Новости Дербента»): берём из фразы
+  if (!location?.city) {
+    for (const word of words(context.text)) {
+      const match = matchCity(word, context.cities);
+      if (match.kind === 'city') {
+        location = { city: match.city.name, nearMe: location?.nearMe ?? false, preferred: false };
+        break;
+      }
+      if (match.kind === 'region' && options.allowRegion) {
+        location = { city: word, nearMe: location?.nearMe ?? false, preferred: false };
+        break;
+      }
+    }
+  }
 
   if (location?.city) {
     const match = matchCity(location.city, context.cities);
