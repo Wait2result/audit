@@ -133,8 +133,15 @@ const envSchema = z.object({
   /** Сколько живёт контекст уточнений («а автомат?») без новых запросов */
   SMART_SEARCH_CONTEXT_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(1200),
   /**
-   * Языковая модель для разбора фраз. Поставщик за общей прослойкой
-   * AiProvider: сменить модель или сервис — значит поменять эти строки.
+   * Чем разбирать фразу: `local` — словарь и правила (модель не вызывается
+   * вовсе), `ai` — языковая модель за прослойкой AiProvider. По умолчанию —
+   * локальный разбор: он не зависит от внешних сервисов и отвечает мгновенно.
+   */
+  SMART_SEARCH_PARSER: z.enum(['local', 'ai']).default('local'),
+  /**
+   * Языковая модель для разбора фраз (только при SMART_SEARCH_PARSER=ai).
+   * Поставщик за общей прослойкой AiProvider: сменить модель или сервис —
+   * значит поменять эти строки.
    */
   AI_ENABLED: booleanFromString.default(false),
   AI_PROVIDER: z.enum(['ollama']).default('ollama'),

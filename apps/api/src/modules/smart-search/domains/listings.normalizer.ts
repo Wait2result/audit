@@ -1,8 +1,13 @@
 import {
+  ATTRIBUTE_SYNONYMS,
+  CATEGORY_SLANG,
+  CATEGORY_SYNONYMS,
+  FILLER_WORDS as SEARCH_FILLER_WORDS,
   LISTING_DEFAULT_RADIUS_KM,
   ListingSort,
   classifyListingTitle,
   listingListQuerySchema,
+  looksLike,
   type ListingAttribute,
   type ListingListQuery,
   type SmartSearchClarification,
@@ -56,37 +61,19 @@ export interface ListingPlan {
 }
 
 /**
- * Разговорные названия значений, которых нет в подписях вариантов:
- * «АКПП» — это «Автомат», «б/у» — «Б/у». Ключ — поле, затем слово → код.
+ * Разговорные названия значений («АКПП» — «Автомат», «4вд» — полный привод) —
+ * из общего словаря поиска (packages/shared/src/search): ключ — поле,
+ * затем слово → код варианта.
  */
-const VALUE_SYNONYMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  gearbox: {
-    акпп: 'auto',
-    автоматическая: 'auto',
-    автоматическую: 'auto',
-    автомате: 'auto',
-    мкпп: 'manual',
-    ручная: 'manual',
-    механическая: 'manual',
-    механике: 'manual',
-    робот: 'robot',
-    вариатор: 'variator',
-    cvt: 'variator',
-  },
-  fuel: {
-    бензиновый: 'petrol',
-    бензиновая: 'petrol',
-    дизельный: 'diesel',
-    дизельная: 'diesel',
-    электрический: 'electric',
-    электромобиль: 'electric',
-    пропан: 'gas',
-    метан: 'gas',
-  },
-  drive: { awd: 'full', '4wd': 'full', '4x4': 'full', полноприводный: 'full' },
-  condition: { новый: 'new', новая: 'new', новое: 'new', бу: 'used', подержанный: 'used' },
-  steering: { правый: 'right', правым: 'right', левый: 'left', левым: 'left' },
-};
+const VALUE_SYNONYMS: Readonly<Record<string, Readonly<Record<string, string>>>> = (() => {
+  const result: Record<string, Record<string, string>> = {};
+  for (const entry of ATTRIBUTE_SYNONYMS) {
+    if (!entry.field || entry.value !== undefined) continue;
+    const field = (result[entry.field] ??= {});
+    for (const alias of entry.aliases) field[norm(alias)] ??= entry.canonical;
+  }
+  return result;
+})();
 
 const TRANSACTION_VALUES: Readonly<Record<string, 'sale' | 'rent'>> = {
   sale: 'sale',
@@ -556,32 +543,20 @@ function phrases(text: string): string[] {
   return result;
 }
 
-/** Разговорные названия категорий, которых нет в подписях каталога. */
-const CATEGORY_WORDS: Readonly<Record<string, string>> = {
-  машина: 'transport-cars',
-  машину: 'transport-cars',
-  машины: 'transport-cars',
-  машин: 'transport-cars',
-  авто: 'transport-cars',
-  тачка: 'transport-cars',
-  тачку: 'transport-cars',
-  иномарка: 'transport-cars',
-  иномарку: 'transport-cars',
-  ноут: 'electronics-laptops',
-  ноуты: 'electronics-laptops',
-  однушка: 'realty-flats',
-  однушку: 'realty-flats',
-  однуха: 'realty-flats',
-  однуху: 'realty-flats',
-  двушка: 'realty-flats',
-  двушку: 'realty-flats',
-  двуха: 'realty-flats',
-  двуху: 'realty-flats',
-  трешка: 'realty-flats',
-  трешку: 'realty-flats',
-  треха: 'realty-flats',
-  треху: 'realty-flats',
-};
+/**
+ * Разговорные названия категорий («машину», «двушка», «ноут») — из общего
+ * словаря поиска: слово → slug подкатегории. Первое совпадение в словаре важнее.
+ */
+const CATEGORY_WORDS: Readonly<Record<string, string>> = (() => {
+  const result: Record<string, string> = {};
+  for (const entry of [...CATEGORY_SYNONYMS, ...CATEGORY_SLANG]) {
+    for (const alias of entry.aliases) {
+      const word = norm(alias);
+      if (!word.includes(' ')) result[word] ??= entry.canonical;
+    }
+  }
+  return result;
+})();
 
 /**
  * Страховка поверх модели: то, что человек назвал, а модель пропустила, —
@@ -747,6 +722,75 @@ function conditionInText(filters: SmartSearchIntentCore['filters'], text: string
   );
 }
 
+/**
+ * Марка, названная во фразе (одним или двумя словами) — по справочникам
+ * марок всех категорий; с опечаткой — только если похожа ровно на одну
+ * марку («тойта» → Toyota, а «толя» — нет).
+ */
+export function brandInText(
+  catalogue: ListingCatalogue,
+  freeWords: readonly string[],
+): { label: string; words: string[] } | null {
+  const entries: DictionaryRecord[] = [];
+  const seen = new Set<string>();
+  for (const category of searchableCategories(catalogue)) {
+    const field = brandAttribute(attributesFor(catalogue, category));
+    if (!field?.dictionary || seen.has(field.dictionary)) continue;
+    seen.add(field.dictionary);
+    entries.push(
+      ...catalogue.dictionaryEntries(field.dictionary).filter((e) => e.value !== 'other'),
+    );
+  }
+  const candidates: string[][] = [];
+  for (let i = 0; i < freeWords.length; i += 1) {
+    if (i + 1 < freeWords.length) candidates.push([freeWords[i]!, freeWords[i + 1]!]);
+    candidates.push([freeWords[i]!]);
+  }
+  for (const words of candidates) {
+    const found = findEntry(entries, words.join(' '));
+    if (found) return { label: found.label, words };
+  }
+  for (const word of freeWords) {
+    if (word.length < 5 || /\d/.test(word) || FILLER_WORDS.has(word)) continue;
+    const similar = new Set<string>();
+    for (const entry of entries) {
+      if (formsOf(entry).some((form) => !form.includes(' ') && looksLike(word, form)))
+        similar.add(entry.label);
+    }
+    if (similar.size === 1) return { label: [...similar][0]!, words: [word] };
+  }
+  return null;
+}
+
+/**
+ * Модель с опечаткой («суксд» → Succeed): единственная модель, на написание
+ * которой похоже слово. Две разные модели — ничего.
+ */
+export function modelLikeInText(
+  catalogue: ListingCatalogue,
+  freeWords: readonly string[],
+): { label: string; brand: string | null; word: string } | null {
+  const kinds = new Set<string>();
+  for (const category of searchableCategories(catalogue)) {
+    const field = modelAttribute(attributesFor(catalogue, category));
+    if (field?.dictionary) kinds.add(field.dictionary);
+  }
+  for (const word of freeWords) {
+    if (word.length < 5 || /\d/.test(word) || FILLER_WORDS.has(word)) continue;
+    const hits = new Map<string, DictionaryRecord>();
+    for (const kind of kinds) {
+      for (const entry of catalogue.dictionaryEntries(kind)) {
+        if (formsOf(entry).some((form) => !form.includes(' ') && looksLike(word, form)))
+          hits.set(norm(entry.label), entry);
+      }
+    }
+    if (hits.size !== 1) continue;
+    const entry = [...hits.values()][0]!;
+    return { label: entry.label, brand: entry.parentValue || null, word };
+  }
+  return null;
+}
+
 /** Есть ли такая марка хоть в одном справочнике марок каталога. */
 function brandKnown(catalogue: ListingCatalogue, candidate: string): boolean {
   for (const category of searchableCategories(catalogue)) {
@@ -758,7 +802,7 @@ function brandKnown(catalogue: ListingCatalogue, candidate: string): boolean {
 }
 
 /** Модель справочника, названная во фразе одним, двумя или тремя словами. */
-function modelInText(
+export function modelInText(
   catalogue: ListingCatalogue,
   text: string,
 ): { label: string; brand: string | null } | null {
@@ -837,51 +881,8 @@ function optionsInText(
   return found;
 }
 
-/** Слова, уже ушедшие в фильтры, не нужны в текстовом поиске. */
-/** Слова запроса, которые сами по себе ничего не ищут. */
-const FILLER_WORDS = new Set([
-  'купить',
-  'куплю',
-  'продам',
-  'продажа',
-  'продаю',
-  'снять',
-  'сниму',
-  'аренда',
-  'объявление',
-  'объявления',
-  'недорого',
-  'дешево',
-  'дёшево',
-  'дешевле',
-  'рядом',
-  'срочно',
-  'хочу',
-  'нужен',
-  'нужна',
-  'нужно',
-  'ищу',
-  'найди',
-  'покажи',
-  // «Что-нибудь нормальное» — не предмет: искать по таким словам бессмысленно
-  'что',
-  'нибудь',
-  'что-нибудь',
-  'что-то',
-  'то',
-  'какое',
-  'нормальное',
-  'нормальный',
-  'нормальную',
-  'хорошее',
-  'хороший',
-  'хорошую',
-  'интересное',
-  'недорогое',
-  'недорогой',
-  'дешевое',
-  'дешёвое',
-]);
+/** Слова запроса, которые сами по себе ничего не ищут, — из общего словаря поиска. */
+const FILLER_WORDS = SEARCH_FILLER_WORDS;
 
 function leftoverText(
   query: string | null,

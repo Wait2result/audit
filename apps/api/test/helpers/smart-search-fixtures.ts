@@ -36,8 +36,11 @@ import {
 import { ListingsSearchAdapter } from '../../src/modules/smart-search/domains/listings.adapter.js';
 import { NewsSearchAdapter } from '../../src/modules/smart-search/domains/news.adapter.js';
 import { RidesSearchAdapter } from '../../src/modules/smart-search/domains/rides.adapter.js';
+import { AttractionsSearchAdapter } from '../../src/modules/smart-search/domains/attractions.adapter.js';
 import { WeatherSearchAdapter } from '../../src/modules/smart-search/domains/weather.adapter.js';
 import type { TraceStore } from '../../src/modules/smart-search/feedback/search-trace-store.js';
+import type { SmartSearchUnrecognizedService } from '../../src/modules/smart-search/feedback/smart-search-unrecognized.service.js';
+import { LocalIntentParser } from '../../src/modules/smart-search/local/local-intent-parser.js';
 import { SmartSearchService } from '../../src/modules/smart-search/smart-search.service.js';
 import {
   ListingCatalogue,
@@ -400,6 +403,7 @@ export function fakeServices(options: { listingsTotal?: number; placesFound?: nu
     new PlacesSearchAdapter(places as never, placeCategories as never),
     new WeatherSearchAdapter(weather as never),
     new RidesSearchAdapter(),
+    new AttractionsSearchAdapter(),
   ];
   return { calls, registry: new DomainRegistry(adapters), adapters };
 }
@@ -420,6 +424,10 @@ export function harness(
     placesFound?: number;
     /** След ответов для «Я имел в виду другое» */
     traces?: TraceStore;
+    /** Чем разбирать фразу: заданные ответы модели (по умолчанию) или локальный словарь */
+    parser?: 'local' | 'ai';
+    /** Журнал нераспознанных фраз (подменный) */
+    unrecognized?: SmartSearchUnrecognizedService;
   } = {},
 ): Harness {
   const ai = new ScriptedAiProvider();
@@ -432,13 +440,18 @@ export function harness(
       SMART_SEARCH_ENABLED: options.enabled ?? true,
       SMART_SEARCH_CONTEXT_TTL_SECONDS: 1200,
       AI_DEBUG_LOG: false,
+      // Старые наборы тестов проверяют конвейер на заданных ответах модели;
+      // локальный разбор включается явно: harness({ parser: 'local' })
+      SMART_SEARCH_PARSER: options.parser ?? 'ai',
     },
     options.ai ?? ai,
     registry,
     store,
     cities as never,
+    new LocalIntentParser({ catalogue: () => Promise.resolve(seedCatalogue()) } as never),
     () => new Date(clock.now),
     options.traces,
+    options.unrecognized,
   );
   return { service, ai, calls, store, clock };
 }

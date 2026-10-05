@@ -61,7 +61,15 @@ const TOMORROW = new Intl.DateTimeFormat('en-CA', {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Target =
-  'listings' | 'cinema' | 'news' | 'delivery' | 'restaurants' | 'weather' | 'rides' | 'clarify';
+  | 'listings'
+  | 'cinema'
+  | 'news'
+  | 'delivery'
+  | 'restaurants'
+  | 'weather'
+  | 'rides'
+  | 'attractions'
+  | 'clarify';
 
 /** Разделы, которых в умном поиске нет: правильно ответить он не может. */
 // После этапа навигатора все три подключены (заведения, погода, попутчики — «скоро»)
@@ -328,7 +336,8 @@ const CASES: Case[] = [
     id: 'A09',
     group: 'Одиночные слова',
     text: 'хинкал',
-    expect: { target: 'restaurants', status: BROAD },
+    // Одно слово-блюдо: в заведении или домой — выбирает человек (локальный разбор)
+    expect: { target: 'clarify', status: ['clarification'] },
   },
 ];
 
@@ -436,6 +445,7 @@ const DOMAIN_OF: Partial<Record<Target, string>> = {
   restaurants: 'places',
   weather: 'weather',
   rides: 'rides',
+  attractions: 'attractions',
 };
 
 function attrsOf(params: Record<string, unknown> | null): Record<string, unknown> {

@@ -41,6 +41,21 @@ export const SMART_SECTIONS: Readonly<Record<SmartSearchDomain, SmartSection>> =
   places: { label: 'Заведения', icon: 'food', cta: () => 'Открыть заведения' },
   weather: { label: 'Погода', icon: 'sun', cta: () => 'Открыть погоду' },
   rides: { label: 'Попутчики', icon: 'rides', cta: () => null },
+  attractions: { label: 'Достопримечательности', icon: 'map', cta: () => null },
+};
+
+/** Разделы, которых в приложении пока нет: что показать вместо кнопки «Открыть». */
+export const COMING_SOON_SECTIONS: Readonly<
+  Partial<Record<SmartSearchDomain, { path: string; body: string }>>
+> = {
+  rides: {
+    path: 'Попутчики',
+    body: 'Здесь можно будет найти поездку между городами или предложить свою.',
+  },
+  attractions: {
+    path: 'Достопримечательности',
+    body: 'Здесь появятся места, которые стоит увидеть: крепости, музеи, природа и маршруты.',
+  },
 };
 
 /** Значок карточки: у объявлений — значок раздела категории (машина, дом, телефон). */

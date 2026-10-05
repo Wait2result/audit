@@ -33,6 +33,8 @@ export const SMART_SEARCH_DOMAINS = [
   'weather',
   /** Попутчики — раздела пока нет: честный ответ «скоро» вместо чужого раздела */
   'rides',
+  /** Достопримечательности и «куда сходить» — раздела пока нет: честное «скоро» */
+  'attractions',
 ] as const;
 export type SmartSearchDomain = (typeof SMART_SEARCH_DOMAINS)[number];
 

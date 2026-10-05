@@ -12,7 +12,12 @@ import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { spacing, typography, useThemeColors } from '../../theme';
-import { SMART_SECTIONS, sectionIconOf, totalOf } from '../../utils/smart-navigation';
+import {
+  COMING_SOON_SECTIONS,
+  SMART_SECTIONS,
+  sectionIconOf,
+  totalOf,
+} from '../../utils/smart-navigation';
 import type { IconName } from '../Icon';
 import { WeatherIcon } from '../WeatherIcon';
 import { AssistantMessage } from './ChatParts';
@@ -47,6 +52,7 @@ const DOMAIN_ICONS: Readonly<Record<SmartSearchDomain, IconName>> = {
   news: 'news',
   weather: 'sun',
   rides: 'rides',
+  attractions: 'map',
 };
 
 export function AnswerView({
@@ -140,15 +146,16 @@ function PartView({
 
   const domain = part.domain;
   if (part.status === 'unsupported' || !domain) {
-    const rides = domain === 'rides';
+    // Раздел, которого в приложении пока нет: честная карточка «скоро» без кнопки
+    const soon = domain ? COMING_SOON_SECTIONS[domain] : undefined;
     return (
-      <AssistantMessage lead={part.message} {...(rides ? {} : { onWrong: actions.wrong })}>
-        {rides && (
+      <AssistantMessage lead={part.message} {...(soon ? {} : { onWrong: actions.wrong })}>
+        {soon && domain && (
           <SectionCard
-            icon="rides"
+            icon={SMART_SECTIONS[domain].icon}
             eyebrow="Раздел в работе"
-            path="Попутчики"
-            body="Здесь можно будет найти поездку между городами или предложить свою."
+            path={soon.path}
+            body={soon.body}
           />
         )}
       </AssistantMessage>
@@ -221,6 +228,8 @@ function leadFor(domain: SmartSearchDomain, withConditions: boolean): string {
       return 'Прогноз погоды';
     case 'rides':
       return 'Попутчики — скоро в приложении';
+    case 'attractions':
+      return 'Достопримечательности — скоро в приложении';
   }
 }
 

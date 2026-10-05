@@ -1746,3 +1746,22 @@ model SmartSearchFeedback {
   @@index([domain, failureType])
   @@map("smart_search_feedback")
 }
+
+/// Нераспознанные фразы умного поиска — обезличенный журнал для пополнения словаря
+model SmartSearchUnrecognized {
+  id     String  @id @default(uuid()) @db.Uuid
+  /// Нормализованная фраза без телефонов и почты; одинаковые фразы считаются
+  phrase String  @unique @db.VarChar(300)
+  domain String? @db.VarChar(20)
+  screen String? @db.VarChar(20)
+  /// Слова, которых словарь не знает: «суксидик»
+  unknownWords String[] @map("unknown_words")
+  count        Int      @default(1)
+  /// new → reviewed (слово добавлено в словарь или фраза признана мусором)
+  status      String   @default("new") @db.VarChar(20)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@index([status, count])
+  @@map("smart_search_unrecognized")
+}

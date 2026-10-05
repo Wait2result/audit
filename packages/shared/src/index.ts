@@ -48,3 +48,4 @@ export * from './utils/price-compact.js';
 export * from './schemas/smart-search.schema.js';
 export * from './types/smart-search.js';
 export * from './utils/smart-search-client.js';
+export * from './search/index.js';

@@ -36,8 +36,14 @@ import {
 } from './domains/domain-adapter.js';
 import { priceClarification } from './domains/listings.normalizer.js';
 import { TRACE_STORE, type TraceStore } from './feedback/search-trace-store.js';
+import { SmartSearchUnrecognizedService } from './feedback/smart-search-unrecognized.service.js';
 import { buildMessages, buildSystemPrompt } from './intent/intent-prompt.js';
-import { parseIntent, type IntentFailureCode } from './intent/intent-parser.js';
+import {
+  parseIntent,
+  type IntentFailureCode,
+  type IntentParseResult,
+} from './intent/intent-parser.js';
+import { LocalIntentParser } from './local/local-intent-parser.js';
 import { norm, sanitizeUserText } from './normalize/text.js';
 import { todayIn } from './normalize/time.js';
 import {
@@ -54,7 +60,7 @@ export const SMART_SEARCH_CLOCK = Symbol('SMART_SEARCH_CLOCK');
 export type SmartSearchSettings = Pick<
   AppConfig,
   'SMART_SEARCH_ENABLED' | 'SMART_SEARCH_CONTEXT_TTL_SECONDS' | 'AI_DEBUG_LOG'
->;
+> & { SMART_SEARCH_PARSER?: AppConfig['SMART_SEARCH_PARSER'] };
 
 /** Подсказка с описанием разделов собирается из каталога — не чаще раза в пять минут. */
 const PROMPT_TTL_MS = 5 * 60_000;
@@ -103,6 +109,10 @@ interface Planned {
   traceIntent: SmartSearchIntent;
   aiLatencyMs: number | null;
   confidence: number | null;
+  /** Разделы на выбор, если разбор не определил раздел («что посмотреть» — кино или места) */
+  domainOptions: string[];
+  /** Слова фразы, которых локальный разбор не знает, — для журнала нераспознанного */
+  leftover: string[];
 }
 
 /**
@@ -202,8 +212,10 @@ export class SmartSearchService {
     @Inject(DOMAIN_ADAPTERS_REGISTRY) private readonly registry: DomainRegistry,
     @Inject(CONTEXT_STORE) private readonly contexts: ContextStore,
     private readonly cities: CitiesService,
+    private readonly local: LocalIntentParser,
     @Optional() @Inject(SMART_SEARCH_CLOCK) clock?: () => Date,
     @Optional() @Inject(TRACE_STORE) private readonly traces?: TraceStore,
+    @Optional() private readonly unrecognized?: SmartSearchUnrecognizedService,
   ) {
     this.clock = clock ?? (() => new Date());
   }
@@ -254,12 +266,21 @@ export class SmartSearchService {
       // прошлый поиск не показывается вовсе, и «хочу машину» после кино не
       // становится уточнением кино
       const continuing = loaded !== null && isFollowUp(text);
-      const system = await this.systemPrompt(cities, now);
-      const parsed = await parseIntent(
-        this.ai,
-        system,
-        buildMessages(text, continuing ? loaded.intent : null),
-      );
+      // Локальный разбор — словарь и правила; модель — только при SMART_SEARCH_PARSER=ai
+      let parsed: IntentParseResult;
+      let leftover: string[] = [];
+      if (this.usesAi()) {
+        const system = await this.systemPrompt(cities, now);
+        parsed = await parseIntent(
+          this.ai,
+          system,
+          buildMessages(text, continuing ? loaded.intent : null),
+        );
+      } else {
+        const local = await this.local.parse(text, cities);
+        parsed = local.result;
+        leftover = local.leftover;
+      }
       if (!parsed.ok) {
         this.log('error', {
           requestId,
@@ -272,8 +293,14 @@ export class SmartSearchService {
       }
       const { primary, subqueries } = splitParts(parsed.intent);
       const grounded = groundIntent(primary, text);
+      // Разбор назвал разделы на выбор («хинкал» — заведения или доставка), и прошлого
+      // раздела среди них нет — это не уточнение машин, а новый вопрос
+      const offered = grounded.intent.clarification.options;
+      const otherSection = offered.length > 0 && !offered.includes(loaded?.domain ?? '');
       const sameSection =
-        continuing && (grounded.intent.domain === null || grounded.intent.domain === loaded.domain);
+        continuing &&
+        (grounded.intent.domain === loaded.domain ||
+          (grounded.intent.domain === null && !otherSection));
       const merged = continuing
         ? mergeWithContext(
             // Короткая фраза к тому же разделу — уточнение, как бы модель её ни назвала
@@ -298,11 +325,14 @@ export class SmartSearchService {
         subqueries,
         phrase: text,
         previous: continuing ? loaded : null,
-        fresh: !continuing,
+        // Сверка предмета с фразой нужна только модели: словарь ничего не придумывает
+        fresh: !continuing && this.usesAi(),
         refined: merged.refined,
         traceIntent: parsed.intent,
         aiLatencyMs: parsed.latencyMs,
         confidence: parsed.intent.confidence,
+        domainOptions: parsed.intent.clarification.options,
+        leftover,
       };
     }
     trace.intent = plan.traceIntent;
@@ -333,10 +363,18 @@ export class SmartSearchService {
 
       const results: SmartSearchPart[] = [];
       for (const part of parts)
-        results.push(await this.runPart(part.intent, part.dropped, context));
+        results.push(
+          await this.runPart(
+            part.intent,
+            part.dropped,
+            context,
+            part === parts[0] ? plan.domainOptions : [],
+          ),
+        );
 
       const first = results[0]!;
       const main = parts[0]!.intent;
+      this.noteUnrecognized(plan, first, request.context?.screen ?? null);
       if (main.domain && first.status !== 'unsupported') {
         await this.saveContext(
           key,
@@ -439,6 +477,8 @@ export class SmartSearchService {
       traceIntent: { schemaVersion: SMART_SEARCH_SCHEMA_VERSION, ...intent, subqueries: [] },
       aiLatencyMs: null,
       confidence: source.confidence,
+      domainOptions: [],
+      leftover: [],
     };
   }
 
@@ -469,16 +509,26 @@ export class SmartSearchService {
   }
 
   async health(): Promise<SmartSearchHealthDto> {
-    const ai = await this.ai.health();
+    // Локальный разбор к модели не обращается — и за состоянием тоже
+    const ai = this.usesAi() ? await this.ai.health() : null;
     return {
       enabled: this.config.SMART_SEARCH_ENABLED,
-      aiEnabled: this.ai.name !== 'disabled',
-      provider: this.ai.name,
-      model: ai.model,
-      status: this.config.SMART_SEARCH_ENABLED ? ai.status : 'disabled',
-      latencyMs: ai.latencyMs,
-      message: ai.message,
+      aiEnabled: ai !== null && this.ai.name !== 'disabled',
+      provider: this.parserName(),
+      model: ai?.model ?? null,
+      status: !this.config.SMART_SEARCH_ENABLED ? 'disabled' : ai ? ai.status : 'ok',
+      latencyMs: ai?.latencyMs ?? 0,
+      message: ai?.message ?? null,
     };
+  }
+
+  /** Разбирает ли фразы языковая модель (иначе — локальный словарь). */
+  private usesAi(): boolean {
+    return (this.config.SMART_SEARCH_PARSER ?? 'local') === 'ai';
+  }
+
+  private parserName(): string {
+    return this.usesAi() ? this.ai.name : 'local';
   }
 
   // ── Части запроса ─────────────────────────────────────────────────────────
@@ -487,6 +537,7 @@ export class SmartSearchService {
     original: SmartSearchIntentCore,
     dropped: readonly string[],
     context: DomainRequestContext,
+    domainOptions: readonly string[] = [],
   ): Promise<SmartSearchPart> {
     let intent = original;
     // «Купить», «заказать пиццу» — тоже поиск: найти, где купить или заказать.
@@ -515,7 +566,7 @@ export class SmartSearchService {
     // Раздел неизвестен — вопрос со смысловыми вариантами. Раздел известен (в том
     // числе по экрану, с которого спросили) — ищем в нём, даже если модель не поняла слов
     if (!intent.domain) {
-      return this.clarificationPart(null, this.domainClarification(context.text));
+      return this.clarificationPart(null, this.domainClarification(context.text, domainOptions));
     }
 
     const adapter = this.registry.get(intent.domain);
@@ -595,7 +646,10 @@ export class SmartSearchService {
    * Раздел не определён. Варианты — по смыслу фразы, а не весь реестр: на
    * «хочу покушать» — заведения или доставка. Нажатие — выбор кодом, без модели.
    */
-  private domainClarification(text: string): SmartSearchClarification {
+  private domainClarification(
+    text: string,
+    suggested: readonly string[] = [],
+  ): SmartSearchClarification {
     const option = (domain: SmartSearchDomain, label: string, hint: string) => ({
       label,
       value: domain,
@@ -603,6 +657,22 @@ export class SmartSearchService {
       hint,
       choice: { kind: 'domain' as const, value: domain },
     });
+    // Разбор назвал разделы на выбор («что посмотреть» — кино или места): их и предлагаем
+    const offered = suggested
+      .map((item) => SMART_SEARCH_DOMAINS.find((domain) => domain === item))
+      .filter(
+        (domain): domain is SmartSearchDomain =>
+          domain !== undefined && this.registry.get(domain) !== null,
+      )
+      .map((domain) => option(domain, DOMAIN_LABELS[domain][0], DOMAIN_LABELS[domain][1]));
+    if (offered.length >= 2) {
+      const food =
+        offered.length === 2 &&
+        offered.every((item) => item.value === 'places' || item.value === 'delivery');
+      return food
+        ? { reason: 'food_choice', question: 'Где хотите поесть?', options: offered }
+        : { reason: 'ambiguous_domain', question: 'Что именно?', options: offered };
+    }
     if (FOOD_WORDS.test(norm(text)) || isVagueFood(text)) {
       return {
         reason: 'food_choice',
@@ -703,7 +773,36 @@ export class SmartSearchService {
 
   /** В журнал — исход, разделы и время. Текст человека — только при AI_DEBUG_LOG. */
   private log(status: string, details: Record<string, unknown>): void {
-    this.logger.log({ event: 'smart_search', status, provider: this.ai.name, ...details });
+    this.logger.log({ event: 'smart_search', status, provider: this.parserName(), ...details });
+  }
+
+  /**
+   * Фраза, которую разбор не понял (раздел не определён или объявления без
+   * предмета с незнакомыми словами), — в обезличенный журнал: по нему
+   * пополняется словарь. Только для локального разбора и без ожидания.
+   */
+  private noteUnrecognized(
+    plan: Planned,
+    first: SmartSearchPart | undefined,
+    screen: string | null,
+  ): void {
+    if (this.usesAi() || !this.unrecognized || !first) return;
+    const reason = first.status === 'clarification' ? first.clarification?.reason : null;
+    const noSubject =
+      plan.intent.filters.category === undefined &&
+      plan.intent.filters.brand === undefined &&
+      plan.intent.filters.model === undefined;
+    const unrecognized =
+      reason === 'unknown_domain' ||
+      reason === 'empty_query' ||
+      (first.domain === 'listings' && noSubject && plan.leftover.length > 0);
+    if (!unrecognized) return;
+    void this.unrecognized.record({
+      text: plan.phrase,
+      domain: first.domain,
+      screen,
+      leftover: plan.leftover,
+    });
   }
 }
 
@@ -727,6 +826,18 @@ const DOMAIN_CHOICES: readonly [SmartSearchDomain, string, string][] = [
   ['news', 'Новости', 'Что происходит'],
   ['weather', 'Погода', 'Прогноз на неделю'],
 ];
+
+/** Подписи разделов для вариантов на выбор — в том числе разделов «скоро». */
+const DOMAIN_LABELS: Readonly<Record<SmartSearchDomain, [string, string]>> = {
+  listings: ['Объявления', 'Купить, продать, снять'],
+  places: ['Рестораны и кафе', 'Где поесть'],
+  delivery: ['Доставка еды', 'Заказать домой'],
+  cinema: ['Кино', 'Сеансы в городе'],
+  news: ['Новости', 'Что происходит'],
+  weather: ['Погода', 'Прогноз на неделю'],
+  rides: ['Попутчики', 'Скоро в приложении'],
+  attractions: ['Достопримечательности', 'Скоро в приложении'],
+};
 
 /** Слова «цены словом»: только с ними неподтверждённая цена — повод переспросить. */
 const VAGUE_PRICE = /недорог|дешев|дешёв|бюджетн|подешевле|недорогой|копейки/u;

@@ -1,9 +1,10 @@
 /**
  * Отчёт по исправлениям «Я имел в виду другое» (ADR-0011).
  *
- * Только читает базу и печатает предложения: какие слова модель раз за разом
+ * Только читает базу и печатает предложения: какие слова разбор раз за разом
  * понимает неверно и во что это стоит превратить (правило справочника или
- * нормализатора, пример подсказки, регрессионный тест). Ничего не применяет и
+ * нормализатора, пример подсказки, регрессионный тест), а также фразы,
+ * которые локальный словарь не распознал (таблица smart_search_unrecognized). Ничего не применяет и
  * статусы записей не меняет — решение и правка кода остаются за человеком.
  *
  *   npm run smart-search:feedback-report --workspace @dagestan/api [-- --min 3 --all]
@@ -46,6 +47,21 @@ try {
     })),
   );
 
+  // Нераспознанные фразы локального разбора: что словарь ещё не знает
+  const unrecognized = await prisma.smartSearchUnrecognized.findMany({
+    where: all ? {} : { status: 'new' },
+    orderBy: [{ count: 'desc' }, { lastSeenAt: 'desc' }],
+    take: 200,
+    select: {
+      phrase: true,
+      domain: true,
+      screen: true,
+      unknownWords: true,
+      count: true,
+      lastSeenAt: true,
+    },
+  });
+
   const byType = new Map<string, number>();
   for (const row of rows) byType.set(row.failureType, (byType.get(row.failureType) ?? 0) + 1);
 
@@ -56,6 +72,7 @@ try {
         byFailureType: Object.fromEntries(byType),
         minOccurrences,
         proposals,
+        unrecognized,
       },
       null,
       2,
