@@ -628,6 +628,31 @@ export type ListingAttributeColumns = Partial<
   Record<ListingAttributeColumn, number | string | null>
 >;
 
+/**
+ * Хранимые характеристики → значения в единицах ввода. Схема характеристик
+ * при разборе умножает число на `scale` (54,5 м² хранится как 545), поэтому
+ * хранимое значение нельзя снова пропускать через схему как есть: 545 стало
+ * бы 5450. Этим пользуются правка объявления (форма показывает «54,5») и
+ * переиндексация (повторный разбор того, что уже лежит в базе).
+ */
+export function storedToInput(
+  attributes: readonly ListingAttribute[],
+  stored: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...stored };
+  for (const attribute of attributes) {
+    const value = stored[attribute.key];
+    if (
+      (attribute.type === 'number' || attribute.type === 'date') &&
+      attribute.scale &&
+      typeof value === 'number'
+    ) {
+      result[attribute.key] = value / attribute.scale;
+    }
+  }
+  return result;
+}
+
 export interface SplitAttributes {
   /** Значения, которые уходят в отдельные колонки таблицы */
   columns: ListingAttributeColumns;

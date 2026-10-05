@@ -1,4 +1,5 @@
 import {
+  storedToInput,
   DAGESTAN_DEFAULT_CENTER,
   LISTING_PRICE_UNIT_SUFFIX,
   isAttributeVisible,
@@ -121,7 +122,9 @@ export default function EditListingScreen() {
   // дальше это уже черновик правки, и перезапись состояния поверх того, что
   // человек печатает, стёрла бы набранное на каждом фоновом обновлении кеша
   useEffect(() => {
-    if (!listing || hydrated) return;
+    // Поля категории нужны до заполнения: числа с масштабом (площадь, сотки)
+    // хранятся умноженными, а форма показывает и отправляет их как ввёл человек
+    if (!listing || hydrated || !categories.data) return;
 
     setTitle(listing.title);
     setDescription(listing.description);
@@ -132,7 +135,12 @@ export default function EditListingScreen() {
     setLocation(listing.location);
     setVisibility(listing.addressVisibility);
     setPhone(listing.contactPhone.startsWith('+79') ? ruMobileDigits(listing.contactPhone) : '');
-    setValues(listing.attributes);
+    setValues(
+      storedToInput(
+        attributesOfCategory(categories.data, listing.categorySlug),
+        listing.attributes,
+      ),
+    );
     setDeal({
       transactionType: listing.transactionType,
       rentPeriod: listing.rentPeriod,
@@ -141,7 +149,7 @@ export default function EditListingScreen() {
     setPartLayer(partLayerFromDto(listing.part));
     replacePhotos(listing.photos);
     setHydrated(true);
-  }, [listing, hydrated, replacePhotos]);
+  }, [listing, hydrated, replacePhotos, categories.data]);
 
   const fields = useMemo(
     () => formFields(attributesOfCategory(categories.data ?? [], listing?.categorySlug)),
