@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
-  isPartsCategory,
+  catalogLayer,
   ErrorCode,
   LISTING_PRICE_UNIT_SUFFIX,
   ListingAddressVisibility,
@@ -444,7 +444,11 @@ export class ListingsService {
     for (const category of catalogue.categories) {
       if (!category.isActive || !category.parentId) continue;
       if (category.name.toLowerCase().includes(needle)) {
-        result.push({ type: 'category', label: category.name, categorySlug: category.slug });
+        result.push({
+          type: 'category',
+          label: catalogue.displayName(category),
+          categorySlug: category.slug,
+        });
       }
       if (result.length >= 3) break;
     }
@@ -839,7 +843,7 @@ export class ListingsService {
 
     // У запчасти первым идёт то, ради чего её ищут: к чему подходит, и номер
     const layer =
-      category && isPartsCategory(category.slug)
+      category && catalogLayer(category.slug)
         ? partCardFacts(row.compatibility ?? [], row.partNumbers ?? [])
         : null;
 

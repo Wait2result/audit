@@ -5,6 +5,7 @@ import {
   partAliasMaxWords,
   partLabels,
 } from '../search/parts.js';
+import { goodsDirectionBySlug } from './catalog/goods-directions.js';
 import { partsEquipmentByCode, type PartsEquipment } from './parts/equipment-types.js';
 import { BRAND_ALIASES, MODEL_ALIASES } from './dictionaries/aliases.js';
 import { CAR_BRANDS, OTHER_BRAND } from './dictionaries/car-brands.js';
@@ -295,6 +296,34 @@ function partsGuess(text: string, words: readonly string[]): ListingTitleGuess |
   if (!item) return null;
   const target = partsEquipmentByCode(code);
   if (!target) return null;
+
+  // Товар направления («Коврики», «Магнитола», «Шлем»): своя подкатегория и тип товара
+  if (decision.resolution.kind === 'goods') {
+    const direction = goodsDirectionBySlug(decision.resolution.slug);
+    const type = direction?.types.find((entry) => entry.code === item);
+    if (!direction?.typeKey || !type) return null;
+    const flags = direction.compat;
+    const compat = flags
+      ? compatibilityGuess(
+          {
+            ...target,
+            compat: {
+              year: flags.year === true,
+              chassis: flags.chassis === true,
+              engine: flags.engine === true,
+              modification: flags.modification === true,
+            },
+          },
+          rest,
+        )
+      : undefined;
+    return {
+      slug: direction.slug,
+      attributes: { [direction.typeKey]: item },
+      details: [direction.name, type.label],
+      ...(compat ? { compatibility: compat } : {}),
+    };
+  }
 
   const labels = partLabels(code, group, item);
   const attributes: Record<string, string | number> = {};

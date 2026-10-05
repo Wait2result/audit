@@ -532,16 +532,29 @@ const BRAND_LIKE_WORDS: ReadonlySet<string> = new Set([
  * дома, «камера» — и деталь телефона, и фотокамера. Без другого признака запчастей
  * («запчасти», марка, номер, тип техники) такое слово остаётся обычным.
  */
-let nonPartKeys: Set<string> | null = null;
-function isDualPart(text: string): boolean {
+let nonPartKeys: Map<string, Set<string>> | null = null;
+function isDualPart(hit: { text: string; matches: readonly { slug: string }[] }): boolean {
   if (!nonPartKeys) {
-    nonPartKeys = new Set();
+    nonPartKeys = new Map();
     for (const entry of SEARCH_DICTIONARY) {
+      // Слова самих запчастей — не «двойники». Названия направлений
+      // («кондиционер», «шины») — двойники: одно такое слово — это направление
       if (entry.type === 'category' && isPartsCategory(entry.canonical)) continue;
-      for (const alias of entry.aliases) nonPartKeys.add(partAliasStemKey(alias));
+      const owner = entry.type === 'category' ? entry.canonical : '*';
+      for (const alias of entry.aliases) {
+        const key = partAliasStemKey(alias);
+        const owners = nonPartKeys.get(key) ?? new Set<string>();
+        owners.add(owner);
+        nonPartKeys.set(key, owners);
+      }
     }
   }
-  return nonPartKeys.has(partAliasStemKey(text));
+  const owners = nonPartKeys.get(partAliasStemKey(hit.text));
+  if (!owners) return false;
+  // Слово называет своё же направление («лодочные моторы» — и тип товара, и
+  // направление «Лодочные моторы») — это не второй смысл, а тот же
+  const own = new Set(hit.matches.map((match) => match.slug));
+  return [...owners].some((owner) => !own.has(owner));
 }
 
 /** Запчасти во фразе: слова съедаются только если это точно запрос о запчастях. */
@@ -552,8 +565,8 @@ function findParts(
 ): PartsFindings | null {
   const scan = scanParts(tokens);
   const itemHits = scan.hits.filter((hit) => hit.isItem);
-  const dual = itemHits.filter((hit) => isDualPart(hit.text));
-  const solid = itemHits.filter((hit) => !isDualPart(hit.text));
+  const dual = itemHits.filter((hit) => isDualPart(hit));
+  const solid = itemHits.filter((hit) => !isDualPart(hit));
   const generic = scan.generic.length > 0;
   const codes = scan.chassis.length > 0 || scan.engine.length > 0;
 

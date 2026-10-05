@@ -65,14 +65,7 @@ export const CATEGORY_SYNONYMS: readonly SearchDictionaryEntry[] = [
     'колеса',
     'колесо',
   ),
-  category(
-    'transport-accessories',
-    'автоаксессуары',
-    'багажник',
-    'автокресло',
-    'видеорегистратор',
-    'чехлы',
-  ),
+  category('transport-accessories', 'автоаксессуары'),
   category('transport-water', 'лодка', 'лодку', 'катер', 'гидроцикл', 'яхта'),
   category('transport', 'транспорт'),
   // ── Недвижимость ───────────────────────────────────────────────────────
@@ -212,8 +205,6 @@ export const CATEGORY_SYNONYMS: readonly SearchDictionaryEntry[] = [
     'плиту',
     'духовка',
     'пылесос',
-    'кондиционер',
-    'кондиционеры',
     'бойлер',
     'водонагреватель',
     'утюг',
@@ -857,7 +848,7 @@ export const CATEGORY_SYNONYMS: readonly SearchDictionaryEntry[] = [
     'мотоблок',
     'культиватор',
     'косилка',
-    'прицеп',
+    'тракторный прицеп',
   ),
   category('business-tools', 'промышленный', 'промышленные'),
   category(

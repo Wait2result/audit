@@ -91,7 +91,9 @@ console.log('══════════════════════�
 const cities = (await call('GET', '/cities')).body;
 const cityId = cities.find((city) => city.slug === 'makhachkala').id;
 const tree = (await call('GET', '/listings/categories?withAttributes=1')).body;
-const leaves = tree.flatMap((root) => root.children);
+const leaves = tree.flatMap(function leavesOf(node) {
+  return node.children?.length ? node.children.flatMap(leavesOf) : [node];
+});
 const bySlug = Object.fromEntries(leaves.map((leaf) => [leaf.slug, leaf]));
 const TAG = `Прогон${Math.floor(Math.random() * 90000) + 10000}`;
 /** Номер, которого нет в базе: уникален для прогона, чтобы не путать с чужими объявлениями. */

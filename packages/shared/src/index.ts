@@ -14,6 +14,7 @@ export * from './constants/dictionaries/index.js';
 export * from './constants/listing-categories.js';
 export * from './constants/listing-title-classifier.js';
 export * from './constants/parts/index.js';
+export * from './constants/catalog/index.js';
 export * from './constants/transactions.js';
 export * from './constants/geo.js';
 export * from './constants/price-config.js';

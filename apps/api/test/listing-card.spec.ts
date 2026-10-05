@@ -316,8 +316,16 @@ describe('describeCardFacts: приоритеты категорий', () => {
       'hobby',
       'business',
     ]) {
-      for (const child of findSeedCategory(root)?.children ?? []) {
-        for (const attribute of attrs(child.slug)) allKeys.add(attribute.key);
+      // Подкатегории раздела — и прямые, и внутри основных типов («Автомобили → Шины»)
+      const leaves = (category: {
+        slug: string;
+        children?: readonly { slug: string }[];
+      }): string[] =>
+        category.children?.length
+          ? category.children.flatMap((child) => leaves(child as typeof category))
+          : [category.slug];
+      for (const slug of leaves(findSeedCategory(root) ?? { slug: root })) {
+        for (const attribute of attrs(slug)) allKeys.add(attribute.key);
       }
     }
 

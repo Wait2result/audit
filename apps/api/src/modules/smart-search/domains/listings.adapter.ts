@@ -88,7 +88,9 @@ export class ListingsSearchAdapter implements DomainAdapter<ListingPlan> {
     const path: string[] = [];
     let current = slug ? catalogue.findBySlug(slug) : null;
     for (let depth = 0; current && depth < 5; depth += 1) {
-      path.unshift(current.name);
+      // «Транспорт → Автомобили», а не «… → Автомобили → Автомобили»: сама техника
+      // называется так же, как её основной тип
+      if (path[0] !== current.name) path.unshift(current.name);
       current = current.parentId ? catalogue.findById(current.parentId) : null;
     }
     return { section: 'listings', path: path.length > 0 ? path : ['Все объявления'], filters: {} };

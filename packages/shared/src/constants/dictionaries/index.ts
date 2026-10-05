@@ -23,6 +23,7 @@ import {
 import { LAPTOP_MODELS, PHOTO_MODELS, TABLET_MODELS, WATCH_MODELS } from './electronics-models.js';
 import { MOTO_BRANDS, MOTO_MODELS } from './moto-models.js';
 import { partDictionarySeeds } from '../parts/dictionary-seeds.js';
+import { goodsDictionarySeeds } from '../catalog/main-types.js';
 import { PHONE_MODELS } from './phone-models.js';
 import { SPECIAL_MODELS } from './special-models.js';
 import { TRUCK_BRANDS, TRUCK_MODELS } from './truck-models.js';
@@ -185,6 +186,8 @@ export const DICTIONARY_SEEDS: readonly DictionarySeed[] = [
   { kind: DictionaryKind.BIKE_BRAND, entries: withBrandAliases(BIKE_BRANDS) },
   // Группы и детали запчастей, производители деталей (docs/ADR/0012-запчасти.md)
   ...partDictionarySeeds(),
+  // Типы товара направлений основных типов: «Коврики», «Магнитолы», «Шлемы»
+  ...goodsDictionarySeeds(),
 ];
 
 /**

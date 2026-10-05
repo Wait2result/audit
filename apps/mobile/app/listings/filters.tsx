@@ -41,6 +41,7 @@ import {
   type ExtraListingFilters,
 } from '../../src/store/listing-filter-store';
 import { spacing, typography, useThemeColors } from '../../src/theme';
+import { categoryPath, findCategoryBySlug } from '../../src/utils/listing-category-lookup';
 
 /**
  * Фильтры каталога объявлений (Этап 7).
@@ -78,14 +79,10 @@ export default function ListingFiltersScreen() {
   // подкатегорией — выбраны обе; с разделом — только он; без категории —
   // общие фильтры, и ничего лишнего на экране нет
   const [categorySlug, setCategorySlug] = useState<string | undefined>(params.category);
-  const currentRoot = useMemo(
-    () =>
-      roots.find(
-        (root) =>
-          root.slug === categorySlug || root.children.some((child) => child.slug === categorySlug),
-      ) ?? null,
-    [roots, categorySlug],
-  );
+  // Путь до выбранной категории: раздел → основной тип или подкатегория → направление
+  const currentPath = useMemo(() => categoryPath(roots, categorySlug), [roots, categorySlug]);
+  const currentRoot = currentPath[0] ?? null;
+  const currentSecond = currentPath[1] ?? null;
   // Ярлыки («Посуточная аренда») — готовые фильтры, а не категории: в выборе их нет
   const subOptions = useMemo(
     () =>
@@ -94,11 +91,18 @@ export default function ListingFiltersScreen() {
         .map((child) => ({ value: child.slug, label: child.name })),
     [currentRoot],
   );
+  // Основной тип («Автомобили») — третьим полем его направления: запчасти, шины, аксессуары
+  const directionOptions = useMemo(
+    () =>
+      (currentSecond?.children ?? []).map((child) => ({ value: child.slug, label: child.name })),
+    [currentSecond],
+  );
   const rootOptions = useMemo(
     () => roots.map((root) => ({ value: root.slug, label: root.name })),
     [roots],
   );
-  const currentSub = subOptions.find((option) => option.value === categorySlug)?.value;
+  const currentSub = currentSecond?.slug;
+  const currentDirection = currentPath[2]?.slug;
 
   const [priceFrom, setPriceFrom] = useState(saved.priceFrom ? String(saved.priceFrom) : '');
   const [priceTo, setPriceTo] = useState(saved.priceTo ? String(saved.priceTo) : '');
@@ -342,10 +346,22 @@ export default function ListingFiltersScreen() {
             search={subOptions.length > 12}
           />
         )}
+        {currentSecond && directionOptions.length > 0 && (
+          <SearchableSelect
+            compact
+            label="Направление"
+            value={currentDirection}
+            options={directionOptions}
+            onChange={(next) => changeCategory(next ?? currentSecond.slug)}
+            placeholder={`Всё в «${currentSecond.name}»`}
+            clearLabel={`Всё в «${currentSecond.name}»`}
+            search={directionOptions.length > 12}
+          />
+        )}
       </View>
 
       {transactions.length > 1 && (
-        <FilterSection title="Операция">
+        <FilterSection title="Тип объявления">
           <View style={styles.chips}>
             {transactions.map((value) => (
               <FilterChip
@@ -803,33 +819,39 @@ function filterFields(
   slug: string | undefined,
 ): readonly ListingAttribute[] {
   if (!slug) return [];
-
-  for (const root of roots) {
-    if (root.slug === slug) {
-      // На уровне раздела показываем только поля, общие хотя бы для двух его
-      // подкатегорий. Иначе рядом оказываются «Назначение» участка и
-      // «Назначение» коммерции — два разных фильтра с одинаковым названием.
-      // Узкие поля появляются, когда выбрана подкатегория.
-      const counts = new Map<string, number>();
-      for (const child of root.children) {
-        for (const field of child.attributes ?? []) {
-          counts.set(field.key, (counts.get(field.key) ?? 0) + 1);
-        }
-      }
-
-      const own = root.attributes ?? [];
-      const shared = root.children
-        .flatMap((child) => child.attributes ?? [])
-        .filter((field) => (counts.get(field.key) ?? 0) > 1);
-
-      return dedupe([...own, ...shared]).filter((field) => field.filter !== 'none');
-    }
-
-    const child = root.children.find((item) => item.slug === slug);
-    if (child) return (child.attributes ?? []).filter((field) => field.filter !== 'none');
+  const node = findCategoryBySlug(roots, slug);
+  if (!node) return [];
+  if (node.children.length === 0) {
+    return (node.attributes ?? []).filter((field) => field.filter !== 'none');
   }
 
-  return [];
+  // У раздела и основного типа — только поля, общие хотя бы для двух их
+  // подкатегорий. Иначе рядом оказываются «Назначение» участка и «Назначение»
+  // коммерции — два разных фильтра с одинаковым названием. Узкие поля
+  // появляются, когда выбрана подкатегория.
+  const leaves = leavesUnder(node);
+  const counts = new Map<string, number>();
+  for (const leaf of leaves) {
+    for (const field of leaf.attributes ?? []) {
+      counts.set(field.key, (counts.get(field.key) ?? 0) + 1);
+    }
+  }
+  const own = node.attributes ?? [];
+  const shared = leaves
+    .flatMap((leaf) => leaf.attributes ?? [])
+    .filter((field) => (counts.get(field.key) ?? 0) > 1);
+  return dedupe([...own, ...shared]).filter((field) => field.filter !== 'none');
+}
+
+/** Подкатегории, в которых живут объявления, под узлом дерева (или сам узел-лист). */
+function leavesUnder(node: ListingCategoryDto): ListingCategoryDto[] {
+  return node.children.length === 0 ? [node] : node.children.flatMap(leavesUnder);
+}
+
+/** Листья под категорией по коду; пусто — категория не найдена. */
+function leavesOf(roots: ListingCategoryDto[], slug: string): ListingCategoryDto[] {
+  const node = findCategoryBySlug(roots, slug);
+  return node ? leavesUnder(node) : [];
 }
 
 /**
@@ -855,11 +877,7 @@ function priceUnitsOf(
     }
   };
 
-  for (const root of roots) {
-    if (root.slug === slug) root.children.forEach(collect);
-    const child = root.children.find((item) => item.slug === slug);
-    if (child) collect(child);
-  }
+  leavesOf(roots, slug).forEach(collect);
 
   return units.size > 0 ? [...units] : ['total'];
 }
@@ -874,12 +892,7 @@ function periodChoicesOf(
   slug: string | undefined,
 ): ListingRentPeriod[] {
   if (!slug) return [];
-  const targets: ListingCategoryDto[] = [];
-  for (const root of roots) {
-    if (root.slug === slug) targets.push(...root.children);
-    const child = root.children.find((item) => item.slug === slug);
-    if (child) targets.push(child);
-  }
+  const targets = leavesOf(roots, slug);
 
   const periods = new Set<ListingRentPeriod>();
   for (const category of targets) {
@@ -921,14 +934,7 @@ function transactionsOf(
   slug: string | undefined,
 ): ListingTransactionType[] {
   if (!slug) return [];
-  for (const root of roots) {
-    if (root.slug === slug) {
-      return [...new Set(root.children.flatMap((child) => child.transactions))];
-    }
-    const child = root.children.find((item) => item.slug === slug);
-    if (child) return child.transactions;
-  }
-  return [];
+  return [...new Set(leavesOf(roots, slug).flatMap((leaf) => leaf.transactions))];
 }
 
 function dedupe(fields: ListingAttribute[]): ListingAttribute[] {

@@ -7,6 +7,7 @@ import { useListingCategories } from '../../src/api/queries';
 import { Icon } from '../../src/components/Icon';
 import { Screen } from '../../src/components/Screen';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import { leafCategories } from '../../src/utils/listing-category-lookup';
 import { sectionIcon, subcategoryIcon } from '../../src/utils/listing-icons';
 
 /**
@@ -29,15 +30,26 @@ export default function ListingAllCategoriesScreen() {
   const roots = categories.data ?? [];
 
   // Подкатегории, подходящие под запрос, вместе с названием раздела
+  // Поиск — по всем подкатегориям, в том числе внутри основных типов:
+  // «запчасти» найдёт и «Автомобили → Запчасти», и «Телефоны → Запчасти»
   const found = useMemo(
     () =>
       query.length < 2
         ? []
-        : roots.flatMap((section) =>
-            section.children
-              .filter((child) => child.name.toLowerCase().includes(query))
-              .map((child) => ({ section, child })),
-          ),
+        : leafCategories(roots)
+            .filter(
+              ({ leaf, path }) =>
+                path.slice(1).some((node) => node.name.toLowerCase().includes(query)) ||
+                leaf.name.toLowerCase().includes(query),
+            )
+            .map(({ leaf, path }) => ({
+              section: path[0]!,
+              child: leaf,
+              hint: path
+                .slice(0, -1)
+                .map((node) => node.name)
+                .join(' → '),
+            })),
     [roots, query],
   );
 
@@ -94,12 +106,12 @@ export default function ListingAllCategoriesScreen() {
 
       <View style={styles.list}>
         {query.length >= 2
-          ? found.map(({ section, child }) => (
+          ? found.map(({ section, child, hint }) => (
               <Pressable
                 key={child.id}
                 onPress={() => openChild(section, child)}
                 accessibilityRole="button"
-                accessibilityLabel={`${section.name}, ${child.name}`}
+                accessibilityLabel={`${hint}, ${child.name}`}
                 style={({ pressed }) => [styles.row, pressed && styles.pressed]}
               >
                 <View style={styles.rowIcon}>
@@ -107,7 +119,7 @@ export default function ListingAllCategoriesScreen() {
                 </View>
                 <View style={styles.rowText}>
                   <Text style={styles.rowLabel}>{child.name}</Text>
-                  <Text style={styles.rowHint}>{section.name}</Text>
+                  <Text style={styles.rowHint}>{hint}</Text>
                 </View>
                 <Icon name="chevron-right" size={18} color={colors.textFaint} />
               </Pressable>

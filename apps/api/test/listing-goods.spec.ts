@@ -77,7 +77,6 @@ describe('Наборы полей вещей', () => {
         'home-other',
         'home-plants',
         'hobby-collections',
-        'transport-accessories',
       ].sort(),
     );
   });

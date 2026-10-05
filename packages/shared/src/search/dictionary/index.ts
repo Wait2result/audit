@@ -1,3 +1,4 @@
+import { GOODS_DIRECTIONS } from '../../constants/catalog/goods-directions.js';
 import type { SearchDictionaryEntry } from '../types.js';
 import {
   ATTRIBUTE_SYNONYMS,
@@ -25,9 +26,24 @@ export * from './units.js';
  * длине совпадения: литературные синонимы, сленг, значения характеристик,
  * сделка и срок, блюда, лента новостей, порядок, «рядом», действия.
  */
+/**
+ * Названия направлений основных типов («автохимия», «экипировка»,
+ * «кондиционер»): слово открывает само направление. Типы товара внутри
+ * («коврики», «магнитола») разбирает индекс запчастей и товаров (parts.ts).
+ */
+const DIRECTION_WORDS: readonly SearchDictionaryEntry[] = GOODS_DIRECTIONS.filter(
+  (direction) => (direction.words?.length ?? 0) > 0,
+).map((direction) => ({
+  canonical: direction.slug,
+  aliases: [...(direction.words ?? [])],
+  type: 'category' as const,
+  domain: 'listings' as const,
+}));
+
 export const SEARCH_DICTIONARY: readonly SearchDictionaryEntry[] = [
   ...CATEGORY_SYNONYMS,
   ...CATEGORY_SLANG,
+  ...DIRECTION_WORDS,
   ...DOMAIN_SYNONYMS,
   ...ATTRIBUTE_SYNONYMS,
   ...GENRE_WORDS,

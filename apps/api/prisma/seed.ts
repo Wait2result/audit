@@ -554,7 +554,28 @@ async function seedListingDictionaries(): Promise<void> {
     }
   }
 
-  console.log(`  записей: ${total}`);
+  // Таксономии запчастей и типов товара принадлежат коду: пункт, убранный из
+  // кода (аккумулятор переехал из «Запчастей» в «Аккумуляторы»), выключается,
+  // а не удаляется — объявления с ним остаются целыми. Марки и модели не
+  // трогаем: их пополняют из панели
+  let retired = 0;
+  for (const dictionary of DICTIONARY_SEEDS) {
+    if (!/^(part_group_|part_item_|goods_type_)/.test(dictionary.kind)) continue;
+    const keep = dictionary.entries.map((entry) => `${entry.parent ?? ''}\u0000${entry.value}`);
+    const rows = await prisma.listingDictionaryEntry.findMany({
+      where: { kind: dictionary.kind, isActive: true },
+      select: { id: true, parentValue: true, value: true },
+    });
+    const stale = rows.filter((row) => !keep.includes(`${row.parentValue}\u0000${row.value}`));
+    if (stale.length === 0) continue;
+    await prisma.listingDictionaryEntry.updateMany({
+      where: { id: { in: stale.map((row) => row.id) } },
+      data: { isActive: false },
+    });
+    retired += stale.length;
+  }
+
+  console.log(`  записей: ${total}${retired > 0 ? `, выключено устаревших: ${retired}` : ''}`);
 }
 
 async function seedListingCategories(): Promise<void> {

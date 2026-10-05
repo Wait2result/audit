@@ -2,9 +2,11 @@
  * Дерево категорий объявлений (Этап 7, версия 2).
  *
  * Дальше категории живут в базе и правятся из панели — здесь только то,
- * чем заполняется база при первом запуске. Дерево ровно двухуровневое:
- * раздел и подкатегория. Третий уровень человек на телефоне не листает,
- * он пользуется поиском.
+ * чем заполняется база при первом запуске. Уровней два или три: раздел →
+ * подкатегория («Недвижимость → Квартиры») или раздел → основной тип →
+ * направление («Транспорт → Автомобили → Автоаксессуары»). Основные типы и
+ * их направления — catalog/main-types.ts; глубже дерево не идёт: «Коврики»
+ * внутри автоаксессуаров — тип товара, поле объявления, а не категория.
  *
  * Размещать объявление можно только в подкатегории (`isLeaf`): иначе
  * половина машин окажется в «Транспорте» вообще и выпадет из фильтров по
@@ -20,8 +22,14 @@
  */
 import { DictionaryKind } from './dictionaries/index.js';
 import type { CategoryAttributeBinding } from './listing-attributes.js';
+import { goodsDirectionBySlug, type GoodsDirection } from './catalog/goods-directions.js';
+import { MAIN_TYPES, directionBindings } from './catalog/main-types.js';
 import { partsBindings } from './parts/bindings.js';
-import { PARTS_EQUIPMENT, partsEquipmentByCode } from './parts/equipment-types.js';
+import {
+  PARTS_EQUIPMENT,
+  partsEquipmentByCode,
+  partsEquipmentBySlug,
+} from './parts/equipment-types.js';
 import type { ListingPriceUnit } from './listings.js';
 import type { ListingRentPeriod, ListingTransactionType } from './transactions.js';
 
@@ -177,12 +185,23 @@ const OTHER_VEHICLE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] =
   'condition',
 ];
 
-const TIRES_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
+/**
+ * Шины и диски — у легковых, мото и грузовиков один набор: что продаётся
+ * (шины, диски, колёса, колпаки), а поля шин и дисков показываются по нему.
+ */
+export const TIRES_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'tireType', required: true },
   'season',
-  { key: 'diameter', required: true },
+  'diameter',
   'tireWidth',
   'tireProfile',
+  'loadIndex',
+  'speedIndex',
+  'rimWidth',
+  'pcd',
+  'rimEt',
+  'rimDia',
+  'rimMaterial',
   'quantity',
   { key: 'brand', label: 'Бренд', dictionary: DictionaryKind.TIRE_BRAND },
   'condition',
@@ -589,6 +608,69 @@ const GOODS: Preset = {
  * (комплект, пара, «в сборе» — отдельное поле partSaleUnit), только продажа.
  * Тип техники — запись реестра PARTS_EQUIPMENT; вся подкатегория собирается из неё.
  */
+/**
+ * Направление основного типа из реестра (catalog/goods-directions.ts): тип
+ * товара, свои поля и «Подходит к». Сделка — продажа, у прицепов и навесного
+ * оборудования ещё и аренда.
+ */
+function goodsLeaf(direction: GoodsDirection): SeedListingCategory {
+  const extra =
+    direction.typeKey === 'tireType'
+      ? TIRES_ATTRIBUTES
+      : direction.typeKey === 'accessoryType'
+        ? ELECTRONICS_ACCESSORY_ATTRIBUTES
+        : [];
+  return {
+    slug: direction.slug,
+    name: direction.name,
+    itemLabel: direction.itemLabel,
+    attributes: directionBindings(direction, extra),
+    ...(direction.rental ? RENTAL_DEAL : SALE_ONLY),
+  };
+}
+
+/** Имя подкатегории запчастей внутри основного типа: «Запчасти», у ПК — «Комплектующие». */
+const PARTS_NAME_IN_TYPE: Readonly<Record<string, string>> = {
+  computer: 'Комплектующие',
+};
+
+/**
+ * Раздел с основными типами: подкатегории, относящиеся к типу техники,
+ * собираются в узел этого типа на месте первой из них (в порядке, заданном
+ * реестром), недостающие направления строятся из реестра. Остальные
+ * подкатегории раздела («Планшеты», «Прочий транспорт») остаются прямо в нём.
+ */
+function withMainTypes(root: SeedListingCategory): SeedListingCategory {
+  const types = MAIN_TYPES.filter((type) => type.section === root.slug);
+  if (types.length === 0) return root;
+  const own = new Map((root.children ?? []).map((child) => [child.slug, child]));
+  const leafOf = (slug: string): SeedListingCategory => {
+    const direction = goodsDirectionBySlug(slug);
+    if (direction) return goodsLeaf(direction);
+    const parts = partsEquipmentBySlug(slug);
+    const existing = own.get(slug);
+    if (!existing)
+      throw new Error(`Подкатегории ${slug} нет ни в дереве, ни в реестре направлений`);
+    return parts ? { ...existing, name: PARTS_NAME_IN_TYPE[parts.code] ?? 'Запчасти' } : existing;
+  };
+  const used = new Set<string>();
+  const children: SeedListingCategory[] = [];
+  const pushType = (type: (typeof types)[number]) => {
+    used.add(type.slug);
+    children.push({ slug: type.slug, name: type.name, children: type.directions.map(leafOf) });
+  };
+  for (const child of root.children ?? []) {
+    const type = types.find((item) => item.directions.includes(child.slug));
+    if (!type) {
+      children.push(child);
+      continue;
+    }
+    if (!used.has(type.slug)) pushType(type);
+  }
+  for (const type of types) if (!used.has(type.slug)) pushType(type);
+  return { ...root, children };
+}
+
 function partsLeaf(code: string): SeedListingCategory {
   const equipment = partsEquipmentByCode(code);
   if (!equipment) throw new Error(`Нет типа техники для запчастей: ${code}`);
@@ -608,7 +690,7 @@ function partsLeaf(code: string): SeedListingCategory {
 //  Дерево
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
+const FLAT_TREE: readonly SeedListingCategory[] = [
   {
     slug: 'transport',
     name: 'Транспорт',
@@ -1295,6 +1377,8 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
   },
 ];
 
+export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = FLAT_TREE.map(withMainTypes);
+
 /**
  * Подкатегории вещей — там, где у покупателя есть вопрос «как забрать».
  * У недвижимости, работы, услуг, живых животных и готового бизнеса его нет.
@@ -1303,9 +1387,9 @@ const GOODS_PREFIXES = ['electronics-', 'home-', 'personal-', 'hobby-'] as const
 const GOODS_SLUGS: readonly string[] = [
   // Подкатегории запчастей всех типов техники (реестр PARTS_EQUIPMENT)
   ...PARTS_EQUIPMENT.map((equipment) => equipment.slug),
+  // Направления основных типов (аксессуары, шины, экипировка…) — тоже вещи
+  ...GOODS_DIRECTION_SLUGS(),
   'transport-parts',
-  'transport-tires',
-  'transport-accessories',
   'animals-goods',
   'business-equipment',
   'business-retail',
@@ -1314,6 +1398,12 @@ const GOODS_SLUGS: readonly string[] = [
   'business-tools',
   'business-goods',
 ];
+
+function GOODS_DIRECTION_SLUGS(): string[] {
+  return MAIN_TYPES.flatMap((type) => type.directions).filter((slug) =>
+    Boolean(goodsDirectionBySlug(slug)),
+  );
+}
 
 export function isGoodsCategory(slug: string): boolean {
   return GOODS_SLUGS.includes(slug) || GOODS_PREFIXES.some((prefix) => slug.startsWith(prefix));
@@ -1341,12 +1431,11 @@ export function flattenSeedCategories(): {
   parentSlug: string | null;
 }[] {
   const result: { category: SeedListingCategory; parentSlug: string | null }[] = [];
-  for (const root of SEED_LISTING_CATEGORIES) {
-    result.push({ category: root, parentSlug: null });
-    for (const child of root.children ?? []) {
-      result.push({ category: child, parentSlug: root.slug });
-    }
-  }
+  const visit = (category: SeedListingCategory, parentSlug: string | null): void => {
+    result.push({ category, parentSlug });
+    for (const child of category.children ?? []) visit(child, category.slug);
+  };
+  for (const root of SEED_LISTING_CATEGORIES) visit(root, null);
   return result;
 }
 

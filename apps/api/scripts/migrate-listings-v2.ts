@@ -15,11 +15,16 @@
  * (см. listing-reindex.ts). Удалить их можно только явно: `--drop-invalid`
  * и подтверждение `--yes`; без подтверждения запуск останавливается.
  *
+ * Объявления, чья деталь или товар получили своё направление, переезжают по
+ * правилам CATEGORY_RELOCATIONS (shared) — тоже только после показа плана.
+ *
  * На боевом сервере (NODE_ENV=production) скрипт не запускается.
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config as loadEnv } from 'dotenv';
 import path from 'node:path';
+
+import { relocationFor } from '@dagestan/shared';
 
 import { PrismaClient, type Prisma } from '../src/generated/prisma/client.js';
 import {
@@ -85,9 +90,21 @@ interface Move {
   reason: string;
 }
 
-function moveOf(catalogue: ListingCatalogue, categoryId: string): Move | null {
+function moveOf(
+  catalogue: ListingCatalogue,
+  categoryId: string,
+  attributes: Readonly<Record<string, unknown>>,
+): Move | null {
   const category = catalogue.findById(categoryId);
   if (!category) return null;
+  // Деталь или товар, у которых появилось своё направление (CATEGORY_RELOCATIONS)
+  const rule = relocationFor(category.slug, attributes);
+  if (rule) {
+    const target = catalogue.findBySlug(rule.to);
+    if (target?.isLeaf) {
+      return { target, ...(rule.set ? { attributes: { ...rule.set } } : {}), reason: rule.reason };
+    }
+  }
   if (category.deprecatedToId) {
     const target = catalogue.findById(category.deprecatedToId);
     return target ? { target, reason: `категория ${category.slug} снята` } : null;
@@ -126,7 +143,11 @@ function planFor(
   catalogue: ListingCatalogue,
   row: Row,
 ): { plan: ReindexPlan; move: Move | null } | null {
-  const move = moveOf(catalogue, row.categoryId);
+  const move = moveOf(
+    catalogue,
+    row.categoryId,
+    (row.attributes as Record<string, unknown> | null) ?? {},
+  );
   const source: ReindexSource = move
     ? {
         ...row,

@@ -81,10 +81,23 @@ describe('Наборы полей транспорта', () => {
     expect(attributes.some((a) => a.key === 'brand' || a.key === 'model')).toBe(false);
   });
 
-  it('шины: что продаётся и диаметр обязательны', () => {
-    expect(requiredOf('transport-tires')).toEqual(['tireType', 'diameter']);
+  it('шины и диски: обязательно только «что продаётся» — у колпаков и секреток диаметра может не быть', () => {
+    expect(requiredOf('transport-tires')).toEqual(['tireType']);
     expect(keysOf('transport-tires')).toEqual(
-      expect.arrayContaining(['season', 'tireWidth', 'tireProfile', 'quantity']),
+      expect.arrayContaining([
+        'season',
+        'diameter',
+        'tireWidth',
+        'tireProfile',
+        'loadIndex',
+        'speedIndex',
+        'rimWidth',
+        'pcd',
+        'rimEt',
+        'rimDia',
+        'rimMaterial',
+        'quantity',
+      ]),
     );
   });
 

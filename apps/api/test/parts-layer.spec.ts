@@ -188,7 +188,7 @@ describe('Подготовка слоя запчасти', () => {
     expect(preparePart(catalogue, 'transport-cars', input({}))).toBeNull();
     expect(() =>
       preparePart(catalogue, 'transport-cars', input({ numbers: [{ value: '90915-YZZD1' }] })),
-    ).toThrow(/только у запчастей/);
+    ).toThrow(/не указываются/);
   });
 
   it('запчасть без слоя — пустые списки, а не ошибка', () => {

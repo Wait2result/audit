@@ -106,6 +106,32 @@ export class ListingCatalogue {
     return this.byId.get(id) ?? null;
   }
 
+  /** Путь от раздела до категории: [Транспорт, Автомобили, Запчасти]. */
+  pathOf(category: CategoryRecord): CategoryRecord[] {
+    const path: CategoryRecord[] = [];
+    let current: CategoryRecord | null = category;
+    // Дерево неглубокое (раздел → основной тип → направление); предел — от петли в данных
+    for (let depth = 0; current && depth < 6; depth += 1) {
+      path.unshift(current);
+      current = current.parentId ? this.findById(current.parentId) : null;
+    }
+    return path;
+  }
+
+  /** Раздел, в котором стоит категория (корень дерева). */
+  rootOf(category: CategoryRecord): CategoryRecord {
+    return this.pathOf(category)[0] ?? category;
+  }
+
+  /**
+   * Имя для показа вне дерева: у направления основного типа — вместе с типом
+   * («Автомобили · Запчасти»), у обычной подкатегории — как есть («Квартиры»).
+   */
+  displayName(category: CategoryRecord): string {
+    const path = this.pathOf(category);
+    return path.length >= 3 ? `${path[path.length - 2]!.name} · ${category.name}` : category.name;
+  }
+
   requireById(id: string): CategoryRecord {
     const row = this.byId.get(id);
     if (!row) {

@@ -222,10 +222,8 @@ export function planReindex(
     if (column !== null && column !== undefined) values[attribute.key] = column as AttributeValue;
   }
 
-  const parent = category.parentId ? catalogue.findById(category.parentId) : null;
   const prepared = prepareAttributes(attributes, values, catalogue.labelsFor(attributes, values), [
-    category.name,
-    parent?.name,
+    ...catalogue.pathOf(category).map((item) => item.name),
     source.city.name,
     source.district?.name,
     transactionCardLabel(transactionType, rentPeriod, category.slug),

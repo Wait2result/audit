@@ -12,6 +12,11 @@ import {
   partLabels,
   partsEquipmentByCode,
   partsEquipmentBySlug,
+  goodsDirectionBySlug,
+  isCatalogLeaf,
+  mainTypeBySlug,
+  mainTypeOf,
+  type PartMatch,
   type PartsEquipmentTypeCode,
   classifyListingTitle,
   listingListQuerySchema,
@@ -189,19 +194,25 @@ const BRAND_KEYS: ReadonlySet<string> = new Set(['brand', 'compatBrand']);
 const MODEL_KEYS: ReadonlySet<string> = new Set(['model', 'compatModel']);
 
 function brandAttribute(attributes: readonly ListingAttribute[]): ListingAttribute | null {
+  // Марка техники во фразе «зимняя резина на суксид» — это «Подходит к», а не
+  // бренд самих шин: совместимость важнее, если она у подкатегории есть
   return (
+    attributes.find((item) => item.key === 'compatBrand' && item.dictionary) ??
     attributes.find(
       (item) => item.type === 'brand' && item.dictionary && BRAND_KEYS.has(item.key),
-    ) ?? null
+    ) ??
+    null
   );
 }
 
 function modelAttribute(attributes: readonly ListingAttribute[]): ListingAttribute | null {
   return (
+    attributes.find((item) => item.key === 'compatModel' && item.dictionary && item.parentKey) ??
     attributes.find(
       (item) =>
         item.type === 'model' && item.dictionary && item.parentKey && MODEL_KEYS.has(item.key),
-    ) ?? null
+    ) ??
+    null
   );
 }
 
@@ -950,6 +961,9 @@ interface ResolvedPart {
   equipment: PartsEquipmentTypeCode;
   group: string | null;
   item: string | null;
+  /** Подкатегория: запчасти типа техники или направление («Автоаксессуары») */
+  slug: string;
+  kind: 'parts' | 'goods';
   /** Производитель детали из справочника — только если он уместен этой технике */
   maker: DictionaryRecord | null;
 }
@@ -998,22 +1012,30 @@ function equipmentOptions(
   catalogue: ListingCatalogue,
   codes: readonly PartsEquipmentTypeCode[],
   dualSlugs: readonly string[],
+  matches: readonly PartMatch[] = [],
 ): SmartSearchClarificationOption[] {
   const options: SmartSearchClarificationOption[] = [];
   for (const code of codes.slice(0, 6)) {
     const equipment = partsEquipmentByCode(code);
     if (!equipment) continue;
+    // Вариант ведёт туда, где такое объявление живёт: «аккумулятор» для машины —
+    // в «Аккумуляторы», а не в запчасти; несколько мест — в запчасти типа техники
+    const slugs = [...new Set(matches.filter((m) => m.equipment === code).map((m) => m.slug))];
+    const slug = slugs.length === 1 ? slugs[0]! : equipment.slug;
+    const leaf = findCategory(catalogue, slug);
+    if (options.some((option) => option.value === slug)) continue;
     options.push({
-      label: equipment.label,
-      value: equipment.slug,
+      // Направление называет себя («Аккумуляторы»), запчасти — техникой («Телефон»)
+      label: goodsDirectionBySlug(slug)?.name ?? equipment.label,
+      value: slug,
       kind: 'category',
-      hint: equipment.name,
-      choice: { kind: 'filter', field: 'category', value: equipment.slug },
+      hint: leaf ? catalogue.displayName(leaf) : equipment.name,
+      choice: { kind: 'filter', field: 'category', value: slug },
     });
   }
   for (const slug of dualSlugs) {
     const category = findCategory(catalogue, slug);
-    if (!category) continue;
+    if (!category || options.some((option) => option.value === category.slug)) continue;
     options.push({
       label: category.name,
       value: category.slug,
@@ -1080,7 +1102,16 @@ function applyPartsIntent(
 
   const explicitSlug = asText(filters.category) ?? context.listingCategory ?? null;
   const explicit = explicitSlug ? findCategory(catalogue, explicitSlug) : null;
-  const explicitEquipment = partsEquipmentBySlug(explicit?.slug);
+  // Открытая или выбранная категория: запчасти, направление («Автоаксессуары») или
+  // основной тип («Автомобили») — всё это говорит, о какой технике речь
+  const explicitCode = explicit
+    ? (partsEquipmentBySlug(explicit.slug)?.code ??
+      goodsDirectionBySlug(explicit.slug)?.equipment ??
+      mainTypeBySlug(explicit.slug)?.equipment ??
+      mainTypeOf(explicit.slug)?.equipment)
+    : undefined;
+  const explicitEquipment = explicitCode ? partsEquipmentByCode(explicitCode) : undefined;
+  const explicitLeaf = explicit && isCatalogLeaf(explicit.slug) ? explicit.slug : null;
 
   const withoutKeys = (extra: readonly string[] = []): SmartSearchIntentCore => {
     const next = { ...filters };
@@ -1123,7 +1154,7 @@ function applyPartsIntent(
   // его основной тип техники. Слабее слов и марки — только когда их нет
   if (evidence.length === 0 && makerEquipment.length > 0) evidence = [makerEquipment[0]!];
 
-  const decision = decideParts({ aliases, equipment: evidence, group, item });
+  const decision = decideParts({ aliases, equipment: evidence, group, item, slug: explicitLeaf });
 
   /**
    * Производитель для выбранной техники. Уместен — фильтр «Производитель
@@ -1179,7 +1210,7 @@ function applyPartsIntent(
     if (question) return question;
     const equipment = partsEquipmentByCode(decision.resolution.equipment)!;
     const next = withoutKeys(['partGroup', 'partItem']);
-    next.filters.category = equipment.slug;
+    next.filters.category = decision.resolution.slug;
     return {
       kind: 'ok',
       intent: next,
@@ -1187,7 +1218,9 @@ function applyPartsIntent(
         equipment: equipment.code,
         group: decision.resolution.group,
         item: decision.resolution.item,
-        maker: placeMaker(equipment.code, next),
+        slug: decision.resolution.slug,
+        kind: decision.resolution.kind,
+        maker: decision.resolution.kind === 'parts' ? placeMaker(equipment.code, next) : null,
       },
       numberSearch: null,
     };
@@ -1223,7 +1256,8 @@ function applyPartsIntent(
     if (question) return question;
     const equipment = partsEquipmentByCode(evidence[0]!)!;
     const next = withoutKeys(['partGroup', 'partItem']);
-    next.filters.category = equipment.slug;
+    const slug = explicitLeaf ?? equipment.slug;
+    next.filters.category = slug;
     return {
       kind: 'ok',
       intent: next,
@@ -1231,6 +1265,8 @@ function applyPartsIntent(
         equipment: equipment.code,
         group: null,
         item: null,
+        slug,
+        kind: goodsDirectionBySlug(slug) ? 'goods' : 'parts',
         maker: placeMaker(equipment.code, next),
       },
       numberSearch: null,
@@ -1242,7 +1278,12 @@ function applyPartsIntent(
     clarification: {
       reason: 'ambiguous_equipment',
       question: label ? `${label} — для какой техники?` : 'Запчасти для какой техники?',
-      options: equipmentOptions(catalogue, candidates, dual),
+      options: equipmentOptions(
+        catalogue,
+        candidates,
+        dual,
+        decision.status === 'equipment' ? decision.matches : [],
+      ),
     },
   };
 }
@@ -1478,7 +1519,7 @@ export function normalizeListings(
         field: 'transactionType',
         label: 'Сделка',
         value: deal,
-        display: deal === 'rent' ? 'Снять / арендовать' : 'Купить',
+        display: deal === 'rent' ? 'Аренда' : 'Продажа',
       });
       const periodRaw = asText(intent.filters.rentPeriod);
       const period = periodRaw ? RENT_PERIODS[norm(periodRaw)] : undefined;
@@ -1588,6 +1629,24 @@ export function normalizeListings(
   }
 
   // Запчасть: категория детали и деталь из справочников таксономии, а не слова человека
+  // Товар направления: тип товара — поле направления («Коврики», «Шины»)
+  const goodsDirection = partsOutcome.part
+    ? goodsDirectionBySlug(partsOutcome.part.slug)
+    : undefined;
+  if (partsOutcome.part && category && goodsDirection && category.slug === goodsDirection.slug) {
+    const typeKey = goodsDirection.typeKey;
+    const type = goodsDirection.types.find((entry) => entry.code === partsOutcome.part!.item);
+    if (typeKey && type) {
+      attributeFilter[typeKey] = type.code;
+      covered.push(type.label, ...type.aliases);
+      conditions.push({
+        field: typeKey,
+        label: typeKey === 'goodsType' ? 'Тип товара' : 'Что продаётся',
+        value: type.code,
+        display: type.label,
+      });
+    }
+  }
   if (partsOutcome.part && category && partsEquipmentBySlug(category.slug)) {
     const labels = partLabels(
       partsOutcome.part.equipment,
@@ -1797,8 +1856,8 @@ const QUICK_DEALS: Readonly<
   Record<string, readonly { label: string; field: string; value: string }[]>
 > = {
   'realty-flats': [
-    { label: 'Купить', field: 'transactionType', value: 'sale' },
-    { label: 'Снять надолго', field: 'rentPeriod', value: 'monthly' },
+    { label: 'Продажа', field: 'transactionType', value: 'sale' },
+    { label: 'Аренда надолго', field: 'rentPeriod', value: 'monthly' },
     { label: 'Посуточно', field: 'rentPeriod', value: 'daily' },
   ],
 };

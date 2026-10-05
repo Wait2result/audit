@@ -2,6 +2,7 @@ import {
   APPROXIMATE_AREA_METERS,
   LISTING_CONDITION_LABELS,
   attributeValueLabel,
+  catalogLayer,
   isPartsCategory,
   cardFacts,
   formatListingAge,
@@ -95,6 +96,8 @@ export default function ListingScreen() {
   const categoryAttributes = attributesOfCategory(categories.data ?? [], listing.categorySlug);
   // У запчасти деталь, производитель, тип и состояние — в своём блоке «Запчасть»
   const isPart = isPartsCategory(listing.categorySlug);
+  // «Подходит к» — и у запчастей, и у направлений с совместимостью (коврики, магнитолы)
+  const hasLayer = catalogLayer(listing.categorySlug) !== null;
   const attributes = isPart
     ? categoryAttributes.filter((attribute) => !PART_BLOCK_KEYS.has(attribute.key))
     : categoryAttributes;
@@ -218,8 +221,9 @@ export default function ListingScreen() {
         <Text style={styles.sectionTitle}>Описание</Text>
         <Text style={styles.description}>{listing.description}</Text>
 
-        {isPart && (
+        {hasLayer && (
           <PartBlock
+            showPart={isPart}
             part={listing.part}
             attributes={categoryAttributes}
             values={listing.attributes}

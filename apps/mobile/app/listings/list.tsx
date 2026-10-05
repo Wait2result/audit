@@ -46,6 +46,7 @@ import {
 } from '../../src/store/listing-filter-store';
 import { useSmartSearchStore } from '../../src/store/smart-search-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import { findCategoryBySlug } from '../../src/utils/listing-category-lookup';
 import { formatMoney } from '../../src/utils/money';
 import { listingFiltersKey, widerRadius } from '../../src/utils/smart-search';
 
@@ -651,15 +652,9 @@ function formatCount(total: number): string {
   return total.toLocaleString('ru-RU');
 }
 
-/** Категория по коду — в дереве из двух уровней. */
+/** Категория по коду — на любой глубине дерева. */
 function findCategory(roots: ListingCategoryDto[], slug: string | undefined) {
-  if (!slug) return null;
-  for (const root of roots) {
-    if (root.slug === slug) return root;
-    const child = root.children.find((item) => item.slug === slug);
-    if (child) return child;
-  }
-  return null;
+  return findCategoryBySlug(roots, slug);
 }
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>

@@ -82,7 +82,9 @@ const seller = await register('Продавец');
 const buyer = await register('Покупатель');
 const cities = (await call('GET', '/cities')).body;
 const cityId = cities.find((city) => city.slug === 'makhachkala').id;
-const leaves = (await call('GET', '/listings/categories')).body.flatMap((root) => root.children);
+const leaves = (await call('GET', '/listings/categories')).body.flatMap(function leavesOf(node) {
+  return node.children?.length ? node.children.flatMap(leavesOf) : [node];
+});
 const categoryId = (slug) => leaves.find((c) => c.slug === slug).id;
 
 const base = {

@@ -1,4 +1,5 @@
 import { describeAttribute, type ListingAttribute } from './listing-attributes.js';
+import { goodsDirectionBySlug } from './catalog/goods-directions.js';
 import { partStateLabel } from './parts/part-state.js';
 import { TRANSACTION_CREATE_LABELS } from './transactions.js';
 
@@ -224,9 +225,33 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
 };
 
 /** Приоритеты категории: сама подкатегория, затем её раздел; нет — null. */
+/** Приоритеты направлений основных типов, у которых свои поля (не только «тип, бренд, состояние»). */
+const DIRECTION_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
+  'transport-moto-tires': ['diameter', 'season', 'tireType', 'brand', 'condition'],
+  'transport-truck-tires': ['diameter', 'season', 'tireType', 'brand', 'condition'],
+  'transport-car-seats': ['goodsType', 'seatGroup', 'isofix', 'condition'],
+  'transport-batteries': ['goodsType', 'batteryCapacity', 'batteryCurrent', 'batteryPolarity'],
+  'transport-car-chemicals': ['goodsType', 'volumeLiters', 'brandName'],
+  'transport-trailers': ['goodsType', 'year', 'loadCapacity', 'condition'],
+  'transport-water-engines': ['goodsType', 'power', 'year', 'condition'],
+  'transport-water-outboards': ['goodsType', 'power', 'year', 'condition'],
+  'transport-moto-gear': ['goodsType', 'size', 'brandName', 'condition'],
+  'electronics-monitors': ['goodsType', 'screenSize', 'brandName', 'condition'],
+  'home-climate-ac': ['goodsType', 'serviceArea', 'inverter', 'brandName'],
+  'home-climate-heaters': ['goodsType', 'serviceArea', 'brandName', 'condition'],
+  'home-climate-purifiers': ['goodsType', 'serviceArea', 'brandName', 'condition'],
+};
+
 export function cardFactSpecs(categorySlug: string): readonly CardFactSpec[] | null {
   const section = categorySlug.split('-')[0] ?? '';
-  return CARD_FACTS[categorySlug] ?? CARD_FACTS[section] ?? null;
+  const own = CARD_FACTS[categorySlug] ?? DIRECTION_FACTS[categorySlug];
+  if (own) return own;
+  // Остальные направления: тип товара, бренд, состояние
+  const direction = goodsDirectionBySlug(categorySlug);
+  if (direction) {
+    return [...(direction.typeKey ? [direction.typeKey] : []), 'brandName', 'condition'];
+  }
+  return CARD_FACTS[section] ?? null;
 }
 
 /** Все ключи приоритетов категории одним списком — для экрана фильтров. */

@@ -43,7 +43,10 @@ export const LISTING_RENT_PERIODS = Object.values(ListingRentPeriod) as ListingR
 export interface OperationLabels {
   /** Форма подачи: «Продам», «Сдам», «Сдам в аренду» */
   create: string;
-  /** Экран поиска: «Купить», «Снять», «Арендовать» */
+  /**
+   * Тип объявления в поиске: «Продажа», «Аренда». Существительное, а не
+   * действие: «Купить» и «Снять» — не фильтры, это объявления о продаже и аренде
+   */
   search: string;
   /** К подписи в карточке добавляется срок: «Сдам посуточно», «Сдам надолго» */
   withPeriod?: boolean;
@@ -51,8 +54,8 @@ export interface OperationLabels {
 
 /** Подписи по умолчанию — для категории, у которой своих нет. */
 const DEFAULT_OPERATION_LABELS: Record<ListingTransactionType, OperationLabels> = {
-  sale: { create: 'Продам', search: 'Купить' },
-  rent: { create: 'Сдам в аренду', search: 'Арендовать' },
+  sale: { create: 'Продам', search: 'Продажа' },
+  rent: { create: 'Сдам в аренду', search: 'Аренда' },
   free: { create: 'Отдам бесплатно', search: 'Бесплатно' },
   mating: { create: 'Вязка', search: 'Вязка' },
 };
@@ -65,7 +68,7 @@ const DEFAULT_OPERATION_LABELS: Record<ListingTransactionType, OperationLabels> 
 export const CATEGORY_OPERATION_LABELS: Readonly<
   Record<string, Partial<Record<ListingTransactionType, OperationLabels>>>
 > = {
-  realty: { rent: { create: 'Сдам', search: 'Снять', withPeriod: true } },
+  realty: { rent: { create: 'Сдам', search: 'Аренда', withPeriod: true } },
 };
 
 /** Подписи операции в категории; без категории — умолчание. */

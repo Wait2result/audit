@@ -382,7 +382,13 @@ const BRAND_ONLY = [
 describe('Аудит справочников: целостность записей', () => {
   it('справочников много, и каждый не пуст', () => {
     expect(DICTIONARY_SEEDS.length).toBeGreaterThanOrEqual(26);
-    for (const seed of DICTIONARY_SEEDS) expect(seed.entries.length, seed.kind).toBeGreaterThan(5);
+    // Каталоги (марки, модели, детали) — длинные; типы товара направления короче:
+    // у «Винтов» три вида, и дописывать выдуманные ради числа не нужно
+    for (const seed of DICTIONARY_SEEDS) {
+      expect(seed.entries.length, seed.kind).toBeGreaterThan(
+        seed.kind.startsWith('goods_type_') ? 2 : 5,
+      );
+    }
   });
 
   it('виды справочников уникальны и помещаются в колонку', () => {

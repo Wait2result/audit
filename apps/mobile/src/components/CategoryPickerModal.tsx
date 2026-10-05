@@ -8,9 +8,10 @@ import { Icon } from './Icon';
 
 /**
  * Выбор категории вручную — когда подсказка по заголовку не угадала или её
- * нет. Два уровня в одном окне: раздел, затем подраздел. Ярлыки («Посуточная
- * аренда») для подачи не показываются — квартира подаётся в «Квартиры» со
- * сделкой «Сдам».
+ * нет. Уровни в одном окне: раздел, затем подкатегория — или основной тип и
+ * его направление («Транспорт → Автомобили → Автоаксессуары»). Ярлыки
+ * («Посуточная аренда») для подачи не показываются — квартира подаётся в
+ * «Квартиры» со сделкой «Сдам».
  */
 export function CategoryPickerModal({
   visible,
@@ -25,10 +26,12 @@ export function CategoryPickerModal({
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [section, setSection] = useState<ListingCategoryDto | null>(null);
+  // Пройденный путь: [раздел] или [раздел, основной тип]
+  const [path, setPath] = useState<ListingCategoryDto[]>([]);
+  const section = path.at(-1) ?? null;
 
   const close = () => {
-    setSection(null);
+    setPath([]);
     onClose();
   };
 
@@ -47,9 +50,9 @@ export function CategoryPickerModal({
         <View style={styles.header}>
           {section ? (
             <Pressable
-              onPress={() => setSection(null)}
+              onPress={() => setPath((current) => current.slice(0, -1))}
               accessibilityRole="button"
-              accessibilityLabel="К разделам"
+              accessibilityLabel="Назад"
               hitSlop={12}
             >
               <Icon name="chevron-left" size={22} color={colors.text} />
@@ -73,7 +76,7 @@ export function CategoryPickerModal({
                   key={root.id}
                   icon={sectionIcon(root.slug)}
                   label={root.name}
-                  onPress={() => setSection(root)}
+                  onPress={() => setPath([root])}
                 />
               ))
             : children.map((child) => (
@@ -82,8 +85,13 @@ export function CategoryPickerModal({
                   icon={subcategoryIcon(child.slug)}
                   label={child.name}
                   onPress={() => {
+                    // Основной тип — дальше, к его направлениям; подкатегория — выбор
+                    if (child.children.length > 0) {
+                      setPath((current) => [...current, child]);
+                      return;
+                    }
                     onSelect(child);
-                    setSection(null);
+                    setPath([]);
                   }}
                 />
               ))}

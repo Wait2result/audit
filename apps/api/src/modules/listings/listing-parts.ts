@@ -4,7 +4,7 @@ import {
   modelValue,
   norm,
   partNumberKey,
-  partsEquipmentBySlug,
+  catalogLayer,
   type ListingCompatibilityDto,
   type ListingPartDto,
   type ListingPartInput,
@@ -164,13 +164,19 @@ export function preparePart(
   categorySlug: string,
   input: ListingPartInput | undefined,
 ): PreparedPart | null {
-  const equipment = partsEquipmentBySlug(categorySlug);
-  if (!equipment) {
+  // Слой есть у запчастей (номера и «Подходит к») и у направлений с совместимостью
+  // (коврики, магнитолы, чехлы — только «Подходит к»)
+  const layer = catalogLayer(categorySlug);
+  if (!layer) {
     if (input && (input.numbers.length > 0 || input.compatibility.length > 0)) {
-      return fail('Номера и совместимость указываются только у запчастей');
+      return fail('Номера и «Подходит к» в этой подкатегории не указываются');
     }
     return null;
   }
+  if (!layer.numbers && input && input.numbers.length > 0) {
+    return fail('Номера детали указываются только у запчастей');
+  }
+  const equipment = layer.equipment;
   if (!input) return { equipmentType: equipment.code, compatibility: [], numbers: [] };
 
   const compatibility: CompatibilityRow[] = input.compatibility.map((row, index) => ({
@@ -242,10 +248,10 @@ export function partDto(
   compatibility: readonly StoredCompatibility[],
   numbers: readonly StoredPartNumber[],
 ): ListingPartDto | null {
-  const equipment = partsEquipmentBySlug(categorySlug);
-  if (!equipment) return null;
+  const layer = catalogLayer(categorySlug);
+  if (!layer) return null;
   return {
-    equipmentType: equipment.code,
+    equipmentType: layer.equipment.code,
     compatibility: compatibility.map(compatibilityDto),
     numbers: numbers.map((item): ListingPartNumberDto => ({
       kind: (item.kind in PART_NUMBER_KIND_LABELS ? item.kind : 'oem') as PartNumberKind,

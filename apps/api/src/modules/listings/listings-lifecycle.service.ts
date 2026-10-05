@@ -14,7 +14,7 @@ import {
   defaultPriceUnit,
   expiresAtFor,
   hoursUntilBump,
-  isPartsCategory,
+  catalogLayer,
   rentPeriodChoices,
   rentPeriodOfUnit,
   transactionCardLabel,
@@ -583,7 +583,7 @@ export class ListingsLifecycleService {
 
   /** Слой запчасти целиком — для экрана правки (в строке списка только первые строки). */
   private async fullPart(listingId: string, categorySlug: string) {
-    if (!isPartsCategory(categorySlug)) return null;
+    if (!catalogLayer(categorySlug)) return null;
     const [compatibility, numbers] = await Promise.all([
       this.prisma.listingCompatibility.findMany({
         where: { listingId },
@@ -718,11 +718,9 @@ export class ListingsLifecycleService {
       : attributes.map((attribute) => ({ ...attribute, required: false }));
 
     const parsed = attributesSchemaFor(schemaAttributes, catalogue.lookup).parse(raw);
-    const parent = category.parentId ? catalogue.findById(category.parentId) : null;
-
     return prepareAttributes(attributes, parsed, catalogue.labelsFor(attributes, parsed), [
-      category.name,
-      parent?.name,
+      // Раздел, основной тип и направление — словами: «Транспорт Автомобили Запчасти»
+      ...catalogue.pathOf(category).map((item) => item.name),
       transactionCardLabel(deal.transactionType, deal.rentPeriod, category.slug),
       ...catalogue.aliasesFor(attributes, parsed),
     ]);
@@ -802,7 +800,7 @@ export class ListingsLifecycleService {
     catalogue: ListingCatalogue,
     category: CategoryRecord,
   ): ListingAddressVisibility {
-    const root = category.parentId ? catalogue.findById(category.parentId) : category;
+    const root = catalogue.rootOf(category);
     return root && EXACT_ADDRESS_SECTIONS.includes(root.slug)
       ? ListingAddressVisibility.EXACT
       : ListingAddressVisibility.APPROXIMATE;

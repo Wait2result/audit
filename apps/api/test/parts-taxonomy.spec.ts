@@ -61,7 +61,15 @@ describe('Реестр типов техники', () => {
     for (const equipment of PARTS_EQUIPMENT) {
       const leaf = categories.get(equipment.slug);
       expect(leaf, equipment.slug).toBeDefined();
-      expect(leaf?.name).toBe(equipment.name);
+      // Внутри основного типа — короткое имя («Автомобили → Запчасти»), у ПК — «Комплектующие»
+      // Внутри основного типа — короткое имя; запчасти оборудования стоят прямо в разделе
+      const expected =
+        equipment.code === 'computer'
+          ? 'Комплектующие'
+          : equipment.code === 'other_equipment'
+            ? equipment.name
+            : 'Запчасти';
+      expect(leaf?.name).toBe(expected);
       expect(leaf?.transactions).toEqual(['sale']);
       expect(partsEquipmentBySlug(equipment.slug)?.code).toBe(equipment.code);
     }

@@ -59,7 +59,10 @@ export function PartBlock({
   attributes,
   values,
   labels,
+  showPart = true,
 }: {
+  /** Блок «Запчасть» — только у запчастей; у коврика или магнитолы — лишь «Подходит к» */
+  showPart?: boolean;
   part: ListingPartDto | null;
   attributes: readonly ListingAttribute[];
   values: Record<string, unknown>;
@@ -91,7 +94,7 @@ export function PartBlock({
 
   return (
     <>
-      {(name || facts.length > 0 || numbers.length > 0) && (
+      {showPart && (name || facts.length > 0 || numbers.length > 0) && (
         <>
           <Text style={styles.sectionTitle}>Запчасть</Text>
           {name && <Text style={styles.name}>{name}</Text>}

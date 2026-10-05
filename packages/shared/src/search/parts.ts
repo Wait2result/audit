@@ -5,6 +5,7 @@ import {
   type PartsEquipment,
   type PartsEquipmentTypeCode,
 } from '../constants/parts/equipment-types.js';
+import { GOODS_DIRECTIONS, goodsDirectionBySlug } from '../constants/catalog/goods-directions.js';
 import { PART_MANUFACTURERS } from '../constants/parts/manufacturers.js';
 import { SEARCH_DICTIONARY } from './dictionary/index.js';
 import { norm } from './parser/normalize.js';
@@ -21,9 +22,14 @@ import { norm } from './parser/normalize.js';
 
 export interface PartMatch {
   equipment: PartsEquipmentTypeCode;
+  /** Группа деталей; у товара направления — код подкатегории направления */
   group: string;
-  /** Код детали; null — слово назвало только группу («тормоза», «стиралка») */
+  /** Код детали или типа товара; null — слово назвало только группу («тормоза», «стиралка») */
   item: string | null;
+  /** Подкатегория, в которой такое объявление живёт */
+  slug: string;
+  /** Запчасть или товар направления («Коврики», «Магнитолы», «Шлемы») */
+  kind: 'parts' | 'goods';
 }
 
 interface AliasIndex {
@@ -42,8 +48,7 @@ function add(map: Map<string, PartMatch[]>, key: string, match: PartMatch): void
     return;
   }
   const same = list.some(
-    (item) =>
-      item.equipment === match.equipment && item.group === match.group && item.item === match.item,
+    (item) => item.slug === match.slug && item.group === match.group && item.item === match.item,
   );
   if (!same) list.push(match);
 }
@@ -85,13 +90,29 @@ function index(): AliasIndex {
   };
 
   for (const equipment of PARTS_EQUIPMENT) {
+    const base = { equipment: equipment.code, slug: equipment.slug, kind: 'parts' as const };
     for (const group of equipment.groups) {
-      const groupMatch: PartMatch = { equipment: equipment.code, group: group.code, item: null };
+      const groupMatch: PartMatch = { ...base, group: group.code, item: null };
       for (const alias of [group.label, ...group.aliases]) register(alias, groupMatch);
       for (const item of group.items) {
-        const match: PartMatch = { equipment: equipment.code, group: group.code, item: item.code };
+        const match: PartMatch = { ...base, group: group.code, item: item.code };
         for (const alias of [item.label, ...item.aliases]) register(alias, match);
       }
+    }
+  }
+  // Товары направлений: только записанные синонимы, без названий типов —
+  // «Куртки» мотоэкипировки не должны забирать любую «куртку», а «Шины»
+  // мото и грузовиков — любые «шины» (у них свои написания: «мотошины»)
+  for (const direction of GOODS_DIRECTIONS) {
+    for (const type of direction.types) {
+      const match: PartMatch = {
+        equipment: direction.equipment,
+        group: direction.slug,
+        item: type.code,
+        slug: direction.slug,
+        kind: 'goods',
+      };
+      for (const alias of type.aliases) register(alias, match);
     }
   }
   cached = { exact, stems, maxWords };
@@ -335,6 +356,9 @@ export interface PartResolution {
   equipment: PartsEquipmentTypeCode;
   group: string | null;
   item: string | null;
+  /** Подкатегория ответа: запчасти типа техники или направление (коврики → автоаксессуары) */
+  slug: string;
+  kind: 'parts' | 'goods';
 }
 
 export type PartsDecision =
@@ -353,6 +377,8 @@ export interface PartsEvidence {
   /** Группа и деталь, уже выбранные человеком (нажатый вариант) */
   group?: string | null;
   item?: string | null;
+  /** Подкатегория, уже выбранная человеком или открытая на экране */
+  slug?: string | null;
 }
 
 /**
@@ -377,13 +403,17 @@ export function decideParts(evidence: PartsEvidence): PartsDecision {
   if (candidates.length === 0) {
     // Названа только техника («запчасти на экскаватор»): деталь не придумывается
     const equipments = [...new Set(evidence.equipment)];
-    if (equipments.length === 1 && partsEquipmentByCode(equipments[0]!)) {
+    const parts = equipments.length === 1 ? partsEquipmentByCode(equipments[0]!) : undefined;
+    if (parts) {
+      const direction = goodsDirectionBySlug(evidence.slug);
       return {
         status: 'resolved',
         resolution: {
-          equipment: equipments[0]!,
+          equipment: parts.code,
           group: evidence.group ?? null,
           item: evidence.item ?? null,
+          slug: direction ? direction.slug : parts.slug,
+          kind: direction ? 'goods' : 'parts',
         },
       };
     }
@@ -407,7 +437,11 @@ export function decideParts(evidence: PartsEvidence): PartsDecision {
     if (inGroups.length > 0) candidates = inGroups;
   }
 
-  // 3. Выбор человека (нажатый вариант)
+  // 3. Выбор человека (нажатый вариант) или открытая подкатегория
+  if (evidence.slug) {
+    const narrowed = candidates.filter((match) => match.slug === evidence.slug);
+    if (narrowed.length > 0) candidates = narrowed;
+  }
   if (evidence.group) {
     const narrowed = candidates.filter((match) => match.group === evidence.group);
     if (narrowed.length > 0) candidates = narrowed;
@@ -417,7 +451,9 @@ export function decideParts(evidence: PartsEvidence): PartsDecision {
     if (narrowed.length > 0) candidates = narrowed;
   }
 
-  // 4. Внутри одного типа техники конкретная деталь важнее слова-группы
+  // 4. Конкретная деталь или товар важнее слова-группы: внутри типа техники
+  // («рейка» важнее «рулевого»), а слово-группа запчастей другой техники
+  // («фильтр» — группа фильтров легковых) не спорит с названным товаром
   const withItem = new Set(candidates.filter((m) => m.item !== null).map((m) => m.equipment));
   candidates = candidates.filter((match) => match.item !== null || !withItem.has(match.equipment));
 
@@ -431,12 +467,15 @@ export function decideParts(evidence: PartsEvidence): PartsDecision {
 
   // Одна группа: деталь — если названа одна; несколько деталей группы — только группа
   const items = [...new Set(candidates.map((match) => match.item).filter((item) => item !== null))];
+  const first = candidates[0]!;
   return {
     status: 'resolved',
     resolution: {
       equipment: equipments[0]!,
-      group: groups[0] ?? null,
+      group: first.kind === 'goods' ? null : (groups[0] ?? null),
       item: items.length === 1 ? items[0]! : null,
+      slug: first.slug,
+      kind: first.kind,
     },
   };
 }
@@ -447,6 +486,14 @@ export function partLabels(
   group: string | null,
   item: string | null,
 ): { group: string | null; item: string | null } {
+  // Товар направления: «группа» — само направление, «деталь» — тип товара
+  const direction = goodsDirectionBySlug(group);
+  if (direction) {
+    return {
+      group: direction.name,
+      item: direction.types.find((entry) => entry.code === item)?.label ?? null,
+    };
+  }
   const record = typeof equipment === 'string' ? partsEquipmentByCode(equipment) : equipment;
   const groupRecord = record?.groups.find((entry) => entry.code === group);
   return {

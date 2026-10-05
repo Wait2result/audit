@@ -2,7 +2,8 @@ import {
   PART_NUMBER_KINDS,
   PART_NUMBER_KIND_LABELS,
   partNumberKey,
-  partsEquipmentBySlug,
+  catalogLayer,
+  type CatalogLayer,
   type ListingPartDto,
   type ListingPartInput,
   type PartNumberKind,
@@ -166,8 +167,12 @@ export function hasCompatibilityRow(value: PartLayerValue, row: CompatibilityRow
 }
 
 /** Это подкатегория запчастей (есть редактор слоя)? */
+/**
+ * Есть ли у подкатегории слой: у запчастей — номера и «Подходит к», у
+ * направлений с совместимостью (коврики, магнитолы, чехлы) — только «Подходит к».
+ */
 export const isPartsLeaf = (slug: string | null | undefined): boolean =>
-  partsEquipmentBySlug(slug) !== undefined;
+  catalogLayer(slug) !== null;
 
 export function PartLayerEditor({
   slug,
@@ -188,8 +193,9 @@ export function PartLayerEditor({
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Строка, добавленная кнопкой «Изменить», подсвечена: её сейчас и правят
   const [focused, setFocused] = useState<number | null>(null);
-  const equipment = partsEquipmentBySlug(slug);
-  if (!equipment) return null;
+  const layer = catalogLayer(slug);
+  if (!layer) return null;
+  const equipment = layer.equipment;
 
   const acceptSuggestion = (edit: boolean) => {
     if (!suggestion) return;
@@ -213,51 +219,55 @@ export function PartLayerEditor({
 
   return (
     <View style={styles.wrap}>
-      {/* ── Номера ─────────────────────────────────────────────────── */}
-      <Text style={styles.title}>Номера детали</Text>
-      <Text style={styles.hint}>
-        По номеру деталь находят без названия. Можно указать несколько: оригинальный, каталожный,
-        артикул.
-      </Text>
-      {value.numbers.map((row, index) => (
-        <View key={`number-${index}`} style={styles.card}>
-          <View style={styles.cardHead}>
-            <Text style={styles.cardTitle}>Номер {index + 1}</Text>
-            <RemoveButton
-              label={`Убрать номер ${index + 1}`}
+      {layer.numbers && (
+        <>
+          {/* ── Номера ─────────────────────────────────────────────────── */}
+          <Text style={styles.title}>Номера детали</Text>
+          <Text style={styles.hint}>
+            По номеру деталь находят без названия. Можно указать несколько: оригинальный,
+            каталожный, артикул.
+          </Text>
+          {value.numbers.map((row, index) => (
+            <View key={`number-${index}`} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>Номер {index + 1}</Text>
+                <RemoveButton
+                  label={`Убрать номер ${index + 1}`}
+                  onPress={() =>
+                    onChange({ ...value, numbers: value.numbers.filter((_, i) => i !== index) })
+                  }
+                />
+              </View>
+              <OptionChips
+                options={PART_NUMBER_KINDS.map((kind) => ({
+                  value: kind,
+                  label: PART_NUMBER_KIND_LABELS[kind],
+                }))}
+                selected={[row.kind]}
+                onToggle={(next) => setNumber(index, { kind: next as PartNumberKind })}
+              />
+              <TextInput
+                value={row.value}
+                onChangeText={(text) => setNumber(index, { value: text })}
+                placeholder="Например, 90915-YZZD1"
+                placeholderTextColor={colors.textFaint}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={60}
+                accessibilityLabel={`Номер детали ${index + 1}`}
+                style={styles.input}
+              />
+            </View>
+          ))}
+          {value.numbers.length < MAX_NUMBERS && (
+            <AddButton
+              label="Добавить номер"
               onPress={() =>
-                onChange({ ...value, numbers: value.numbers.filter((_, i) => i !== index) })
+                onChange({ ...value, numbers: [...value.numbers, { kind: 'oem', value: '' }] })
               }
             />
-          </View>
-          <OptionChips
-            options={PART_NUMBER_KINDS.map((kind) => ({
-              value: kind,
-              label: PART_NUMBER_KIND_LABELS[kind],
-            }))}
-            selected={[row.kind]}
-            onToggle={(next) => setNumber(index, { kind: next as PartNumberKind })}
-          />
-          <TextInput
-            value={row.value}
-            onChangeText={(text) => setNumber(index, { value: text })}
-            placeholder="Например, 90915-YZZD1"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={60}
-            accessibilityLabel={`Номер детали ${index + 1}`}
-            style={styles.input}
-          />
-        </View>
-      ))}
-      {value.numbers.length < MAX_NUMBERS && (
-        <AddButton
-          label="Добавить номер"
-          onPress={() =>
-            onChange({ ...value, numbers: [...value.numbers, { kind: 'oem', value: '' }] })
-          }
-        />
+          )}
+        </>
       )}
 
       {/* ── Совместимость ──────────────────────────────────────────── */}
@@ -317,6 +327,7 @@ export function PartLayerEditor({
           </View>
           <CompatibilityRowFields
             equipment={equipment}
+            flags={layer.compat}
             row={row}
             onChange={(patch) => setRow(index, patch)}
           />
@@ -338,10 +349,12 @@ export function PartLayerEditor({
 
 function CompatibilityRowFields({
   equipment,
+  flags,
   row,
   onChange,
 }: {
   equipment: PartsEquipment;
+  flags: CatalogLayer['compat'];
   row: CompatibilityRow;
   onChange: (patch: Partial<CompatibilityRow>) => void;
 }) {
@@ -402,7 +415,7 @@ function CompatibilityRowFields({
         </Field>
       )}
 
-      {equipment.compat.chassis && (
+      {flags.chassis && (
         <Field label="Кузов">
           <TextInput
             value={row.chassis}
@@ -417,7 +430,7 @@ function CompatibilityRowFields({
           />
         </Field>
       )}
-      {equipment.compat.engine && (
+      {flags.engine && (
         <Field label="Двигатель">
           <TextInput
             value={row.engine}
@@ -432,7 +445,7 @@ function CompatibilityRowFields({
           />
         </Field>
       )}
-      {equipment.compat.modification && (
+      {flags.modification && (
         <Field label="Модификация">
           <TextInput
             value={row.modification}
@@ -445,7 +458,7 @@ function CompatibilityRowFields({
           />
         </Field>
       )}
-      {equipment.compat.year && (
+      {flags.year && (
         <View style={styles.years}>
           <View style={styles.year}>
             <Field label="Год от">

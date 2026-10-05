@@ -72,6 +72,11 @@ import { useAuthStore } from '../../src/store/auth-store';
 import { useCityStore } from '../../src/store/city-store';
 import { useToastStore } from '../../src/store/toast-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import {
+  categoryPath,
+  categoryPathLabel,
+  leafCategories,
+} from '../../src/utils/listing-category-lookup';
 import { locationLabel } from '../../src/utils/geo';
 import { subcategoryIcon } from '../../src/utils/listing-icons';
 import { formatMoney } from '../../src/utils/money';
@@ -132,9 +137,10 @@ export default function NewListingScreen() {
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const roots = useMemo(() => categories.data ?? [], [categories.data]);
-  const leaves = useMemo(() => roots.flatMap((root) => root.children), [roots]);
+  // Подкатегории любой глубины: «Квартиры» и «Автомобили → Автоаксессуары»
+  const leaves = useMemo(() => leafCategories(roots).map((item) => item.leaf), [roots]);
   const rootOf = (child: ListingCategoryDto | null) =>
-    child ? (roots.find((root) => root.id === child.parentId) ?? null) : null;
+    child ? (categoryPath(roots, child.slug)[0] ?? null) : null;
 
   // Догадка по заголовку — после паузы в наборе, а не на каждую букву
   const typedTitle = useDebouncedValue(title, 400);
@@ -302,7 +308,6 @@ export default function NewListingScreen() {
     );
   }
 
-  const section = rootOf(category);
   // Предпросмотр — как строка карточки: у запчасти деталь, производитель и «Б/У оригинал»
   const stored = storedForm(fields, values);
   const partNames = (() => {
@@ -374,7 +379,7 @@ export default function NewListingScreen() {
           <View style={styles.guess}>
             <Text style={styles.guessLabel}>Похоже, это:</Text>
             <Text style={styles.guessPath}>
-              {[rootOf(guessCategory)?.name, guessCategory.name, ...guess.details]
+              {[categoryPathLabel(roots, guessCategory.slug), ...guess.details]
                 .filter(Boolean)
                 .join(' → ')}
             </Text>
@@ -417,8 +422,8 @@ export default function NewListingScreen() {
             {category ? (
               <>
                 <Icon name={subcategoryIcon(category.slug)} size={18} color={colors.primary} />
-                <Text style={styles.categoryText} numberOfLines={1}>
-                  {[section?.name, category.name].filter(Boolean).join(' → ')}
+                <Text style={styles.categoryText} numberOfLines={2}>
+                  {categoryPathLabel(roots, category.slug)}
                 </Text>
                 <Text style={styles.categoryChange}>Изменить</Text>
               </>

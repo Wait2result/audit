@@ -142,21 +142,23 @@ describe('Операции: подписи зависят от категори�
   const sale: ListingTransactionType = 'sale';
   const rent: ListingTransactionType = 'rent';
 
-  it('недвижимость: Продам / Сдам → Купить / Снять', () => {
+  // В поиске — тип объявления (существительное), а не действие: «Купить» и
+  // «Снять» — не фильтры (ТЗ «Основные типы», п. 17)
+  it('недвижимость: Продам / Сдам → в поиске Продажа / Аренда', () => {
     expect(operationLabels('realty-flats', sale)).toMatchObject({
       create: 'Продам',
-      search: 'Купить',
+      search: 'Продажа',
     });
     expect(operationLabels('realty-flats', rent)).toMatchObject({
       create: 'Сдам',
-      search: 'Снять',
+      search: 'Аренда',
     });
     // и у раздела целиком, и у любой подкатегории
-    expect(operationLabels('realty', rent).search).toBe('Снять');
+    expect(operationLabels('realty', rent).search).toBe('Аренда');
     expect(operationLabels('realty-land', rent).create).toBe('Сдам');
   });
 
-  it('транспорт и техника: Продам / Сдам в аренду → Купить / Арендовать', () => {
+  it('транспорт и техника: Продам / Сдам в аренду → в поиске Продажа / Аренда', () => {
     for (const slug of [
       'transport-cars',
       'transport-special',
@@ -165,11 +167,11 @@ describe('Операции: подписи зависят от категори�
     ]) {
       expect(operationLabels(slug, sale), slug).toMatchObject({
         create: 'Продам',
-        search: 'Купить',
+        search: 'Продажа',
       });
       expect(operationLabels(slug, rent), slug).toMatchObject({
         create: 'Сдам в аренду',
-        search: 'Арендовать',
+        search: 'Аренда',
       });
     }
   });
@@ -177,8 +179,13 @@ describe('Операции: подписи зависят от категори�
   it('без категории — умолчание, без «Сниму» и «Куплю»', () => {
     expect(operationLabels(null, rent)).toMatchObject({
       create: 'Сдам в аренду',
-      search: 'Арендовать',
+      search: 'Аренда',
     });
+    // В поиске нет действий «Купить», «Снять», «Продать», «Сдать»
+    for (const type of ['sale', 'rent', 'free', 'mating'] as const) {
+      expect(operationLabels(null, type).search).not.toMatch(/^(Купить|Снять|Продать|Сдать)/);
+      expect(operationLabels('realty', type).search).not.toMatch(/^(Купить|Снять|Продать|Сдать)/);
+    }
     const words = JSON.stringify([
       ...(['sale', 'rent', 'free', 'mating'] as const).map((type) => operationLabels(null, type)),
       CATEGORY_OPERATION_LABELS,

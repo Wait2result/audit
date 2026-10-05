@@ -8,10 +8,15 @@ import { Icon } from '../../src/components/Icon';
 import { Screen } from '../../src/components/Screen';
 import { useListingFilterStore } from '../../src/store/listing-filter-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import { findCategoryBySlug } from '../../src/utils/listing-category-lookup';
 import { subcategoryIcon } from '../../src/utils/listing-icons';
 
 /**
- * Подкатегории раздела (Этап 7).
+ * Подкатегории раздела или направления основного типа (Этап 7).
+ *
+ * Тот же экран открывает и раздел («Транспорт»), и основной тип внутри него
+ * («Автомобили» → Автомобили, Запчасти, Шины и диски, Автоаксессуары…):
+ * строка с вложенными направлениями ведёт сюда же, а не в выдачу.
  *
  * Отдельный экран, а не длинный список на главной: в «Услугах» четырнадцать
  * подкатегорий, в «Доме и ремонте» одиннадцать, и вывалить сотню строк сразу
@@ -30,7 +35,7 @@ export default function ListingCategoryScreen() {
   const setFilters = useListingFilterStore((s) => s.set);
   const filtersFor = useListingFilterStore((s) => s.filtersFor);
 
-  const section = (categories.data ?? []).find((item) => item.slug === slug) ?? null;
+  const section = findCategoryBySlug(categories.data ?? [], slug);
   const children = filterChildren(section, search);
 
   if (categories.isLoading) {
@@ -87,16 +92,23 @@ export default function ListingCategoryScreen() {
           <View style={styles.rowIcon}>
             <Icon name="grid" size={20} color={colors.primary} />
           </View>
-          <Text style={[styles.rowLabel, styles.rowLabelAll]}>Все объявления раздела</Text>
+          <Text style={[styles.rowLabel, styles.rowLabelAll]}>
+            {section.parentId ? `Все объявления: ${section.name}` : 'Все объявления раздела'}
+          </Text>
           <Icon name="chevron-right" size={18} color={colors.textFaint} />
         </Pressable>
       )}
 
       <View style={styles.list}>
-        {children.map((child) => (
+        {children.map(({ node: child, hint }) => (
           <Pressable
             key={child.id}
             onPress={() => {
+              // Основной тип («Автомобили») — свой список направлений
+              if (child.children.length > 0) {
+                router.push({ pathname: '/listings/category', params: { slug: child.slug } });
+                return;
+              }
               // Ярлык — это другая категория с готовым фильтром: «Посуточная
               // аренда» открывает квартиры со сделкой «Снять посуточно»
               if (child.shortcut) {
@@ -122,7 +134,14 @@ export default function ListingCategoryScreen() {
             <View style={styles.rowIcon}>
               <Icon name={subcategoryIcon(child.slug)} size={20} color={colors.textMuted} />
             </View>
-            <Text style={styles.rowLabel}>{child.name}</Text>
+            <View style={styles.rowText}>
+              <Text style={styles.rowLabel}>{child.name}</Text>
+              {hint ? (
+                <Text style={styles.rowHint} numberOfLines={1}>
+                  {hint}
+                </Text>
+              ) : null}
+            </View>
             <Icon name="chevron-right" size={18} color={colors.textFaint} />
           </Pressable>
         ))}
@@ -135,11 +154,39 @@ export default function ListingCategoryScreen() {
   );
 }
 
-function filterChildren(section: ListingCategoryDto | null, search: string): ListingCategoryDto[] {
+/**
+ * Строки экрана: прямые подкатегории (у основного типа — подсказка, что внутри),
+ * а при поиске — и направления внутри основных типов («коврики» в разделе
+ * «Транспорт» найдут «Автомобили · Автоаксессуары» по имени направления).
+ */
+function filterChildren(
+  section: ListingCategoryDto | null,
+  search: string,
+): { node: ListingCategoryDto; hint: string | null }[] {
   if (!section) return [];
   const query = search.trim().toLowerCase();
-  if (query.length === 0) return section.children;
-  return section.children.filter((child) => child.name.toLowerCase().includes(query));
+  if (query.length === 0) {
+    return section.children.map((child) => ({
+      node: child,
+      hint:
+        child.children.length > 0
+          ? child.children
+              .slice(1, 4)
+              .map((item) => item.name)
+              .join(', ') + (child.children.length > 4 ? '…' : '')
+          : null,
+    }));
+  }
+  const found: { node: ListingCategoryDto; hint: string | null }[] = [];
+  for (const child of section.children) {
+    if (child.name.toLowerCase().includes(query)) found.push({ node: child, hint: null });
+    for (const inner of child.children) {
+      if (inner.name.toLowerCase().includes(query) && inner.name !== child.name) {
+        found.push({ node: inner, hint: child.name });
+      }
+    }
+  }
+  return found;
 }
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
@@ -192,6 +239,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       backgroundColor: colors.surfaceMuted,
     },
     rowLabel: { ...typography.body, color: colors.text, flex: 1 },
+    rowText: { flex: 1, gap: 2 },
+    rowHint: { ...typography.caption, color: colors.textMuted },
     rowLabelAll: { color: colors.primary, fontWeight: '600' },
 
     empty: {
