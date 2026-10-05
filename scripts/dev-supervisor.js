@@ -4,8 +4,8 @@
 //   node scripts/dev-supervisor.js --status показать, что сейчас работает
 //   node scripts/dev-supervisor.js --stop   остановить сторожа и всё, что он поднял
 //
-// Телефону нужны четыре вещи сразу: база (Docker), сервер API, туннель ngrok
-// к нему и сборщик Metro. Раньше каждая жила в своём окне, и стоило одному
+// Телефону нужны пять вещей сразу: база (Docker), сервер API, сборщик Metro,
+// шлюз перед ними (scripts/dev-gateway.js) и туннель ngrok к шлюзу. Раньше каждая жила в своём окне, и стоило одному
 // окну закрыться, компьютеру уснуть или туннелю отвалиться — приложение
 // «не запускалось», пока кто-нибудь не перезапустит всё руками.
 //
@@ -15,7 +15,7 @@
 // в Windows (scripts/install-autostart.js) и от окон не зависит.
 //
 // Журналы — в .dev-logs/: supervisor.log (что сторож делал и почему),
-// api.log, metro.log, ngrok.log (вывод самих процессов).
+// api.log, metro.log, gateway.log, ngrok.log (вывод самих процессов).
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -26,6 +26,15 @@ const { ROOT, METRO_PORT, IPV4_NODE_FLAGS, readRootEnv } = require('./lib/dev-en
 
 const API_PORT = 3000;
 const NGROK_API_PORT = 4040;
+/** Шлюз: туннель смотрит сюда, а не на сервер (см. scripts/dev-gateway.js). */
+const GATEWAY_PORT = Number(readRootEnv().DEV_GATEWAY_PORT || 3080);
+/** Сборки, которые прогреваются сразу после запуска Metro. */
+const WARM_BUNDLES = ['ios', 'android'].map(
+  (platform) =>
+    `/node_modules/expo-router/entry.bundle?platform=${platform}&dev=true&hot=false&lazy=true` +
+    '&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app' +
+    '&unstable_transformProfile=hermes-stable',
+);
 /** Порт-замок: второй сторож не запустится, пока жив первый. */
 const LOCK_PORT = 47811;
 const CHECK_EVERY_MS = 15_000;
@@ -76,11 +85,18 @@ const checks = {
     return /postgres/i.test(names) && /redis/i.test(names);
   },
   api: async () => (await httpGet(`http://127.0.0.1:${API_PORT}/health`)).status === 200,
-  // Туннель жив, если агент ngrok держит соединение именно с нашим адресом
+  // Туннель жив, если агент ngrok держит соединение с нашим адресом и ведёт
+  // его на шлюз (туннель старого вида — прямо на сервер — перезапускается)
   ngrok: async () => {
     const { status, body } = await httpGet(`http://127.0.0.1:${NGROK_API_PORT}/api/tunnels`);
-    return status === 200 && body.includes(publicUrl().replace(/^https?:\/\//, ''));
+    return (
+      status === 200 &&
+      body.includes(publicUrl().replace(/^https?:\/\//, '')) &&
+      body.includes(`localhost:${GATEWAY_PORT}`)
+    );
   },
+  gateway: async () =>
+    (await httpGet(`http://127.0.0.1:${GATEWAY_PORT}/__gateway`)).body.includes('dev-gateway:ok'),
   metro: async () =>
     (await httpGet(`http://127.0.0.1:${METRO_PORT}/status`)).body.includes(
       'packager-status:running',
@@ -113,6 +129,30 @@ function ipv4Env() {
     .filter((flag, index, all) => all.indexOf(flag) === index)
     .join(' ');
   return env;
+}
+
+/**
+ * Прогрев: Metro собирает приложение только по первому запросу, и после
+ * перезапуска это 1–2 минуты — телефон столько не ждёт («Could not connect to
+ * development server»). Сторож сам запрашивает сборки iOS и Android, как
+ * только Metro поднялся, — телефон получает уже готовое.
+ */
+function warmBundles() {
+  for (const bundle of WARM_BUNDLES) {
+    const started = Date.now();
+    const request = http.get(
+      { host: '127.0.0.1', port: METRO_PORT, path: bundle, family: 4, timeout: 600_000 },
+      (response) => {
+        response.resume();
+        response.on('end', () => {
+          const platform = /platform=(\w+)/.exec(bundle)?.[1];
+          log(`✓ сборка ${platform} прогрета за ${Math.round((Date.now() - started) / 1000)} с`);
+        });
+      },
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => undefined);
+  }
 }
 
 /** Запустить процесс без окна, с выводом в журнал. */
@@ -201,9 +241,18 @@ const services = [
     },
   },
   {
+    name: 'gateway',
+    title: 'шлюз (API + Metro для телефона)',
+    check: checks.gateway,
+    failuresToRestart: 2,
+    graceMs: 20_000,
+    port: GATEWAY_PORT,
+    start: () => start('gateway', process.execPath, [path.join(ROOT, 'scripts', 'dev-gateway.js')]),
+  },
+  {
     name: 'ngrok',
     title: 'туннель',
-    needs: ['api'],
+    needs: ['gateway'],
     check: checks.ngrok,
     failuresToRestart: 2,
     graceMs: 30_000,
@@ -222,7 +271,14 @@ const services = [
       return start(
         'ngrok',
         'ngrok',
-        ['http', `--url=${url.replace(/^https?:\/\//, '')}`, String(API_PORT), '--log=stdout'],
+        [
+          'http',
+          `--url=${url.replace(/^https?:\/\//, '')}`,
+          // Туннель — на шлюз: сервер перезапускается при правках кода,
+          // а шлюз нет, и приложение скачивается всегда
+          String(GATEWAY_PORT),
+          '--log=stdout',
+        ],
         authtoken ? { env: { ...ipv4Env(), NGROK_AUTHTOKEN: authtoken } } : {},
       );
     },
@@ -253,7 +309,10 @@ async function tick() {
     const healthy = await service.check().catch(() => false);
 
     if (healthy) {
-      if (!current.healthy) log(`✓ ${service.title} работает`);
+      if (!current.healthy) {
+        log(`✓ ${service.title} работает`);
+        if (service.name === 'metro') warmBundles();
+      }
       Object.assign(current, { healthy: true, failures: 0, everHealthy: true });
       continue;
     }
@@ -307,8 +366,8 @@ function stop() {
     fs.rmSync(PID_FILE, { force: true });
   }
   run('taskkill /F /IM ngrok.exe');
-  [API_PORT, METRO_PORT].forEach((port) => pidsOnPort(port).forEach(killTree));
-  console.log('Сторож, сервер, туннель и Metro остановлены. База (Docker) оставлена.');
+  [API_PORT, METRO_PORT, GATEWAY_PORT].forEach((port) => pidsOnPort(port).forEach(killTree));
+  console.log('Сторож, сервер, шлюз, туннель и Metro остановлены. База (Docker) оставлена.');
 }
 
 function main() {
@@ -323,7 +382,7 @@ function main() {
   });
   lock.listen(LOCK_PORT, '127.0.0.1', () => {
     fs.writeFileSync(PID_FILE, String(process.pid));
-    log('Сторож запущен: слежу за Docker, базой, сервером, туннелем и Metro');
+    log('Сторож запущен: слежу за Docker, базой, сервером, Metro, шлюзом и туннелем');
 
     let busy = false;
     const loop = async () => {
