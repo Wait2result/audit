@@ -5,6 +5,7 @@ import {
   type PartsEquipment,
   type PartsEquipmentTypeCode,
 } from '../constants/parts/equipment-types.js';
+import { PART_MANUFACTURERS } from '../constants/parts/manufacturers.js';
 import { SEARCH_DICTIONARY } from './dictionary/index.js';
 import { norm } from './parser/normalize.js';
 
@@ -204,6 +205,127 @@ export const GENERIC_PARTS_EQUIPMENT: Readonly<Record<string, PartsEquipmentType
   мотозапчасти: 'moto',
   мотозапчасть: 'moto',
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Производитель, тип и состояние детали
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MakerWordHit {
+  /** Код производителя в справочнике part_manufacturer */
+  value: string;
+  /** Название — ещё и марка техники (Toyota, Samsung): во фразе это техника */
+  machineBrand: boolean;
+}
+
+let makerIndex: Map<string, MakerWordHit> | null = null;
+let makerMaxWords = 1;
+
+function makerWords(): Map<string, MakerWordHit> {
+  if (makerIndex) return makerIndex;
+  const map = new Map<string, MakerWordHit>();
+  for (const item of PART_MANUFACTURERS) {
+    // «Другой производитель» — вариант формы, а не слово поиска
+    if (item.value === 'other') continue;
+    const hit = { value: item.value, machineBrand: item.machineBrand === true };
+    for (const name of [item.label, item.value.replace(/_/g, ' '), ...(item.aliases ?? [])]) {
+      const key = norm(name);
+      // «Denso», «DENSO» и «денсо» — один производитель: первый записанный побеждает
+      if (!key || map.has(key)) continue;
+      map.set(key, hit);
+      makerMaxWords = Math.max(makerMaxWords, key.split(' ').length);
+    }
+  }
+  makerIndex = map;
+  return map;
+}
+
+/** Слово или фраза — производитель детали из справочника («kyb», «денсо»). */
+export function findMakerWord(phrase: string): MakerWordHit | undefined {
+  return makerWords().get(norm(phrase));
+}
+
+export function makerMaxWordCount(): number {
+  makerWords();
+  return makerMaxWords;
+}
+
+/** Тип детали и состояние словами: «б/у оригинал», «восстановленная», «аналог». */
+export interface PartQuality {
+  condition?: 'new' | 'used' | 'restored';
+  originality?: 'original' | 'analog';
+}
+
+const QUALITY_WORDS: ReadonlyArray<readonly [readonly string[], PartQuality]> = [
+  [['новая', 'новый', 'новое', 'новые', 'новую', 'новой', 'нового'], { condition: 'new' }],
+  [
+    ['б у', 'бу', 'бэу', 'бушная', 'бушный', 'бушную', 'бушные', 'подержанная', 'подержанный'],
+    { condition: 'used' },
+  ],
+  // «Контрактная» — это «Оригинал» + «Б/У», отдельного значения нет
+  [
+    ['контрактная', 'контрактный', 'контрактную', 'контрактные', 'контрактное', 'контракт'],
+    { condition: 'used', originality: 'original' },
+  ],
+  [
+    [
+      'восстановленная',
+      'восстановленный',
+      'восстановленную',
+      'восстановленные',
+      'восстановленное',
+      'восстановленной',
+      'перебранная',
+      'перебранный',
+      'перебранную',
+      'после переборки',
+      'после восстановления',
+    ],
+    { condition: 'restored' },
+  ],
+  [
+    [
+      'оригинал',
+      'оригинала',
+      'оригинальная',
+      'оригинальный',
+      'оригинальную',
+      'оригинальные',
+      'оригинальное',
+      'оригинальной',
+      'ориг',
+      'родная',
+      'родной',
+      'родную',
+    ],
+    { originality: 'original' },
+  ],
+  [
+    [
+      'аналог',
+      'аналога',
+      'аналоги',
+      'аналогов',
+      'неоригинал',
+      'неоригинальная',
+      'неоригинальный',
+      'неоригинальную',
+      'неоригинальные',
+      'не оригинал',
+      'не оригинальная',
+      'не оригинальный',
+    ],
+    { originality: 'analog' },
+  ],
+];
+
+const QUALITY_INDEX = new Map<string, PartQuality>(
+  QUALITY_WORDS.flatMap(([words, quality]) => words.map((word) => [word, quality] as const)),
+);
+
+/** Тип или состояние детали по слову или паре слов. */
+export function findQualityWord(phrase: string): PartQuality | undefined {
+  return QUALITY_INDEX.get(norm(phrase));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Разрешение

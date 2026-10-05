@@ -248,3 +248,121 @@ describe('поиск запчастей в умном поиске', () => {
     expect(r.attrs).not.toHaveProperty('partItem');
   });
 });
+
+describe('производитель, тип и состояние в умном поиске', () => {
+  const RACK = { partGroup: 'steering', partItem: 'steering_rack' };
+  it.each([
+    ['рейка ncp165 kyb', { ...RACK, compatChassis: 'NCP165', partManufacturer: 'kyb' }],
+    [
+      'б/у оригинал рейка ncp165',
+      { ...RACK, compatChassis: 'NCP165', partCondition: 'used', partOriginality: 'original' },
+    ],
+    ['новая denso', { partCondition: 'new', partManufacturer: 'denso' }],
+    ['рейка probox ncp160', { ...RACK, compatModel: 'probox', compatChassis: 'NCP160' }],
+    [
+      'оригинальная рейка succeed',
+      { ...RACK, compatModel: 'succeed', partOriginality: 'original' },
+    ],
+    ['аналог рейки succeed', { ...RACK, compatModel: 'succeed', partOriginality: 'analog' }],
+    ['рейка суксид KYB', { ...RACK, compatModel: 'succeed', partManufacturer: 'kyb' }],
+    [
+      'рейка Toyota Succeed CTR',
+      { ...RACK, compatBrand: 'toyota', compatModel: 'succeed', partManufacturer: 'ctr' },
+    ],
+    [
+      'фильтр Toyota Denso',
+      { partGroup: 'filters', compatBrand: 'toyota', partManufacturer: 'denso' },
+    ],
+    [
+      'колодки Bosch на NCP165',
+      { partItem: 'brake_pads', compatChassis: 'NCP165', partManufacturer: 'bosch' },
+    ],
+    ['новая рейка суксид', { ...RACK, compatModel: 'succeed', partCondition: 'new' }],
+    [
+      'рейка Succeed 2015',
+      { ...RACK, compatModel: 'succeed', compatYear: { from: 2015, to: 2015 } },
+    ],
+    ['рейка Probox 2018', { ...RACK, compatModel: 'probox', compatYear: { from: 2018, to: 2018 } }],
+    [
+      'новая оригинальная рейка Succeed',
+      { ...RACK, partCondition: 'new', partOriginality: 'original' },
+    ],
+    ['новая KYB рейка', { ...RACK, partCondition: 'new', partManufacturer: 'kyb' }],
+    ['рейка NCP165', { ...RACK, compatChassis: 'NCP165' }],
+    ['контрактная рейка суксид', { ...RACK, partCondition: 'used', partOriginality: 'original' }],
+    ['Denso 123456', { partNumber: '123456', partManufacturer: 'denso' }],
+    [
+      'восстановленная оригинальная рейка суксид',
+      { ...RACK, partCondition: 'restored', partOriginality: 'original' },
+    ],
+  ])('«%s»', async (text, attrs) => {
+    const r = await ask(text);
+    expect(r.response.status).toBe('results');
+    expect(r.query?.category).toBe('transport-parts');
+    expect(r.attrs).toMatchObject(attrs);
+    expect(r.ai.calls).toBe(0);
+  });
+
+  it.each([
+    'восстановленная рейка Toyota',
+    'восстановленная KYB рейка',
+    'восстановленная рейка суксид',
+  ])('«%s» — тип детали не угадывается: «Уточните тип детали»', async (text) => {
+    const r = await ask(text);
+    expect(r.response.status).toBe('clarification');
+    expect(r.clarification!.question).toBe('Уточните тип детали');
+    expect(r.clarification!.options.map((option) => option.label)).toEqual(['Оригинал', 'Аналог']);
+    expect(r.ai.calls).toBe(0);
+  });
+
+  it('«восстановленная рейка» — сначала техника, потом тип', async () => {
+    const r = await ask('восстановленная рейка');
+    expect(r.clarification!.reason).toBe('ambiguous_equipment');
+  });
+
+  it('«рейка Toyota» — Toyota это машина, а не производитель детали', async () => {
+    const r = await ask('рейка Toyota');
+    expect(r.attrs).toMatchObject({ compatBrand: 'toyota' });
+    expect(r.attrs).not.toHaveProperty('partManufacturer');
+  });
+
+  it('«оригинальная рейка» не делает производителем Toyota', async () => {
+    const r = await ask('оригинальная рейка succeed');
+    expect(r.attrs).not.toHaveProperty('partManufacturer');
+  });
+
+  it('незнакомое слово не становится производителем', async () => {
+    const r = await ask('рейка суксид ромашка');
+    expect(r.attrs).not.toHaveProperty('partManufacturer');
+  });
+
+  it('номер без названия не превращается в деталь', async () => {
+    const r = await ask('XZ-99999-Q');
+    expect(r.query?.search).toBe('XZ-99999-Q');
+    expect(r.attrs).not.toHaveProperty('partItem');
+    expect(r.attrs).not.toHaveProperty('partGroup');
+  });
+
+  it('«насос стиралки bosch» — у стиралки Bosch это марка техники', async () => {
+    const r = await ask('насос стиралки bosch');
+    expect(r.query?.category).toBe('home-appliance-parts');
+    expect(r.attrs).toMatchObject({ compatBrand: 'bosch', partItem: 'washer_pump' });
+    expect(r.attrs).not.toHaveProperty('partManufacturer');
+  });
+
+  it('«дрель bosch» — не запчасть', async () => {
+    const r = await ask('дрель bosch');
+    expect(r.query?.category).not.toMatch(/parts/);
+  });
+
+  it('«новый iphone 13» — состояние телефона, а не детали', async () => {
+    const r = await ask('новый iphone 13');
+    expect(r.query?.category).toBe('electronics-phones');
+    expect(r.attrs).toMatchObject({ condition: 'new' });
+  });
+
+  it('«тойота 2015» — год машины, а не номер детали', async () => {
+    const r = await ask('тойота 2015');
+    expect(r.query?.category).toBe('transport-cars');
+  });
+});

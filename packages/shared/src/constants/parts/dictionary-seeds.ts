@@ -12,6 +12,7 @@ interface PartEntrySeed {
   label: string;
   parent?: string;
   aliases?: readonly string[];
+  meta?: Readonly<Record<string, string | number | boolean>>;
 }
 
 export interface PartDictionarySeed {
@@ -50,10 +51,20 @@ export function partDictionarySeeds(): PartDictionarySeed[] {
   }
   seeds.push({
     kind: PART_MANUFACTURER_KIND,
+    // Типы техники — в признаках записи строкой «passenger_car,truck»: справочник
+    // один, а форма и фильтр каждого раздела показывают только уместных
     entries: PART_MANUFACTURERS.map((item) => ({
       value: item.value,
       label: item.label,
       aliases: item.aliases ?? [],
+      ...(item.equipment?.length || item.machineBrand
+        ? {
+            meta: {
+              ...(item.equipment?.length ? { equipment: item.equipment.join(',') } : {}),
+              ...(item.machineBrand ? { machineBrand: true } : {}),
+            },
+          }
+        : {}),
     })),
   });
   return seeds;

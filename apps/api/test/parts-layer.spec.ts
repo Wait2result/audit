@@ -2,6 +2,7 @@ import {
   PART_NUMBER_KIND_LABELS,
   attributesSchemaFor,
   bindingsOf,
+  describeCardFacts,
   findSeedCategory,
   listingListQuerySchema,
   listingPartInputSchema,
@@ -314,5 +315,149 @@ describe('SQL фильтров слоя запчасти', () => {
     expect(renderSql(searchSql('90915yzzd1')!)).toContain('listing_part_numbers');
     expect(renderSql(searchSql('рулевая рейка')!)).not.toContain('listing_part_numbers');
     expect(renderSql(searchSql('камри 2015')!)).not.toContain('listing_part_numbers');
+  });
+});
+
+describe('Несколько совместимостей одной детали', () => {
+  const input = (value: unknown) => listingPartInputSchema.parse(value);
+  // Одна рейка, три применимости — пример из ТЗ
+  const rack = () =>
+    preparePart(
+      catalogue,
+      'transport-parts',
+      input({
+        compatibility: [
+          {
+            brand: 'toyota',
+            model: 'succeed',
+            chassis: 'NCP165',
+            yearFrom: 2015,
+            yearTo: 2020,
+            engine: '1NZ-FE',
+          },
+          {
+            brand: 'toyota',
+            model: 'probox',
+            chassis: 'NCP160',
+            yearFrom: 2014,
+            yearTo: 2020,
+            engine: '1NZ-FE',
+          },
+          { brand: 'toyota', model: 'probox', chassis: 'NCP165', yearFrom: 2015, yearTo: 2020 },
+        ],
+      }),
+    )!;
+
+  it('одна деталь — три строки, каждая своя комбинация, без перемножения', () => {
+    const part = rack();
+    expect(part.compatibility).toHaveLength(3);
+    expect(
+      part.compatibility.map(
+        (row) => `${row.model}/${row.chassis}/${row.yearFrom}-${row.yearTo}/${row.engine}`,
+      ),
+    ).toEqual([
+      'succeed/NCP165/2015-2020/1NZ-FE',
+      'probox/NCP160/2014-2020/1NZ-FE',
+      'probox/NCP165/2015-2020/null',
+    ]);
+  });
+
+  it('модификация хранится в строке и фильтруется в том же EXISTS', () => {
+    const part = preparePart(
+      catalogue,
+      'transport-parts',
+      input({ compatibility: [{ brand: 'toyota', model: 'succeed', modification: '1.5 4WD' }] }),
+    )!;
+    expect(part.compatibility[0]).toMatchObject({ modification: '1.5 4WD' });
+    const [condition] = attributeSql(attributesOf('transport-parts'), {
+      compatModel: 'succeed',
+      compatChassis: 'NCP165',
+      compatModification: '4wd',
+    });
+    const text = renderSql(condition!);
+    expect(text).toContain(`k."modification" ILIKE '%4wd%'`);
+    expect(text).toMatch(/k\."model" IN \('succeed'\) AND k\."chassis" ILIKE 'NCP165%'/);
+    expect(text.match(/EXISTS/g)).toHaveLength(1);
+  });
+
+  it('у телевизора модификации в фильтре нет — условие не строится', () => {
+    expect(attributeSql(attributesOf('electronics-tv-parts'), { compatModification: 'x' })).toEqual(
+      [],
+    );
+  });
+});
+
+describe('Производитель, тип и состояние', () => {
+  const attrs = attributesOf('transport-parts');
+
+  it('три отдельных фильтра — три условия по таблице значений', () => {
+    const conditions = attributeSql(attrs, {
+      partManufacturer: 'kyb',
+      partOriginality: 'analog',
+      partCondition: 'restored',
+    });
+    expect(conditions).toHaveLength(3);
+    const text = conditions.map((condition) => renderSql(condition)).join(' ');
+    expect(text).toContain(`v."key" = 'partManufacturer'`);
+    expect(text).toContain(`v."key" = 'partOriginality'`);
+    expect(text).toContain(`v."key" = 'partCondition'`);
+  });
+
+  it.each([
+    ['original', 'new'],
+    ['original', 'used'],
+    ['original', 'restored'],
+    ['analog', 'new'],
+    ['analog', 'used'],
+    ['analog', 'restored'],
+  ])('допустима комбинация %s + %s', (originality, condition) => {
+    const parsed = attributesSchemaFor(attrs).safeParse({
+      partGroup: 'steering',
+      partOriginality: originality,
+      partCondition: condition,
+      partManufacturer: 'kyb',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('«Контрактная» и «На запчасти» больше не значения состояния', () => {
+    for (const value of ['contract', 'for_parts', 'for_restoration']) {
+      expect(
+        attributesSchemaFor(attrs).safeParse({ partGroup: 'steering', partCondition: value })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it('производитель — только из справочника: выдуманный не принимается', () => {
+    const lookup = catalogue.lookup;
+    expect(lookup('part_manufacturer', 'kyb')).toBe(true);
+    expect(lookup('part_manufacturer', 'romashka')).toBe(false);
+  });
+
+  it('карточка: деталь, производитель и «Б/У оригинал» одной строкой', () => {
+    const values = {
+      partGroup: 'steering',
+      partItem: 'steering_rack',
+      partManufacturer: 'kyb',
+      partCondition: 'used',
+      partOriginality: 'original',
+    };
+    const labels = catalogue.labelsFor(attrs, values);
+    expect(describeCardFacts('transport-parts', attrs, values, labels)).toBe(
+      'Рулевая рейка · KYB · Б/У оригинал',
+    );
+    expect(
+      describeCardFacts(
+        'transport-parts',
+        attrs,
+        { ...values, partCondition: 'new', partOriginality: 'analog' },
+        labels,
+      ),
+    ).toBe('Рулевая рейка · KYB · Новый аналог');
+    const { partCondition: _drop, ...noCondition } = values;
+    expect(describeCardFacts('transport-parts', attrs, noCondition, labels)).toBe(
+      'Рулевая рейка · KYB · Оригинал',
+    );
   });
 });

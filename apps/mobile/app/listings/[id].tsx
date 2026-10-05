@@ -2,6 +2,7 @@ import {
   APPROXIMATE_AREA_METERS,
   LISTING_CONDITION_LABELS,
   attributeValueLabel,
+  isPartsCategory,
   cardFacts,
   formatListingAge,
   plural,
@@ -43,7 +44,7 @@ import { useCityStore } from '../../src/store/city-store';
 import { formatMemberSince } from '../../src/utils/member-since';
 import { shareListing } from '../../src/utils/share';
 import { radius, shadow, spacing, typography, useThemeColors } from '../../src/theme';
-import { PartBlock } from '../../src/components/PartBlock';
+import { PART_BLOCK_KEYS, PartBlock } from '../../src/components/PartBlock';
 import { attributesOfCategory } from '../../src/utils/listing-category-lookup';
 
 /**
@@ -91,7 +92,12 @@ export default function ListingScreen() {
   }
 
   const photos = listing.photos;
-  const attributes = attributesOfCategory(categories.data ?? [], listing.categorySlug);
+  const categoryAttributes = attributesOfCategory(categories.data ?? [], listing.categorySlug);
+  // У запчасти деталь, производитель, тип и состояние — в своём блоке «Запчасть»
+  const isPart = isPartsCategory(listing.categorySlug);
+  const attributes = isPart
+    ? categoryAttributes.filter((attribute) => !PART_BLOCK_KEYS.has(attribute.key))
+    : categoryAttributes;
   // Главное о вещи — одной строкой под названием; полный набор ниже, после описания
   const keyFacts = cardFacts(listing.attributesSummary, listing.title, 4);
 
@@ -212,7 +218,14 @@ export default function ListingScreen() {
         <Text style={styles.sectionTitle}>Описание</Text>
         <Text style={styles.description}>{listing.description}</Text>
 
-        {listing.part && <PartBlock part={listing.part} />}
+        {isPart && (
+          <PartBlock
+            part={listing.part}
+            attributes={categoryAttributes}
+            values={listing.attributes}
+            labels={listing.attributeLabels}
+          />
+        )}
 
         {attributes.some((attribute) => listing.attributes[attribute.key] !== undefined) && (
           <>

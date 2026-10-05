@@ -4,6 +4,7 @@ import {
   ErrorCode,
   ListingPriceUnit,
   mergeAttributeLists,
+  partsEquipmentBySlug,
   resolveAttributes,
   type AttributeDefinition,
   type CategoryAttributeBinding,
@@ -53,6 +54,14 @@ export interface DictionaryRecord {
   parentValue: string;
   /** Другие написания для поиска: «тойота», «тайота» */
   aliases: readonly string[];
+  /** Признаки записи: у производителя деталей — типы техники «passenger_car,truck» */
+  meta?: Readonly<Record<string, unknown>>;
+}
+
+/** Типы техники записи справочника (у производителя деталей); пусто — уместна везде. */
+export function entryEquipment(entry: DictionaryRecord): string[] {
+  const raw = entry.meta?.equipment;
+  return typeof raw === 'string' && raw ? raw.split(',') : [];
 }
 
 /**
@@ -360,12 +369,19 @@ export class ListingCategoriesService {
     row: CategoryRecord,
     catalogue: ListingCatalogue,
   ): readonly ListingAttribute[] {
+    // Производители деталей — один справочник на всю технику; в разделе
+    // показываются уместные ему (у автозапчастей нет Indesit)
+    const equipment = partsEquipmentBySlug(row.slug)?.code;
     return catalogue.attributesOf(row.id).map((attribute) => {
       if (attribute.type !== 'brand' || !attribute.dictionary) return attribute;
       return {
         ...attribute,
         options: catalogue
           .dictionaryEntries(attribute.dictionary, '')
+          .filter((entry) => {
+            const fits = entryEquipment(entry);
+            return !equipment || fits.length === 0 || fits.includes(equipment);
+          })
           .map((entry) => ({ value: entry.value, label: entry.label, aliases: entry.aliases })),
       };
     });
@@ -468,6 +484,9 @@ export async function loadCatalogue(prisma: CatalogueReader): Promise<ListingCat
         label: row.label,
         parentValue: row.parentValue,
         aliases: row.aliases,
+        ...(row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta)
+          ? { meta: row.meta }
+          : {}),
       });
       dictionaries.set(row.kind, list);
     }

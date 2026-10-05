@@ -189,3 +189,45 @@ describe('запчасти по заголовку', () => {
     ).toBeUndefined();
   });
 });
+
+describe('совместимость запчасти по заголовку — предложение, а не запись', () => {
+  it('«Рулевая рейка Toyota Succeed NCP165 2015 1NZ-FE» — марка, модель, кузов, год, мотор', () => {
+    expect(guess('Рулевая рейка Toyota Succeed NCP165 2015 1NZ-FE').compatibility).toEqual({
+      brand: 'toyota',
+      brandLabel: 'Toyota',
+      model: 'succeed',
+      modelLabel: 'Succeed',
+      chassis: 'NCP165',
+      yearFrom: 2015,
+      yearTo: 2015,
+      engine: '1NZ-FE',
+    });
+  });
+
+  it('модель без марки: «Рейка суксид» — Toyota Succeed', () => {
+    const result = guess('Рейка суксид');
+    expect(result.slug).toBe('transport-parts');
+    expect(result.compatibility).toMatchObject({ brand: 'toyota', model: 'succeed' });
+  });
+
+  it('годы «2014-2020» — промежуток', () => {
+    expect(guess('Рейка на пробокс 2014-2020').compatibility).toMatchObject({
+      model: 'probox',
+      yearFrom: 2014,
+      yearTo: 2020,
+    });
+  });
+
+  it('телефон: марка и модель из справочника телефонов, без кузова и годов', () => {
+    expect(guess('Дисплей на айфон 13').compatibility).toEqual({
+      brand: 'apple',
+      brandLabel: 'Apple',
+      model: 'iphone_13',
+      modelLabel: 'iPhone 13',
+    });
+  });
+
+  it('без техники в заголовке — без предложения', () => {
+    expect(guess('Компрессор холодильника').compatibility).toBeUndefined();
+  });
+});

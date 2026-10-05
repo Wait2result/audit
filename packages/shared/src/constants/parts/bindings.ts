@@ -41,6 +41,7 @@ export function partsBindings(equipment: PartsEquipment): CategoryAttributeBindi
   if (equipment.compat.year) bindings.push({ key: 'compatYear' });
   if (equipment.compat.chassis) bindings.push({ key: 'compatChassis' });
   if (equipment.compat.engine) bindings.push({ key: 'compatEngine' });
+  if (equipment.compat.modification) bindings.push({ key: 'compatModification' });
 
   bindings.push(
     { key: 'partManufacturer', dictionary: PART_MANUFACTURER_KIND },

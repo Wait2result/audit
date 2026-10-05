@@ -172,30 +172,42 @@ export function AttributeField({
     );
   }
 
+  // Подсказка выбранного варианта: «Восстановленная» — «укажите в описании, что заменено»
+  const hint = field.options?.find((option) => option.value === value)?.hint;
+  const withHint = (node: React.ReactNode) =>
+    hint ? (
+      <View style={styles.field}>
+        {node}
+        <Text style={styles.hint}>{hint}</Text>
+      </View>
+    ) : (
+      node
+    );
+
   if ((field.type === 'enum' || field.type === 'brand') && field.options) {
     // Длинный список (марка — полсотни с лишним значений) чипсами в ряд не
     // пролистать по-человечески — переключаемся на модальный поиск. Короткие
     // списки (коробка передач) остаются чипсами: для них лишний тап на
     // открытие модалки — не польза, а помеха
     if (field.options.length > 8) {
-      return (
+      return withHint(
         <SearchableSelect
           label={label}
           value={typeof value === 'string' ? value : undefined}
           options={field.options}
           onChange={onChange}
-        />
+        />,
       );
     }
 
-    return (
+    return withHint(
       <Field label={label}>
         <OptionChips
           options={field.options}
           selected={typeof value === 'string' ? [value] : []}
           onToggle={(next) => onChange(value === next ? undefined : next)}
         />
-      </Field>
+      </Field>,
     );
   }
 

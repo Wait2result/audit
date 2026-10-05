@@ -361,5 +361,235 @@ check(s2.body?.status === 'results', 'номер без названия — р�
 const s3 = await smart('экран');
 check(s3.body?.status === 'clarification', '«экран» — уточнение, а не угадывание', s3.body?.status);
 
+// ── 8. Производитель, тип, состояние; одна деталь — несколько машин ─────────
+console.log('\n8. Производитель, тип и состояние; несколько совместимостей');
+const carLeaf = bySlug['transport-parts'];
+const fieldOf = (leaf, key) => (leaf?.attributes ?? []).find((field) => field.key === key);
+const makerOptions = (slug) =>
+  (fieldOf(bySlug[slug], 'partManufacturer')?.options ?? []).map((o) => o.value);
+check(
+  ['kyb', 'ctr', 'denso', 'toyota'].every((value) =>
+    makerOptions('transport-parts').includes(value),
+  ) && !makerOptions('transport-parts').includes('indesit'),
+  'производители автозапчастей: KYB, CTR, Denso, Toyota — без Indesit',
+);
+check(
+  makerOptions('home-appliance-parts').includes('indesit') &&
+    !makerOptions('home-appliance-parts').includes('kyb'),
+  'у бытовой техники — Indesit, без KYB',
+);
+check(
+  JSON.stringify(fieldOf(carLeaf, 'partCondition')?.options?.map((o) => o.value)) ===
+    '["new","used","restored"]',
+  'состояние: Новая / Б/У / Восстановленная',
+);
+check(
+  fieldOf(carLeaf, 'partOriginality')?.label === 'Тип детали',
+  'поле «Тип детали»: Оригинал / Аналог',
+);
+check(Boolean(fieldOf(carLeaf, 'compatModification')), 'фильтр «Модификация» у автозапчастей');
+check(
+  !fieldOf(bySlug['electronics-phone-parts'], 'compatChassis'),
+  'у телефонов нет фильтра «Кузов»',
+);
+
+const kybSeller = await register('Продавец KYB');
+const KYB_NUMBER = `KYB-${RUN}77`;
+const kybRack = await call(
+  'POST',
+  '/my/listings',
+  {
+    cityId,
+    categoryId: carLeaf.id,
+    title: `Рулевая рейка Toyota Succeed KYB ${TAG}`,
+    description: `Новая рулевая рейка KYB. Артикул ${KYB_NUMBER}.`,
+    price: 25_000_00,
+    isNegotiable: false,
+    transactionType: 'sale',
+    priceUnit: 'total',
+    attributes: {
+      partGroup: 'steering',
+      partItem: 'steering_rack',
+      partManufacturer: 'kyb',
+      partOriginality: 'analog',
+      partCondition: 'new',
+    },
+    part: {
+      numbers: [{ kind: 'catalog', value: KYB_NUMBER }],
+      compatibility: [
+        {
+          brand: 'toyota',
+          model: 'succeed',
+          chassis: 'NCP165',
+          yearFrom: 2015,
+          yearTo: 2020,
+          engine: '1NZ-FE',
+        },
+        {
+          brand: 'toyota',
+          model: 'probox',
+          chassis: 'NCP160',
+          yearFrom: 2014,
+          yearTo: 2020,
+          engine: '1NZ-FE',
+        },
+        { brand: 'toyota', model: 'probox', chassis: 'NCP165', yearFrom: 2015, yearTo: 2020 },
+      ],
+    },
+    location: { latitude: 42.9849, longitude: 47.5047, accuracy: 'point' },
+    contactPhone: '+79501234567',
+    allowChat: true,
+    allowCalls: true,
+    photoIds: [],
+  },
+  kybSeller.token,
+);
+check(
+  kybRack.status === 201,
+  'KYB, аналог, новая, три совместимости — создана',
+  `статус ${kybRack.status} ${JSON.stringify(kybRack.body?.message ?? '')}`,
+);
+const kybId = kybRack.body?.id;
+const kybCard = (await call('GET', `/listings/${kybId}`)).body;
+check(kybCard?.attributes?.partManufacturer === 'kyb', 'производитель хранится кодом справочника');
+check(kybCard?.attributeLabels?.kyb === 'KYB', 'и показывается названием «KYB», а не кодом');
+check(
+  kybCard?.attributes?.partOriginality === 'analog' && kybCard?.attributes?.partCondition === 'new',
+  'тип «Аналог», состояние «Новая»',
+);
+check(kybCard?.part?.compatibility?.length === 3, 'в карточке три строки «Подходит к»');
+check(kybCard?.part?.numbers?.[0]?.value === KYB_NUMBER, 'номер детали в карточке как написан');
+
+const has = (items, id) => items.some((item) => item.id === id);
+const kybBy = async (attributes) => has(await byAttrs(attributes), kybId);
+const listed = (await search(`search=${encodeURIComponent(KYB_NUMBER)}`)).find(
+  (item) => item.id === kybId,
+);
+check(
+  /KYB/.test(listed?.attributesSummary ?? '') &&
+    /Новый аналог/.test(listed?.attributesSummary ?? ''),
+  'строка карточки: «KYB · Новый аналог»',
+  listed?.attributesSummary,
+);
+check(await kybBy({ compatModel: 'succeed' }), 'по первой модели (Succeed)');
+check(await kybBy({ compatModel: 'probox' }), 'по второй модели (Probox)');
+check(await kybBy({ compatChassis: 'NCP160' }), 'по кузову NCP160');
+check(await kybBy({ compatChassis: 'NCP165' }), 'по кузову NCP165');
+check(!(await kybBy({ compatChassis: 'NCP166' })), 'NCP166 — не находит (такого кузова нет)');
+check(
+  !(await kybBy({ compatModel: 'succeed', compatYear: 2023 })),
+  'Succeed 2023 — не находит (2015–2020)',
+);
+check(
+  await kybBy({ compatModel: 'probox', compatYear: 2014 }),
+  'Probox 2014 — находит (NCP160 с 2014)',
+);
+check(
+  !(await kybBy({ compatModel: 'succeed', compatChassis: 'NCP160' })),
+  'Succeed + NCP160 — нет: строки не перемножаются',
+);
+check(await kybBy({ compatEngine: '1NZ' }), 'по двигателю 1NZ');
+check(await kybBy({ partManufacturer: 'kyb' }), 'по производителю KYB');
+check(!(await kybBy({ partManufacturer: 'ctr' })), 'производитель CTR — не находит');
+check(await kybBy({ partOriginality: 'analog' }), 'по типу «Аналог»');
+check(!(await kybBy({ partOriginality: 'original' })), 'тип «Оригинал» — не находит');
+check(await kybBy({ partCondition: 'new' }), 'по состоянию «Новая»');
+check(!(await kybBy({ partCondition: 'used' })), 'состояние «Б/У» — не находит');
+check(
+  await kybBy({
+    partManufacturer: 'kyb',
+    compatModel: 'succeed',
+    partItem: 'steering_rack',
+    partGroup: 'steering',
+  }),
+  'производитель + модель + деталь вместе',
+);
+check(
+  has(
+    await search(`search=${encodeURIComponent(KYB_NUMBER.toLowerCase().replace(/-/g, ' '))}`),
+    kybId,
+  ) || has(await search(`search=${KYB_NUMBER.replace(/-/g, '')}`), kybId),
+  'по номеру без дефисов',
+);
+
+// Умный поиск → те же параметры → эта деталь в выдаче
+const viaSmart = async (text) => {
+  const answer = await smart(text);
+  const params = answer.body?.parts?.[0]?.query?.params ?? {};
+  const query = new URLSearchParams({
+    ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    regionWide: 'true',
+    limit: '50',
+  });
+  query.delete('latitude');
+  query.delete('longitude');
+  query.delete('radiusKm');
+  const items = (await call('GET', `/listings?${query}`)).body?.items ?? [];
+  return { status: answer.body?.status, found: has(items, kybId) };
+};
+for (const text of [
+  'рейка суксид',
+  'рейка Toyota Succeed',
+  'рейка NCP165',
+  'рейка NCP160',
+  'рейка Probox',
+  'рейка KYB суксид',
+  'новая рейка KYB',
+  'аналог рейки Succeed',
+  KYB_NUMBER,
+]) {
+  const result = await viaSmart(text);
+  check(
+    result.status === 'results' && result.found,
+    `умный поиск «${text}» находит деталь`,
+    result.status,
+  );
+}
+const n166 = await viaSmart('рейка NCP166');
+check(!n166.found, 'умный поиск «рейка NCP166» — не находит');
+const restoredToyota = await smart('восстановленная рейка Toyota');
+check(
+  restoredToyota.body?.status === 'clarification' &&
+    restoredToyota.body?.parts?.[0]?.clarification?.question === 'Уточните тип детали',
+  '«восстановленная рейка Toyota» — «Уточните тип детали»',
+);
+
+// Правка: состояние и ещё одна совместимость
+const kybEdit = await call(
+  'PATCH',
+  `/my/listings/${kybId}`,
+  {
+    attributes: { ...kybCard.attributes, partCondition: 'restored' },
+    part: {
+      numbers: [{ kind: 'catalog', value: KYB_NUMBER }],
+      compatibility: [
+        ...kybCard.part.compatibility.map((row) => ({
+          brand: row.brand,
+          model: row.model,
+          ...(row.chassis ? { chassis: row.chassis } : {}),
+          ...(row.yearFrom ? { yearFrom: row.yearFrom } : {}),
+          ...(row.yearTo ? { yearTo: row.yearTo } : {}),
+          ...(row.engine ? { engine: row.engine } : {}),
+        })),
+        { brand: 'toyota', model: 'corolla', chassis: 'NZE161', yearFrom: 2012, yearTo: 2019 },
+      ],
+    },
+  },
+  kybSeller.token,
+);
+check(
+  kybEdit.status === 200,
+  'правка: состояние и четвёртая совместимость сохранены',
+  `статус ${kybEdit.status} ${JSON.stringify(kybEdit.body?.message ?? '')}`,
+);
+const afterEdit = (await call('GET', `/listings/${kybId}`)).body;
+check(afterEdit?.attributes?.partCondition === 'restored', 'после правки: «Восстановленная»');
+check(afterEdit?.part?.compatibility?.length === 4, 'после правки: четыре строки совместимости');
+check(await kybBy({ compatChassis: 'NZE161' }), 'находится по новому кузову NZE161');
+check(
+  (await kybBy({ partCondition: 'restored' })) && !(await kybBy({ partCondition: 'new' })),
+  'фильтр состояния видит правку',
+);
+
 console.log(`\nИтого: ${passed} ✅, ${failed} ❌\n`);
 process.exit(failed === 0 ? 0 : 1);

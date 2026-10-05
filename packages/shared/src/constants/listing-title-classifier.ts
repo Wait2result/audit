@@ -5,10 +5,10 @@ import {
   partAliasMaxWords,
   partLabels,
 } from '../search/parts.js';
-import { partsEquipmentByCode } from './parts/equipment-types.js';
+import { partsEquipmentByCode, type PartsEquipment } from './parts/equipment-types.js';
 import { BRAND_ALIASES, MODEL_ALIASES } from './dictionaries/aliases.js';
 import { CAR_BRANDS, OTHER_BRAND } from './dictionaries/car-brands.js';
-import { modelValue } from './dictionaries/index.js';
+import { DICTIONARY_SEEDS, modelValue, type DictionaryEntrySeed } from './dictionaries/index.js';
 import { PHONE_BRANDS } from './dictionaries/electronics-brands.js';
 import { PHONE_MODELS } from './dictionaries/phone-models.js';
 import type { ListingRentPeriod, ListingTransactionType } from './transactions.js';
@@ -36,9 +36,26 @@ export interface ListingTitleGuess {
   attributes: Record<string, string | number>;
   /** Подписи для строки «Похоже, это: …»: марка и модель как их пишут люди */
   details: string[];
+  /**
+   * Запчасть: к какой технике она, судя по заголовку («Рейка Toyota Succeed
+   * NCP165»). Только предложение: форма спрашивает «Добавить в совместимость?»
+   */
+  compatibility?: ListingTitleCompatibility;
   /** Сделка, если заголовок её называет: «сдам», «посуточно» */
   transactionType?: ListingTransactionType;
   rentPeriod?: ListingRentPeriod;
+}
+
+/** Совместимость запчасти из заголовка: коды справочников самой техники. */
+export interface ListingTitleCompatibility {
+  brand: string;
+  brandLabel: string;
+  model?: string;
+  modelLabel?: string;
+  chassis?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  engine?: string;
 }
 
 export type ListingTitleVerdict =
@@ -257,6 +274,18 @@ function partsGuess(text: string, words: readonly string[]): ListingTitleGuess |
     if (phoneBrand) equipment.add('phone');
   }
 
+  // Ни слов, ни марки: модель из справочников подсказывает технику («рейка суксид» —
+  // Succeed есть только у легковых)
+  if (equipment.size === 0) {
+    const byModel = [...new Set(findPartAlias(phrase).map((match) => match.equipment))].filter(
+      (code) => {
+        const candidate = partsEquipmentByCode(code);
+        return candidate ? compatibilityGuess(candidate, rest)?.model !== undefined : false;
+      },
+    );
+    if (byModel.length === 1) equipment.add(byModel[0]!);
+  }
+
   const decision = decideParts({
     aliases: [phrase],
     equipment: [...equipment] as never,
@@ -272,11 +301,87 @@ function partsGuess(text: string, words: readonly string[]): ListingTitleGuess |
   if (group) attributes.partGroup = group;
   attributes.partItem = item;
   if (kind && target.kind?.attribute === kind.attribute) attributes[kind.attribute] = kind.option;
+  const compatibility = compatibilityGuess(target, rest);
   return {
     slug: target.slug,
     attributes,
     details: [labels.group, labels.item].filter((label): label is string => Boolean(label)),
+    ...(compatibility ? { compatibility } : {}),
   };
+}
+
+/** Записи справочника из исходника (тот же, что засевается в базу). */
+function seedEntries(kind: string | undefined): readonly DictionaryEntrySeed[] {
+  return kind ? (DICTIONARY_SEEDS.find((seed) => seed.kind === kind)?.entries ?? []) : [];
+}
+
+function formsOf(entry: DictionaryEntrySeed): string[] {
+  return [entry.value.replace(/_/g, ' '), normalize(entry.label), ...(entry.aliases ?? [])]
+    .map(normalize)
+    .filter((form) => form.length >= 2);
+}
+
+/**
+ * Техника из хвоста заголовка запчасти: марка и модель — по справочникам
+ * этого типа техники (у легковых — car_brand/car_model, у телефонов —
+ * phone_brand/phone_model), кузов, годы и двигатель — по виду слова. Модель
+ * без марки («рейка суксид») — если такая модель у одной марки.
+ */
+function compatibilityGuess(
+  target: PartsEquipment,
+  rest: readonly string[],
+): ListingTitleCompatibility | undefined {
+  if (!target.brandKind) return undefined;
+  const padded = ` ${rest.join(' ')} `;
+  const has = (form: string) => padded.includes(` ${form} `);
+
+  let brand = seedEntries(target.brandKind).find(
+    (entry) => entry.value !== OTHER_BRAND && formsOf(entry).some(has),
+  );
+  const models = seedEntries(target.modelKind).filter(
+    (entry) => !brand || entry.parent === brand.value,
+  );
+  const found = [...models]
+    .sort((a, b) => b.label.length - a.label.length)
+    .filter((entry) => formsOf(entry).some(has));
+  const owners = new Set(found.map((entry) => entry.parent));
+  const model = owners.size === 1 ? found[0] : undefined;
+  if (!brand && model?.parent) {
+    brand = seedEntries(target.brandKind).find((entry) => entry.value === model.parent);
+  }
+  if (!brand) return undefined;
+
+  const result: ListingTitleCompatibility = { brand: brand.value, brandLabel: brand.label };
+  if (model) {
+    result.model = model.value;
+    result.modelLabel = model.label;
+  }
+  if (target.compat.chassis) {
+    const chassis = rest.find((word) => /^[a-z]{3,4}\d{2,3}[a-z]?$/.test(word));
+    if (chassis) result.chassis = chassis.toUpperCase();
+  }
+  if (target.compat.year) {
+    const years = rest
+      .filter((word) => /^(19[5-9]\d|20[0-4]\d)$/.test(word))
+      .map(Number)
+      .sort((a, b) => a - b);
+    if (years.length > 0) {
+      result.yearFrom = years[0]!;
+      result.yearTo = years[years.length - 1]!;
+    }
+  }
+  if (target.compat.engine) {
+    const at = rest.findIndex((word) => /^\d[a-z]{2,3}$/.test(word) && !/^\dwd$/.test(word));
+    if (at >= 0) {
+      const suffix = rest[at + 1];
+      result.engine = (
+        suffix && /^(fe|ge|gte|fse|fxe|ze|ar|ur|gr)$/.test(suffix)
+          ? `${rest[at]}-${suffix}`
+          : rest[at]!
+      ).toUpperCase();
+    }
+  }
+  return result;
 }
 
 /** Автомобиль по марке, модели и году; мотоцикл, шины и запчасти — по словам. */

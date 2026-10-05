@@ -8,7 +8,7 @@ import {
   type PartNumberKind,
   type PartsEquipment,
 } from '@dagestan/shared';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useDictionary } from '../api/queries';
@@ -42,6 +42,7 @@ export interface CompatibilityRow {
   yearFrom: string;
   yearTo: string;
   engine: string;
+  modification: string;
 }
 
 /** Состояние редактора: строки хранятся текстом, как их печатает человек. */
@@ -59,6 +60,7 @@ const emptyRow = (): CompatibilityRow => ({
   yearFrom: '',
   yearTo: '',
   engine: '',
+  modification: '',
 });
 
 /** Слой с сервера (правка объявления) → состояние редактора. */
@@ -73,6 +75,7 @@ export function partLayerFromDto(part: ListingPartDto | null | undefined): PartL
       yearFrom: row.yearFrom !== null ? String(row.yearFrom) : '',
       yearTo: row.yearTo !== null ? String(row.yearTo) : '',
       engine: row.engine ?? '',
+      modification: row.modification ?? '',
     })),
   };
 }
@@ -83,7 +86,13 @@ const yearOf = (text: string): number | undefined => {
 };
 
 const rowIsEmpty = (row: CompatibilityRow) =>
-  !row.brand && !row.model && !row.chassis && !row.engine && !row.yearFrom && !row.yearTo;
+  !row.brand &&
+  !row.model &&
+  !row.chassis &&
+  !row.engine &&
+  !row.modification &&
+  !row.yearFrom &&
+  !row.yearTo;
 
 /**
  * Текст ошибки или null. Пустые строки пропускаются — их при отправке просто
@@ -97,7 +106,7 @@ export function partLayerError(value: PartLayerValue): string | null {
   }
   for (const row of value.compatibility) {
     if (rowIsEmpty(row)) continue;
-    if (!row.brand && !row.model && !row.chassis && !row.engine) {
+    if (!row.brand && !row.model && !row.chassis && !row.engine && !row.modification) {
       return 'В строке совместимости укажите марку, модель, кузов или двигатель';
     }
     const from = yearOf(row.yearFrom);
@@ -128,11 +137,32 @@ export function partLayerToInput(value: PartLayerValue): ListingPartInput {
           ...(row.model.trim() ? { model: row.model.trim() } : {}),
           ...(row.chassis.trim() ? { chassis: row.chassis.trim() } : {}),
           ...(row.engine.trim() ? { engine: row.engine.trim() } : {}),
+          ...(row.modification.trim() ? { modification: row.modification.trim() } : {}),
           ...(yearFrom !== undefined ? { yearFrom } : {}),
           ...(yearTo !== undefined ? { yearTo } : {}),
         };
       }),
   };
+}
+
+/**
+ * Техника из заголовка («Рулевая рейка Toyota Succeed NCP165») — предложение
+ * для первой строки «Подходит к». Сама не записывается: продавец нажимает
+ * «Добавить» или «Изменить» и видит строку перед сохранением.
+ */
+export interface CompatibilitySuggestion {
+  /** «Toyota Succeed · NCP165 · 2015» */
+  label: string;
+  row: CompatibilityRow;
+}
+
+/** Строка уже есть среди введённых — предлагать её снова незачем. */
+export function hasCompatibilityRow(value: PartLayerValue, row: CompatibilityRow): boolean {
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  return value.compatibility.some(
+    (item) =>
+      same(item.brand, row.brand) && same(item.model, row.model) && same(item.chassis, row.chassis),
+  );
 }
 
 /** Это подкатегория запчастей (есть редактор слоя)? */
@@ -144,16 +174,29 @@ export function PartLayerEditor({
   value,
   onChange,
   error,
+  suggestion,
+  onDismissSuggestion,
 }: {
   slug: string;
   value: PartLayerValue;
   onChange: (value: PartLayerValue) => void;
   error?: string | null;
+  suggestion?: CompatibilitySuggestion | null;
+  onDismissSuggestion?: () => void;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  // Строка, добавленная кнопкой «Изменить», подсвечена: её сейчас и правят
+  const [focused, setFocused] = useState<number | null>(null);
   const equipment = partsEquipmentBySlug(slug);
   if (!equipment) return null;
+
+  const acceptSuggestion = (edit: boolean) => {
+    if (!suggestion) return;
+    onChange({ ...value, compatibility: [suggestion.row, ...value.compatibility] });
+    setFocused(edit ? 0 : null);
+    onDismissSuggestion?.();
+  };
 
   const setNumber = (index: number, patch: Partial<PartNumberRow>) =>
     onChange({
@@ -219,23 +262,57 @@ export function PartLayerEditor({
 
       {/* ── Совместимость ──────────────────────────────────────────── */}
       <Text style={[styles.title, styles.titleGap]}>Подходит к</Text>
+      {suggestion && (
+        <View style={styles.suggestion}>
+          <Text style={styles.suggestionText}>Добавить {suggestion.label} в совместимость?</Text>
+          <View style={styles.suggestionActions}>
+            <Pressable
+              onPress={() => acceptSuggestion(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.suggestionPrimary, pressed && styles.pressed]}
+            >
+              <Text style={styles.suggestionPrimaryLabel}>Добавить</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => acceptSuggestion(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.suggestionSecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.suggestionSecondaryLabel}>Изменить</Text>
+            </Pressable>
+            <Pressable
+              onPress={onDismissSuggestion}
+              accessibilityRole="button"
+              accessibilityLabel="Не добавлять"
+              hitSlop={12}
+              style={styles.suggestionClose}
+            >
+              <Icon name="close" size={16} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        </View>
+      )}
       <Text style={styles.hint}>
         {equipment.brandKind
           ? 'Марка и модель — из справочника техники. Строк может быть несколько.'
           : 'Впишите, к чему подходит деталь. Строк может быть несколько.'}
       </Text>
       {value.compatibility.map((row, index) => (
-        <View key={`compat-${index}`} style={styles.card}>
+        <View
+          key={`compat-${index}`}
+          style={[styles.card, focused === index && styles.cardFocused]}
+        >
           <View style={styles.cardHead}>
             <Text style={styles.cardTitle}>Вариант {index + 1}</Text>
             <RemoveButton
               label={`Убрать вариант ${index + 1}`}
-              onPress={() =>
+              onPress={() => {
                 onChange({
                   ...value,
                   compatibility: value.compatibility.filter((_, i) => i !== index),
-                })
-              }
+                });
+                setFocused(null);
+              }}
             />
           </View>
           <CompatibilityRowFields
@@ -355,6 +432,19 @@ function CompatibilityRowFields({
           />
         </Field>
       )}
+      {equipment.compat.modification && (
+        <Field label="Модификация">
+          <TextInput
+            value={row.modification}
+            onChangeText={(text) => onChange({ modification: text })}
+            placeholder="Например, 1.5 4WD или Pro Max"
+            placeholderTextColor={colors.textFaint}
+            maxLength={120}
+            style={styles.input}
+            accessibilityLabel="Модификация"
+          />
+        </Field>
+      )}
       {equipment.compat.year && (
         <View style={styles.years}>
           <View style={styles.year}>
@@ -427,6 +517,35 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => {
       borderRadius: radius.lg,
       backgroundColor: colors.surfaceMuted,
     },
+    cardFocused: { borderWidth: 1, borderColor: colors.primary },
+    suggestion: {
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.primarySoft,
+    },
+    suggestionText: { ...typography.body, color: colors.text },
+    suggestionActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    suggestionPrimary: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+    },
+    suggestionPrimaryLabel: {
+      ...typography.caption,
+      color: colors.textOnPrimary,
+      fontWeight: '600',
+    },
+    suggestionSecondary: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    suggestionSecondaryLabel: { ...typography.caption, color: colors.primary, fontWeight: '600' },
+    suggestionClose: { marginLeft: 'auto' },
     cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     cardTitle: { ...typography.caption, color: colors.textMuted, fontWeight: '600' },
     rowFields: { gap: spacing.md },

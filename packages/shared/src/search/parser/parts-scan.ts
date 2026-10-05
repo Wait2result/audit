@@ -1,10 +1,14 @@
-import { looksLikePartNumber } from '../../constants/parts/part-number.js';
+import { looksLikePartNumber, partNumberKey } from '../../constants/parts/part-number.js';
 import {
   GENERIC_PARTS_EQUIPMENT,
   GENERIC_PARTS_WORDS,
   findEquipmentWord,
+  findMakerWord,
   findPartAlias,
+  findQualityWord,
+  makerMaxWordCount,
   partAliasMaxWords,
+  type PartQuality,
   type EquipmentWordHit,
   type PartMatch,
 } from '../parts.js';
@@ -39,6 +43,10 @@ export interface PartsScan {
   equipment: EquipmentHit[];
   chassis: { index: number; value: string }[];
   engine: { start: number; end: number; value: string }[];
+  /** Производители деталей (не марки техники): «KYB», «денсо» */
+  makers: { start: number; end: number; value: string }[];
+  /** Тип и состояние: «б/у», «оригинал», «восстановленная» */
+  qualities: { start: number; end: number; quality: PartQuality }[];
 }
 
 /** Самое длинное название техники или вида в словах («надувная лодка»). */
@@ -64,7 +72,15 @@ const ENGINE_SUFFIX = new Set([
 ]);
 
 export function scanParts(tokens: readonly SearchToken[]): PartsScan {
-  const scan: PartsScan = { hits: [], generic: [], equipment: [], chassis: [], engine: [] };
+  const scan: PartsScan = {
+    hits: [],
+    generic: [],
+    equipment: [],
+    chassis: [],
+    engine: [],
+    makers: [],
+    qualities: [],
+  };
   const taken = new Array<boolean>(tokens.length).fill(false);
   const isFree = (from: number, to: number): boolean =>
     free(tokens, from, to) && taken.slice(from, to).every((item) => !item);
@@ -127,7 +143,33 @@ export function scanParts(tokens: readonly SearchToken[]): PartsScan {
     }
   }
 
+  // Производитель детали: «рейка KYB», «фильтр Denso». Марки техники (Toyota,
+  // Samsung) остаются словами фразы — их читает справочник техники
+  for (let length = makerMaxWordCount(); length >= 1; length -= 1) {
+    for (let start = 0; start + length <= tokens.length; start += 1) {
+      const end = start + length;
+      if (!isFree(start, end)) continue;
+      const hit = findMakerWord(span(tokens, start, end));
+      if (!hit || hit.machineBrand) continue;
+      scan.makers.push({ start, end, value: hit.value });
+      take(start, end);
+    }
+  }
+
+  // Тип и состояние: «б/у оригинал», «не оригинал», «после переборки»
+  for (let length = 2; length >= 1; length -= 1) {
+    for (let start = 0; start + length <= tokens.length; start += 1) {
+      const end = start + length;
+      if (!isFree(start, end)) continue;
+      const quality = findQualityWord(span(tokens, start, end));
+      if (!quality) continue;
+      scan.qualities.push({ start, end, quality });
+      take(start, end);
+    }
+  }
+
   scan.hits.sort((a, b) => a.start - b.start);
+  scan.makers.sort((a, b) => a.start - b.start);
   return scan;
 }
 
@@ -175,6 +217,32 @@ export function extractPartNumbers(text: string): ExtractedCodes {
       return token;
     })
     .join(' ');
+
+  // Номер сразу после производителя: «Denso 123456», «KYB 333388». У марки
+  // техники («Toyota 2015», «тойота 500000») число — год или цена, поэтому
+  // после неё номером считается только код с буквой или дефисом
+  const words = rest.split(/\s+/);
+  for (let i = 1; i < words.length; i += 1) {
+    const maker = findMakerWord(words[i - 1]!);
+    const value = words[i]!.replace(/^[(«"']+|[)»"'.,;:!?]+$/g, '');
+    if (!maker || !/^[A-Za-z0-9][A-Za-z0-9\-–./]{3,}$/.test(value) || !/\d/.test(value)) continue;
+    const digitsOnly = /^\d+$/.test(value);
+    if (digitsOnly && (value.length < 5 || maker.machineBrand)) continue;
+    // Код без знаков («NCP165», «1NZ») — кузов или мотор, а не номер; номер с буквами — с дефисом,
+    // или длинный код у производителя деталей («KYB 3340a12»)
+    const separated = /[-–./]/.test(value);
+    const code = /^[A-Za-z]{2,4}\d{2,3}[A-Za-z]?$|^\d[A-Za-z]{2,3}$/.test(value);
+    if (
+      !digitsOnly &&
+      (partNumberKey(value).length < 4 ||
+        code ||
+        (!separated && (maker.machineBrand || value.length < 6)))
+    )
+      continue;
+    remember(value);
+    words[i] = ' ';
+  }
+  rest = words.join(' ');
 
   return { numbers, text: numbers.length > 0 ? rest.replace(/\s+/g, ' ').trim() : text };
 }

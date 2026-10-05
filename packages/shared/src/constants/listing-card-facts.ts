@@ -1,4 +1,5 @@
 import { describeAttribute, type ListingAttribute } from './listing-attributes.js';
+import { partStateLabel } from './parts/part-state.js';
 import { TRANSACTION_CREATE_LABELS } from './transactions.js';
 
 /**
@@ -83,16 +84,18 @@ export type CardFactSpec =
       keys: readonly string[];
       /** Не показывать, если другое поле уже сказало то же: «Удалённо» в графике и флажок «Удалённая работа» */
       unless?: Readonly<Record<string, unknown>>;
+      /** Своя подпись для пары полей: состояние и тип детали — «Б/У оригинал» */
+      format?: 'partState';
     };
 
 const MODEL: CardFactSpec = ['brand', 'modelName'];
 const BRAND_MODEL: CardFactSpec = ['brand', 'model'];
 const LOOSE_MODEL: CardFactSpec = ['brandName', 'modelName'];
+// Деталь, производитель и «Б/У оригинал» — состояние и тип одной строкой
 const PART_FACTS: readonly CardFactSpec[] = [
-  'partGroup',
   'partItem',
-  'partOriginality',
-  'partCondition',
+  'partManufacturer',
+  { keys: ['partCondition', 'partOriginality'], format: 'partState' },
 ];
 
 /**
@@ -113,7 +116,7 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'transport-moto': [BRAND_MODEL, 'year', 'engineCc', 'mileage'],
   'transport-trucks': [BRAND_MODEL, 'year', 'loadCapacity', 'mileage'],
   'transport-special': ['specialType', BRAND_MODEL, 'year', 'hours'],
-  // Запчасти всех типов техники: категория и деталь, оригинал или аналог, состояние.
+  // Запчасти всех типов техники: деталь, производитель, состояние и тип.
   // Совместимость и номер — отдельным слоем, их добавляет сервер (см. summaryFor)
   'transport-parts': PART_FACTS,
   'transport-moto-parts': PART_FACTS,
@@ -260,7 +263,11 @@ export function describeCardFacts(
   for (const spec of specs) {
     const detailed =
       typeof spec === 'object' && !Array.isArray(spec)
-        ? (spec as { keys: readonly string[]; unless?: Readonly<Record<string, unknown>> })
+        ? (spec as {
+            keys: readonly string[];
+            unless?: Readonly<Record<string, unknown>>;
+            format?: 'partState';
+          })
         : null;
     const keys =
       typeof spec === 'string' ? [spec] : detailed ? detailed.keys : (spec as readonly string[]);
@@ -269,6 +276,12 @@ export function describeCardFacts(
         ([key, value]) => values[key] === value,
       );
       if (repeated) continue;
+    }
+    if (detailed?.format === 'partState') {
+      const state = partStateLabel(values.partCondition, values.partOriginality);
+      if (state) facts.push(state);
+      if (facts.length >= limit) break;
+      continue;
     }
     const words: string[] = [];
     for (const key of keys) {

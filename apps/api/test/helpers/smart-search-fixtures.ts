@@ -131,6 +131,7 @@ export function seedCatalogue(): ListingCatalogue {
         label: entry.label,
         parentValue: entry.parent ?? '',
         aliases: entry.aliases ?? [],
+        ...(entry.meta ? { meta: entry.meta } : {}),
       })),
     );
   }

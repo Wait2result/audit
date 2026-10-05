@@ -243,18 +243,118 @@ describe('Справочники и привязки', () => {
     }
   });
 
-  it('состояние, оригинальность и производитель — три разных поля', () => {
+  it('состояние, тип и производитель — три разных поля', () => {
     const condition = ATTRIBUTE_DEFINITIONS.partCondition!;
     const originality = ATTRIBUTE_DEFINITIONS.partOriginality!;
-    expect(condition.options?.map((o) => o.value)).toEqual([
-      'new',
-      'used',
-      'contract',
-      'restored',
-      'for_parts',
-      'for_restoration',
-    ]);
+    // «Контрактная» — это «Оригинал» + «Б/У»; «Восстановленная» — состояние, а не тип
+    expect(condition.options?.map((o) => o.value)).toEqual(['new', 'used', 'restored']);
+    expect(condition.options?.map((o) => o.label)).toEqual(['Новая', 'Б/У', 'Восстановленная']);
     expect(originality.options?.map((o) => o.value)).toEqual(['original', 'analog']);
+    expect(originality.label).toBe('Тип детали');
     expect(ATTRIBUTE_DEFINITIONS.partManufacturer?.type).toBe('brand');
+    // У «Восстановленной» — подсказка про описание, а не обязательное поле
+    expect(condition.options?.find((o) => o.value === 'restored')?.hint).toMatch(/описании/);
+  });
+
+  it('у фильтра совместимости модификация — только там, где у моделей бывают версии', () => {
+    const keysOf = (code: string) =>
+      partsBindings(PARTS_EQUIPMENT.find((item) => item.code === code)!).map((b) => b.key);
+    expect(keysOf('passenger_car')).toEqual(
+      expect.arrayContaining(['compatChassis', 'compatYear', 'compatEngine', 'compatModification']),
+    );
+    expect(keysOf('phone')).not.toContain('compatChassis');
+    expect(keysOf('phone')).not.toContain('compatEngine');
+    expect(keysOf('home_appliance')).not.toContain('compatEngine');
+    expect(keysOf('tv')).not.toContain('compatModification');
+    expect(FILTER_ONLY_ATTRIBUTES.has('compatModification')).toBe(true);
+  });
+});
+
+describe('Справочник производителей деталей', () => {
+  const required = [
+    'Toyota',
+    'Denso',
+    'Bosch',
+    'KYB',
+    'CTR',
+    'Masuma',
+    'NGK',
+    'Sachs',
+    'TRW',
+    'ATE',
+    'Brembo',
+    'SKF',
+    'NSK',
+    'NTN',
+    'Gates',
+    'INA',
+    'Valeo',
+    'AISIN',
+    'Exedy',
+    'Tokico',
+    'Febi',
+    'Lemförder',
+    'Mando',
+    'GMB',
+  ];
+
+  it('стартовый список из ТЗ есть целиком', () => {
+    const labels = PART_MANUFACTURERS.map((item) => item.label);
+    for (const label of required) expect(labels, label).toContain(label);
+  });
+
+  it('одно название — один производитель: Denso, DENSO и «денсо» не плодят записей', () => {
+    const owner = new Map<string, string>();
+    for (const item of PART_MANUFACTURERS) {
+      for (const name of [item.label, item.value.replace(/_/g, ' '), ...(item.aliases ?? [])]) {
+        const key = norm(name);
+        const seen = owner.get(key);
+        expect(
+          seen === undefined || seen === item.value,
+          `«${name}»: ${seen} и ${item.value}`,
+        ).toBe(true);
+        owner.set(key, item.value);
+      }
+    }
+    expect(new Set(PART_MANUFACTURERS.map((item) => item.value)).size).toBe(
+      PART_MANUFACTURERS.length,
+    );
+  });
+
+  it('марки машин не прячутся в написаниях производителя (Hyundai, Kia, Audi — это техника)', () => {
+    const carBrands = new Set(
+      DICTIONARY_SEEDS.find((seed) => seed.kind === 'car_brand')!.entries.map((entry) =>
+        norm(entry.label),
+      ),
+    );
+    for (const item of PART_MANUFACTURERS) {
+      if (item.machineBrand) continue;
+      for (const alias of item.aliases ?? []) {
+        expect(carBrands.has(norm(alias)), `${item.value}: «${alias}»`).toBe(false);
+      }
+    }
+  });
+
+  it('производители привязаны к типам техники из реестра; справочник сеется с ними', () => {
+    const codes = new Set(PARTS_EQUIPMENT.map((item) => item.code));
+    for (const item of PART_MANUFACTURERS) {
+      for (const code of item.equipment ?? [])
+        expect(codes.has(code), `${item.value}: ${code}`).toBe(true);
+    }
+    const seed = DICTIONARY_SEEDS.find((entry) => entry.kind === PART_MANUFACTURER_KIND)!;
+    expect(seed.entries.find((entry) => entry.value === 'kyb')?.meta).toMatchObject({
+      equipment: 'passenger_car,truck,moto',
+    });
+    expect(seed.entries.find((entry) => entry.value === 'toyota')?.meta).toMatchObject({
+      machineBrand: true,
+    });
+    expect(seed.entries.find((entry) => entry.value === 'other')?.meta).toBeUndefined();
+  });
+
+  it('производитель техники и производитель детали — разные справочники', () => {
+    expect(PART_MANUFACTURER_KIND).not.toBe('car_brand');
+    expect(ATTRIBUTE_DEFINITIONS.partManufacturer?.key).not.toBe(
+      ATTRIBUTE_DEFINITIONS.compatBrand?.key,
+    );
   });
 });

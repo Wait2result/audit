@@ -62,7 +62,12 @@ export interface PartsEquipment {
   /** Слова, которыми называют саму технику («на машину», «на стиралку») */
   words: readonly string[];
   /** Какие необязательные поля совместимости нужны этому типу техники */
-  compat: { year: boolean; chassis: boolean; engine: boolean };
+  /**
+   * Какие уточнения совместимости имеют смысл: кузов — только у легковых,
+   * год и двигатель — у машин, модификация — где у моделей бывают версии
+   * (комплектация авто, поколение телефона, исполнение стиральной машины)
+   */
+  compat: { year: boolean; chassis: boolean; engine: boolean; modification: boolean };
 }
 
 export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
@@ -94,7 +99,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'легковую',
       'автозапчасти',
     ],
-    compat: { year: true, chassis: true, engine: true },
+    compat: { year: true, chassis: true, engine: true, modification: true },
   },
   {
     code: PartsEquipmentType.TRUCK,
@@ -137,7 +142,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'самосвал',
       'самосвала',
     ],
-    compat: { year: true, chassis: false, engine: true },
+    compat: { year: true, chassis: false, engine: true, modification: true },
   },
   {
     code: PartsEquipmentType.MOTO,
@@ -185,7 +190,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'питбайк',
       'питбайка',
     ],
-    compat: { year: true, chassis: false, engine: true },
+    compat: { year: true, chassis: false, engine: true, modification: false },
   },
   {
     code: PartsEquipmentType.SPECIAL_EQUIPMENT,
@@ -234,7 +239,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'комбайн',
       'комбайна',
     ],
-    compat: { year: true, chassis: false, engine: false },
+    compat: { year: true, chassis: false, engine: false, modification: true },
   },
   {
     code: PartsEquipmentType.WATER_TRANSPORT,
@@ -269,7 +274,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'яхты',
       'яхту',
     ],
-    compat: { year: true, chassis: false, engine: false },
+    compat: { year: true, chassis: false, engine: false, modification: false },
   },
   {
     code: PartsEquipmentType.PHONE,
@@ -299,7 +304,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'iphone',
       'андроид',
     ],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: true },
   },
   {
     code: PartsEquipmentType.LAPTOP,
@@ -325,7 +330,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'macbook',
       'ультрабук',
     ],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: true },
   },
   {
     code: PartsEquipmentType.COMPUTER,
@@ -349,7 +354,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'системник',
       'системника',
     ],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: false },
   },
   {
     code: PartsEquipmentType.TV,
@@ -374,7 +379,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'тв',
       'tv',
     ],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: false },
   },
   {
     code: PartsEquipmentType.HOME_APPLIANCE,
@@ -389,7 +394,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
     machineSlug: 'home-appliances',
     groups: APPLIANCE_PARTS,
     words: [],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: true },
   },
   {
     code: PartsEquipmentType.CLIMATE_EQUIPMENT,
@@ -404,7 +409,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
     machineSlug: 'home-appliances',
     groups: CLIMATE_PARTS,
     words: [],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: true },
   },
   {
     code: PartsEquipmentType.OTHER_EQUIPMENT,
@@ -418,7 +423,7 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
     machineSlug: 'business-equipment',
     groups: OTHER_EQUIPMENT_PARTS,
     words: [],
-    compat: { year: false, chassis: false, engine: false },
+    compat: { year: false, chassis: false, engine: false, modification: false },
   },
 ];
 

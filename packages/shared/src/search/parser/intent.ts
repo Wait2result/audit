@@ -214,6 +214,12 @@ interface PartsFindings {
   engine: string | null;
   /** Слово — и деталь, и обычная категория; сервер предложит оба смысла */
   dualCategories: string[];
+  /** Производители деталей (коды справочника part_manufacturer) */
+  makers: string[];
+  /** Состояние: new | used | restored */
+  condition: string | null;
+  /** Тип: original | analog */
+  originality: string | null;
 }
 
 interface Analysis {
@@ -553,8 +559,17 @@ function findParts(
 
   // Запрос о запчастях — когда есть название детали, слово «запчасти» или номер.
   // Одно название группы («стиралка», «тормоза») или техники («телефон») — нет
+  // Производитель детали — признак запчасти рядом с названием детали, номером,
+  // типом или состоянием («новая Denso»); один («дрель Bosch») — нет
+  const makerEvidence =
+    scan.makers.length > 0 &&
+    (scan.hits.length > 0 || scan.qualities.length > 0 || numbers.length > 0);
   let evidence =
-    solid.length > 0 || generic || numbers.length > 0 || (scan.hits.length > 0 && codes);
+    solid.length > 0 ||
+    generic ||
+    numbers.length > 0 ||
+    (scan.hits.length > 0 && codes) ||
+    makerEvidence;
   let dualCategoriesFound: string[] = [];
   if (!evidence && dual.length > 0) {
     // Одно двусмысленное слово и больше ничего («камера», «дверь»): это вопрос «что
@@ -601,6 +616,14 @@ function findParts(
   }
   for (const item of scan.chassis) take(item.index, item.index + 1);
   for (const item of scan.engine) take(item.start, item.end);
+  for (const item of scan.makers) take(item.start, item.end);
+  for (const item of scan.qualities) take(item.start, item.end);
+  let condition: string | null = null;
+  let originality: string | null = null;
+  for (const item of scan.qualities) {
+    condition ??= item.quality.condition ?? null;
+    originality ??= item.quality.originality ?? null;
+  }
 
   const equipment = new Set<string>();
   const kinds: { attribute: string; option: string }[] = [];
@@ -612,7 +635,9 @@ function findParts(
   }
   for (const item of scan.generic) if (item.equipment) equipment.add(item.equipment);
   // Код двигателя вида «1NZ-FE», «2JZ» — японский легковой мотор: подсказка к легковым
-  if (scan.engine.length > 0 && equipment.size === 0) equipment.add('passenger_car');
+  // Кузов вида «NCP165», «GRX130» — тоже легковой
+  if ((scan.engine.length > 0 || scan.chassis.length > 0) && equipment.size === 0)
+    equipment.add('passenger_car');
 
   return {
     aliases: scan.hits.map((hit) => hit.text),
@@ -623,6 +648,9 @@ function findParts(
     chassis: scan.chassis[0]?.value ?? null,
     engine: scan.engine[0]?.value ?? null,
     dualCategories: dualCategoriesFound,
+    makers: [...new Set(scan.makers.map((item) => item.value))],
+    condition,
+    originality,
   };
 }
 
@@ -737,6 +765,10 @@ function buildCore(analysis: Analysis, text: string): SmartSearchIntentCore {
       if (parts.chassis) filters.compatChassis = parts.chassis;
       if (parts.engine) filters.compatEngine = parts.engine;
       for (const kind of parts.kinds) filters[kind.attribute] = kind.option;
+      // Производитель — кодом справочника, тип и состояние — значениями полей детали
+      if (parts.makers.length > 0) filters.partMaker = parts.makers[0]!;
+      if (parts.condition) filters.partCondition = parts.condition;
+      if (parts.originality) filters.partOriginality = parts.originality;
     }
     for (const hit of entriesOf(entities, 'category')) {
       const rooms = ROOMS_BY_WORD.get(hit.alias);

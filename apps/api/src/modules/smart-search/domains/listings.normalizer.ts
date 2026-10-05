@@ -6,7 +6,9 @@ import {
   LISTING_DEFAULT_RADIUS_KM,
   ListingSort,
   PARTS_EQUIPMENT,
+  PART_MANUFACTURER_KIND,
   decideParts,
+  isPartsCategory,
   partLabels,
   partsEquipmentByCode,
   partsEquipmentBySlug,
@@ -30,6 +32,7 @@ import type {
   DictionaryRecord,
   ListingCatalogue,
 } from '../../listings/listing-categories.service.js';
+import { entryEquipment } from '../../listings/listing-categories.service.js';
 import {
   extractAmounts,
   formatRubles,
@@ -65,6 +68,7 @@ export const LISTING_BASE_KEYS = [
   'equipmentType',
   'parts',
   'partDual',
+  'partMaker',
 ] as const;
 
 export interface ListingPlan {
@@ -642,7 +646,8 @@ export function enrichFromText(
     const category = asText(filters.category) ?? context.listingCategory;
     const sameCategory =
       category !== undefined && findCategory(catalogue, category)?.slug === guess.guess.slug;
-    if (sameCategory || (!category && strongGuess)) {
+    // Деталь запчасти выбирает разбор запчастей (applyPartsIntent), а не классификатор
+    if ((sameCategory || (!category && strongGuess)) && !isPartsCategory(guess.guess.slug)) {
       for (const [key, value] of Object.entries(guess.guess.attributes)) {
         if (!has(key)) filters[key] = value;
       }
@@ -940,11 +945,13 @@ function strings(value: unknown): string[] {
     .filter(Boolean);
 }
 
-/** Что решено про запчасть: тип техники, группа и деталь. */
+/** Что решено про запчасть: тип техники, группа, деталь и производитель. */
 interface ResolvedPart {
   equipment: PartsEquipmentTypeCode;
   group: string | null;
   item: string | null;
+  /** Производитель детали из справочника — только если он уместен этой технике */
+  maker: DictionaryRecord | null;
 }
 
 type PartsOutcome =
@@ -1028,7 +1035,13 @@ const COMMON_EQUIPMENT: readonly PartsEquipmentTypeCode[] = [
   'moto',
 ];
 
-const WITHOUT_PARTS_KEYS = ['partAlias', 'equipmentType', 'parts', 'partDual'] as const;
+const WITHOUT_PARTS_KEYS = [
+  'partAlias',
+  'equipmentType',
+  'parts',
+  'partDual',
+  'partMaker',
+] as const;
 
 /**
  * Запчасти: слова фразы → тип техники, группа и деталь по справочникам.
@@ -1056,6 +1069,14 @@ function applyPartsIntent(
   const group = asText(filters.partGroup);
   const item = asText(filters.partItem);
   const number = strings(filters.partNumber)[0] ?? null;
+  // Производитель детали — только из справочника: незнакомое слово им не становится
+  const makerValue = asText(filters.partMaker);
+  const maker = makerValue
+    ? (catalogue
+        .dictionaryEntries(PART_MANUFACTURER_KIND, '')
+        .find((entry) => entry.value === makerValue) ?? null)
+    : null;
+  const makerEquipment = maker ? (entryEquipment(maker) as PartsEquipmentTypeCode[]) : [];
 
   const explicitSlug = asText(filters.category) ?? context.listingCategory ?? null;
   const explicit = explicitSlug ? findCategory(catalogue, explicitSlug) : null;
@@ -1067,7 +1088,8 @@ function applyPartsIntent(
     return { ...intent, filters: next };
   };
 
-  const involved = aliases.length > 0 || generic || hints.length > 0 || group || item;
+  const involved =
+    aliases.length > 0 || generic || hints.length > 0 || group || item || maker !== null;
   if (!involved) {
     // Один номер: ищется по номерам, а не по названию; в запчастях — как поле
     if (number && !explicitEquipment) {
@@ -1097,10 +1119,64 @@ function applyPartsIntent(
     // «на тойоту» — это легковая; если у неё такой детали нет, decideParts вернёт выбор
     evidence = ['passenger_car'];
   } else evidence = byBrand;
+  // Ничего о технике, кроме производителя детали («новая Denso», «Denso 123456»):
+  // его основной тип техники. Слабее слов и марки — только когда их нет
+  if (evidence.length === 0 && makerEquipment.length > 0) evidence = [makerEquipment[0]!];
 
   const decision = decideParts({ aliases, equipment: evidence, group, item });
 
+  /**
+   * Производитель для выбранной техники. Уместен — фильтр «Производитель
+   * детали»; неуместен, но это марка самой техники («насос bosch» у стиралки)
+   * — это марка техники; иначе не применяется (а не подменяется).
+   */
+  const placeMaker = (
+    equipment: PartsEquipmentTypeCode,
+    next: SmartSearchIntentCore,
+  ): DictionaryRecord | null => {
+    if (!maker) return null;
+    if (makerEquipment.length === 0 || makerEquipment.includes(equipment)) return maker;
+    const machine = partsEquipmentByCode(equipment);
+    if (machine?.brandKind && next.filters.brand === undefined) {
+      const asBrand = findEntry(catalogue.dictionaryEntries(machine.brandKind, ''), maker.label);
+      if (asBrand) next.filters.brand = asBrand.label;
+    }
+    return null;
+  };
+
+  /**
+   * «Восстановленная» без «оригинал» или «аналог»: тип детали не угадывается,
+   * а спрашивается (ТЗ запчастей, п. 16). Ответ — поле «Тип детали».
+   */
+  const typeQuestion = (): PartsOutcome | null => {
+    if (asText(filters.partCondition) !== 'restored' || filters.partOriginality !== undefined)
+      return null;
+    return {
+      kind: 'clarify',
+      clarification: {
+        reason: 'ambiguous_part_type',
+        question: 'Уточните тип детали',
+        options: [
+          {
+            label: 'Оригинал',
+            value: 'original',
+            kind: 'other',
+            choice: { kind: 'filter', field: 'partOriginality', value: 'original' },
+          },
+          {
+            label: 'Аналог',
+            value: 'analog',
+            kind: 'other',
+            choice: { kind: 'filter', field: 'partOriginality', value: 'analog' },
+          },
+        ],
+      },
+    };
+  };
+
   if (decision.status === 'resolved') {
+    const question = typeQuestion();
+    if (question) return question;
     const equipment = partsEquipmentByCode(decision.resolution.equipment)!;
     const next = withoutKeys(['partGroup', 'partItem']);
     next.filters.category = equipment.slug;
@@ -1111,6 +1187,7 @@ function applyPartsIntent(
         equipment: equipment.code,
         group: decision.resolution.group,
         item: decision.resolution.item,
+        maker: placeMaker(equipment.code, next),
       },
       numberSearch: null,
     };
@@ -1142,13 +1219,20 @@ function applyPartsIntent(
         ? evidence
         : COMMON_EQUIPMENT;
   if (decision.status === 'none' && evidence.length === 1) {
+    const question = typeQuestion();
+    if (question) return question;
     const equipment = partsEquipmentByCode(evidence[0]!)!;
     const next = withoutKeys(['partGroup', 'partItem']);
     next.filters.category = equipment.slug;
     return {
       kind: 'ok',
       intent: next,
-      part: { equipment: equipment.code, group: null, item: null },
+      part: {
+        equipment: equipment.code,
+        group: null,
+        item: null,
+        maker: placeMaker(equipment.code, next),
+      },
       numberSearch: null,
     };
   }
@@ -1517,6 +1601,16 @@ export function normalizeListings(
         label: 'Категория детали',
         value: partsOutcome.part.group,
         display: labels.group ?? partsOutcome.part.group,
+      });
+    }
+    if (partsOutcome.part.maker) {
+      attributeFilter.partManufacturer = partsOutcome.part.maker.value;
+      covered.push(partsOutcome.part.maker.label, ...partsOutcome.part.maker.aliases);
+      conditions.push({
+        field: 'partManufacturer',
+        label: 'Производитель детали',
+        value: partsOutcome.part.maker.value,
+        display: partsOutcome.part.maker.label,
       });
     }
     if (partsOutcome.part.item) {

@@ -427,6 +427,20 @@ export default function ListingFiltersScreen() {
         </FilterSection>
       )}
 
+      {groups.compatibility.length > 0 && (
+        <FilterSection title="Подходит к">
+          {groups.compatibility.map((field) => (
+            <AttributeFilter
+              key={field.key}
+              attribute={field}
+              value={attributes[field.key]}
+              parent={field.parentKey ? attributes[field.parentKey] : undefined}
+              onChange={(value) => setAttribute(field.key, value)}
+            />
+          ))}
+        </FilterSection>
+      )}
+
       {groups.condition.length > 0 && (
         <FilterSection title="Состояние">
           {groups.condition.map((field) => (

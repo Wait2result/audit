@@ -46,6 +46,8 @@ export interface ListingAttributeOption {
   aliases?: readonly string[];
   /** Как значение звучит в строке карточки, если не так, как в форме: «от собственника» */
   cardLabel?: string;
+  /** Подсказка в форме подачи, когда выбран этот вариант: «Укажите в описании, что заменено» */
+  hint?: string;
 }
 
 /** Определение поля — то, что хранится в справочнике определений. */
@@ -732,29 +734,45 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     parentKey: 'partGroup',
     showInCard: true,
   }),
-  // Состояние, оригинальность и производитель — три разных понятия:
-  // «б/у» деталь может быть оригиналом Toyota, а новая — аналогом Denso
+  // Производитель, тип и состояние — три разных понятия: «б/у» деталь может
+  // быть оригиналом Toyota, а новая — аналогом Denso. «Контрактная» — это
+  // «Оригинал» + «Б/У», отдельного значения нет; «Восстановленная» — состояние,
+  // а не тип (docs/ADR/0012-запчасти.md)
   def({
     key: 'partCondition',
     label: 'Состояние',
     type: 'enum',
     options: [
-      { value: 'new', label: 'Новая' },
-      { value: 'used', label: 'Б/у' },
-      { value: 'contract', label: 'Контрактная' },
-      { value: 'restored', label: 'Восстановленная' },
-      { value: 'for_parts', label: 'На запчасти' },
-      { value: 'for_restoration', label: 'Под восстановление' },
+      { value: 'new', label: 'Новая', aliases: ['новый', 'новое', 'новые'] },
+      {
+        value: 'used',
+        label: 'Б/У',
+        aliases: ['бу', 'б у', 'б/у', 'контрактная', 'контрактный'],
+      },
+      {
+        value: 'restored',
+        label: 'Восстановленная',
+        aliases: ['восстановленный', 'после ремонта', 'перебранная'],
+        hint: 'Укажите в описании, что было восстановлено или заменено.',
+      },
     ],
     showInCard: true,
   }),
   def({
     key: 'partOriginality',
-    label: 'Оригинал или аналог',
+    label: 'Тип детали',
     type: 'enum',
     options: [
-      { value: 'original', label: 'Оригинал' },
-      { value: 'analog', label: 'Аналог', aliases: ['неоригинал', 'не оригинал'] },
+      {
+        value: 'original',
+        label: 'Оригинал',
+        aliases: ['оригинальная', 'оригинальный', 'родная'],
+      },
+      {
+        value: 'analog',
+        label: 'Аналог',
+        aliases: ['неоригинал', 'не оригинал', 'неоригинальная'],
+      },
     ],
     showInCard: true,
   }),
@@ -830,6 +848,13 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
   def({
     key: 'compatEngine',
     label: 'Двигатель',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatModification',
+    label: 'Модификация',
     type: 'string',
     searchable: false,
     showInDetails: false,
@@ -1881,6 +1906,7 @@ export const FILTER_ONLY_ATTRIBUTES: ReadonlySet<string> = new Set([
   'compatYear',
   'compatChassis',
   'compatEngine',
+  'compatModification',
   'partNumber',
 ]);
 

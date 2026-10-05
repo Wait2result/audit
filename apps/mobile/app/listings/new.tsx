@@ -4,6 +4,9 @@ import {
   LISTING_PRICE_UNIT_SUFFIX,
   classifyListingTitle,
   describeAttributes,
+  describeCardFacts,
+  partLabels,
+  partsEquipmentBySlug,
   isAttributeVisible,
   ruMobileDigits,
   ruMobileError,
@@ -53,9 +56,11 @@ import { PhotoGridEditor } from '../../src/components/PhotoGridEditor';
 import {
   PartLayerEditor,
   emptyPartLayer,
+  hasCompatibilityRow,
   isPartsLeaf,
   partLayerError,
   partLayerToInput,
+  type CompatibilitySuggestion,
   type PartLayerValue,
 } from '../../src/components/PartLayerEditor';
 import { RemoteImage } from '../../src/components/RemoteImage';
@@ -149,6 +154,38 @@ export default function NewListingScreen() {
   const [partLayer, setPartLayer] = useState<PartLayerValue>(emptyPartLayer);
   const isParts = isPartsLeaf(category?.slug);
   const partError = isParts ? partLayerError(partLayer) : null;
+  // Техника из заголовка — предложение для «Подходит к», пока продавец его не принял
+  // или не отказался (отказ запоминается по тексту предложения)
+  const [dismissedCompat, setDismissedCompat] = useState<string | null>(null);
+  const compatSuggestion = useMemo<CompatibilitySuggestion | null>(() => {
+    if (!isParts || !guess?.compatibility || guess.slug !== category?.slug) return null;
+    const found = guess.compatibility;
+    const years =
+      found.yearFrom === undefined
+        ? null
+        : found.yearFrom === found.yearTo
+          ? String(found.yearFrom)
+          : `${found.yearFrom}–${found.yearTo}`;
+    const label = [
+      [found.brandLabel, found.modelLabel].filter(Boolean).join(' '),
+      found.chassis,
+      years,
+      found.engine,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const row = {
+      brand: found.brand,
+      model: found.model ?? '',
+      chassis: found.chassis ?? '',
+      yearFrom: found.yearFrom !== undefined ? String(found.yearFrom) : '',
+      yearTo: found.yearTo !== undefined ? String(found.yearTo) : '',
+      engine: found.engine ?? '',
+      modification: '',
+    };
+    if (label === dismissedCompat || hasCompatibilityRow(partLayer, row)) return null;
+    return { label, row };
+  }, [isParts, guess, category?.slug, dismissedCompat, partLayer]);
   const visibleFields = fields.filter((field) => isAttributeVisible(field, values));
   const requiredFields = visibleFields.filter((field) => field.required);
   const optionalFields = visibleFields.filter((field) => !field.required);
@@ -266,7 +303,23 @@ export default function NewListingScreen() {
   }
 
   const section = rootOf(category);
-  const summary = category ? describeAttributes(fields, storedForm(fields, values)) : '';
+  // Предпросмотр — как строка карточки: у запчасти деталь, производитель и «Б/У оригинал»
+  const stored = storedForm(fields, values);
+  const partNames = (() => {
+    const equipment = category ? partsEquipmentBySlug(category.slug) : undefined;
+    if (!equipment) return undefined;
+    const group = typeof values.partGroup === 'string' ? values.partGroup : null;
+    const item = typeof values.partItem === 'string' ? values.partItem : null;
+    const names = partLabels(equipment, group, item);
+    return {
+      ...(group && names.group ? { [group]: names.group } : {}),
+      ...(item && names.item ? { [item]: names.item } : {}),
+    };
+  })();
+  const summary = category
+    ? (describeCardFacts(category.slug, fields, stored, partNames) ??
+      describeAttributes(fields, stored, partNames))
+    : '';
   const priceText = priceless
     ? 'Бесплатно'
     : price
@@ -454,6 +507,8 @@ export default function NewListingScreen() {
             value={partLayer}
             onChange={setPartLayer}
             error={showErrors ? partError : null}
+            suggestion={compatSuggestion}
+            onDismissSuggestion={() => setDismissedCompat(compatSuggestion?.label ?? null)}
           />
         </View>
       )}

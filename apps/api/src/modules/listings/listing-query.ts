@@ -241,6 +241,8 @@ function compatibilitySql(filter: Record<string, unknown>): Prisma.Sql | null {
   if (chassis) parts.push(sql`k."chassis" ILIKE ${`${chassis}%`}`);
   const engine = textNeedle(texts(filter.compatEngine)[0]);
   if (engine) parts.push(sql`k."engine" ILIKE ${`${engine}%`}`);
+  const modification = textNeedle(texts(filter.compatModification)[0]);
+  if (modification) parts.push(sql`k."modification" ILIKE ${`%${modification}%`}`);
 
   const year = filter.compatYear;
   if (year !== undefined && year !== null && year !== '') {

@@ -111,7 +111,13 @@ describe('groupFilterFields', () => {
   });
 
   it('пустой список — пустые группы', () => {
-    expect(groupFilterFields([])).toEqual({ main: [], condition: [], seller: [], extra: [] });
+    expect(groupFilterFields([])).toEqual({
+      main: [],
+      condition: [],
+      compatibility: [],
+      seller: [],
+      extra: [],
+    });
   });
 });
 

@@ -1654,6 +1654,33 @@ model ListingPartNumber {
   @@map("listing_part_numbers")
 }
 
+/// Кроссы номеров: подтверждённое соответствие «оригинал → аналог»
+/// («Toyota 45510-XXXXX → KYB XXXXX»). Заполняется только из подтверждённого
+/// источника (каталог производителя), автоматически не выводится: одинаковая
+/// деталь у двух аналоговых производителей — ещё не кросс.
+model PartNumberCross {
+  id           String   @id @default(uuid()) @db.Uuid
+  /// Код справочника part_manufacturer
+  sourceMaker  String   @map("source_maker") @db.VarChar(80)
+  sourceNumber String   @map("source_number") @db.VarChar(60)
+  /// Ключ номера — как у listing_part_numbers.number_key
+  sourceKey    String   @map("source_key") @db.VarChar(60)
+  targetMaker  String   @map("target_maker") @db.VarChar(80)
+  targetNumber String   @map("target_number") @db.VarChar(60)
+  targetKey    String   @map("target_key") @db.VarChar(60)
+  /// analog | replacement
+  relation     String   @default("analog") @db.VarChar(16)
+  /// Откуда подтверждено: каталог, письмо производителя
+  source       String   @db.VarChar(120)
+  confirmedAt  DateTime @map("confirmed_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([sourceMaker, sourceKey, targetMaker, targetKey], map: "part_number_crosses_source_maker_source_key_target_maker_target")
+  @@index([sourceKey])
+  @@index([targetKey])
+  @@map("part_number_crosses")
+}
+
 /// Избранные объявления. Отдельная таблица, как и у заведений: в схеме это
 /// уже оговорено — «появятся избранные объявления, будут свои таблицы».
 model FavoriteListing {

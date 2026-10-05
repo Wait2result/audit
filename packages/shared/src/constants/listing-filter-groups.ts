@@ -14,6 +14,8 @@ export interface FilterFieldGroups<T extends Pick<AttributeDefinition, 'key' | '
   /** Основные параметры: то, что видно в карточке (марка, год, комнаты, площадь) */
   main: T[];
   condition: T[];
+  /** Запчасти: к какой технике подходит (марка, модель, кузов, год…) — отдельным блоком */
+  compatibility: T[];
   seller: T[];
   /** Остальное: открывается по кнопке «Ещё параметры» */
   extra: T[];
@@ -34,10 +36,17 @@ export function groupFilterFields<T extends Pick<AttributeDefinition, 'key' | 's
    */
   priorityKeys: ReadonlySet<string> = new Set(),
 ): FilterFieldGroups<T> {
-  const groups: FilterFieldGroups<T> = { main: [], condition: [], seller: [], extra: [] };
+  const groups: FilterFieldGroups<T> = {
+    main: [],
+    condition: [],
+    compatibility: [],
+    seller: [],
+    extra: [],
+  };
 
   for (const field of fields) {
     if (CONDITION_KEYS.has(field.key)) groups.condition.push(field);
+    else if (field.key.startsWith('compat')) groups.compatibility.push(field);
     else if (SELLER_KEYS.has(field.key)) groups.seller.push(field);
     else if ((field.showInCard || priorityKeys.has(field.key)) && groups.main.length < MAIN_LIMIT) {
       groups.main.push(field);
