@@ -1,5 +1,5 @@
 import type { ListingCategoryDto } from '@dagestan/shared';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { radius, spacing, typography, useThemeColors } from '../theme';
@@ -18,16 +18,26 @@ export function CategoryPickerModal({
   roots,
   onClose,
   onSelect,
+  initialPath = [],
+  title,
 }: {
   visible: boolean;
   roots: readonly ListingCategoryDto[];
+  /** С какого уровня открыть: [Животные] — сразу соседи найденной категории */
+  initialPath?: readonly ListingCategoryDto[];
+  /** Заголовок верхнего уровня: «Выберите раздел» по умолчанию */
+  title?: string;
   onClose: () => void;
   onSelect: (category: ListingCategoryDto) => void;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Пройденный путь: [раздел] или [раздел, основной тип]
-  const [path, setPath] = useState<ListingCategoryDto[]>([]);
+  const [path, setPath] = useState<ListingCategoryDto[]>([...initialPath]);
+  // Окно открыли снова с другим началом — начинаем с него
+  useEffect(() => {
+    if (visible) setPath([...initialPath]);
+  }, [visible]);
   const section = path.at(-1) ?? null;
 
   const close = () => {
@@ -58,7 +68,7 @@ export function CategoryPickerModal({
               <Icon name="chevron-left" size={22} color={colors.text} />
             </Pressable>
           ) : null}
-          <Text style={styles.title}>{section ? section.name : 'Выберите раздел'}</Text>
+          <Text style={styles.title}>{section ? section.name : (title ?? 'Выберите раздел')}</Text>
           <Pressable
             onPress={close}
             accessibilityRole="button"

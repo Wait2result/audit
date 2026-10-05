@@ -130,6 +130,7 @@ export default function ListingsScreen() {
 
   const feed = useListings(cityId, filters, area.ready);
   const items = useMemo(() => feed.data?.pages.flatMap((page) => page.items) ?? [], [feed.data]);
+  const total = feed.data?.pages[0]?.total;
 
   const roots = categories.data ?? [];
   const selected = roots.find((root) => root.slug === section) ?? null;
@@ -148,8 +149,24 @@ export default function ListingsScreen() {
   const header = (
     <View>
       <View style={styles.topRow}>
+        {/* Явный выход в главное меню: свайп назад работает, но его знают не все */}
+        <Pressable
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+          accessibilityRole="button"
+          accessibilityLabel="Назад"
+          hitSlop={12}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Icon name="chevron-left" size={24} color={colors.text} />
+        </Pressable>
         <View style={styles.titleBlock}>
           <Text style={styles.title}>Объявления</Text>
+          {total !== undefined && (
+            <Text style={styles.count}>
+              {total.toLocaleString('ru-RU')}{' '}
+              {plural(total, 'объявление', 'объявления', 'объявлений')}
+            </Text>
+          )}
         </View>
 
         <Pressable
@@ -171,8 +188,34 @@ export default function ListingsScreen() {
             onSubmit={submitSearch}
             onOpenCategory={(slug) => router.push({ pathname: '/listings/list', params: { slug } })}
             cityId={cityId}
+            busy={smart.busy}
           />
         </View>
+      </View>
+
+      {smart.visible && (
+        <View style={styles.smartPanel}>
+          <ListingSmartPanel
+            controller={smart}
+            onOpenCategory={(slug) => router.push({ pathname: '/listings/list', params: { slug } })}
+          />
+        </View>
+      )}
+
+      {/* Где искать и фильтры — один ряд */}
+      <View style={styles.controls}>
+        <Pressable
+          onPress={() => router.push('/listings/location')}
+          accessibilityRole="button"
+          accessibilityLabel={`Где искать: ${area.summary}`}
+          style={({ pressed }) => [styles.pill, styles.areaPill, pressed && styles.pressed]}
+        >
+          <Icon name="location" size={16} color={colors.primary} />
+          <Text style={styles.pillLabel} numberOfLines={1}>
+            {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
+          </Text>
+          <Icon name="chevron-right" size={14} color={colors.textMuted} />
+        </Pressable>
 
         <Pressable
           onPress={() =>
@@ -187,16 +230,13 @@ export default function ListingsScreen() {
           accessibilityRole="button"
           accessibilityLabel={`Фильтры${activeFilterCount > 0 ? `, выбрано ${activeFilterCount}` : ''}`}
           style={({ pressed }) => [
-            styles.filterButton,
-            activeFilterCount > 0 && styles.filterButtonActive,
+            styles.pill,
+            activeFilterCount > 0 && styles.pillActive,
             pressed && styles.pressed,
           ]}
         >
-          <Icon
-            name="filter"
-            size={20}
-            color={activeFilterCount > 0 ? colors.textOnPrimary : colors.textMuted}
-          />
+          <Icon name="filter" size={16} color={colors.primary} />
+          <Text style={styles.pillLabel}>Фильтры</Text>
           {activeFilterCount > 0 && (
             <View style={styles.filterBadge}>
               <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
@@ -204,28 +244,6 @@ export default function ListingsScreen() {
           )}
         </Pressable>
       </View>
-
-      {smart.visible && (
-        <View style={styles.smartPanel}>
-          <ListingSmartPanel
-            controller={smart}
-            onOpenCategory={(slug) => router.push({ pathname: '/listings/list', params: { slug } })}
-          />
-        </View>
-      )}
-
-      <Pressable
-        onPress={() => router.push('/listings/location')}
-        accessibilityRole="button"
-        accessibilityLabel={`Где искать: ${area.summary}`}
-        style={({ pressed }) => [styles.areaRow, pressed && styles.pressed]}
-      >
-        <Icon name="location" size={16} color={colors.primary} />
-        <Text style={styles.areaLabel} numberOfLines={1}>
-          {area.radiusKm === null ? 'Весь Дагестан' : `${area.label} · ${area.radiusKm} км`}
-        </Text>
-        <Icon name="chevron-down" size={14} color={colors.textMuted} />
-      </Pressable>
 
       <View style={styles.shortcuts}>
         <Shortcut
@@ -447,13 +465,15 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
 
     topRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
-      gap: spacing.md,
+      gap: spacing.sm,
       marginTop: spacing.md,
     },
-    titleBlock: { flexShrink: 1 },
+    back: { width: 36, height: 44, justifyContent: 'center' },
+    titleBlock: { flex: 1 },
     title: { ...typography.title, color: colors.text },
+    count: { ...typography.caption, color: colors.textMuted },
 
     publishButton: {
       flexDirection: 'row',
@@ -499,21 +519,29 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     searchCell: { flex: 1 },
     smartPanel: { marginTop: spacing.sm },
 
-    filterButton: {
-      width: 46,
-      height: 46,
-      borderRadius: radius.md,
+    // Место и фильтры — две капсулы в один ряд; месту — вся оставшаяся ширина
+    controls: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    pill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      minHeight: 44,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.full,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
     },
-    filterButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    areaPill: { flex: 1, minWidth: 0 },
+    pillActive: { borderColor: colors.primary },
+    pillLabel: { ...typography.body, color: colors.text, flexShrink: 1 },
     filterBadge: {
-      position: 'absolute',
-      top: -4,
-      right: -4,
       minWidth: 18,
       height: 18,
       paddingHorizontal: 4,

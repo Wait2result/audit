@@ -15,7 +15,6 @@ import {
   SmartClarificationBlock,
   SmartFeedbackSheet,
   SmartNotice,
-  SmartThinking,
   type SmartFeedbackTarget,
 } from './SmartSearchBlocks';
 
@@ -28,6 +27,12 @@ import {
  * сортировка остаются как были; умный поиск только заполняет их за человека.
  *
  * Если умный поиск не ответил, экран ищет по словам фразы, как раньше.
+ *
+ * Внутренняя кухня разбора человеку не показывается: ни «Понимаю запрос…»
+ * (пока идёт разбор, в строке поиска крутится индикатор), ни «Понял запрос»,
+ * ни «Искал не то?», ни «показан обычный поиск по словам». Под строкой
+ * появляется только то, на что нужно ответить: уточнение с вариантами или
+ * «это не про объявления».
  */
 
 export interface ListingSmartSearchOptions {
@@ -59,12 +64,12 @@ export function useListingSmartSearch({
 
       const listing = listingPartOf(next.response);
       if (listing) {
-        onListings(applySmartListing(listing, text, next.response.requestId));
+        onListings(applySmartListing(listing, text, next.response.requestId, category));
         return;
       }
       if (smartSearchOutcome(next.response).kind === 'fallback') onFallback(text);
     },
-    [smart, onFallback, onListings],
+    [smart, onFallback, onListings, category],
   );
 
   const openFeedback = useCallback((target: SmartFeedbackTarget) => setFeedback(target), []);
@@ -73,11 +78,13 @@ export function useListingSmartSearch({
   const { state } = smart;
   return {
     state,
-    /** Есть что показать под строкой (найденные объявления показывает сама лента) */
+    /** Идёт разбор фразы — индикатор в строке поиска */
+    busy: state.phase === 'thinking',
+    /** Есть на что ответить под строкой (найденные объявления показывает сама лента) */
     visible:
-      state.phase === 'thinking' ||
-      state.phase === 'failed' ||
-      (state.phase === 'done' && !listingPartOf(state.response)) ||
+      (state.phase === 'done' &&
+        !listingPartOf(state.response) &&
+        smartSearchOutcome(state.response).kind !== 'fallback') ||
       feedback !== null,
     submit,
     reset: smart.reset,
@@ -107,16 +114,6 @@ export function ListingSmartPanel({
   const router = useRouter();
   const setHandoff = useSmartSearchStore((s) => s.setHandoff);
   const { state } = controller;
-
-  const wrong = (failureType: SmartFeedbackTarget['failureType']) => {
-    if (state.phase !== 'done' && state.phase !== 'failed') return;
-    controller.openFeedback({
-      ...(state.phase === 'done' ? { requestId: state.response.requestId } : {}),
-      originalQuery: state.text,
-      failureType,
-      screen: 'listings',
-    });
-  };
 
   const pick = (option: SmartSearchClarificationOption, text: string) => {
     const response = state.phase === 'done' ? state.response : null;
@@ -152,7 +149,7 @@ export function ListingSmartPanel({
 
   return (
     <>
-      <PanelBody state={state} onPick={pick} onWrong={wrong} onHandoff={setHandoff} />
+      <PanelBody state={state} onPick={pick} onHandoff={setHandoff} />
       <SmartFeedbackSheet target={controller.feedback} onClose={controller.closeFeedback} />
     </>
   );
@@ -161,44 +158,20 @@ export function ListingSmartPanel({
 function PanelBody({
   state,
   onPick,
-  onWrong,
   onHandoff,
 }: {
   state: SmartSearchState;
   onPick: (option: SmartSearchClarificationOption, text: string) => void;
-  onWrong: (failureType: SmartFeedbackTarget['failureType']) => void;
   onHandoff: ReturnType<typeof useSmartSearchStore.getState>['setHandoff'];
 }) {
   const router = useRouter();
 
-  if (state.phase === 'thinking') return <SmartThinking />;
-
-  if (state.phase === 'failed') {
-    return (
-      <SmartNotice
-        title={state.message}
-        text={state.reason === 'network' ? undefined : 'Показан обычный поиск по словам.'}
-      />
-    );
-  }
-
+  // Разбор идёт (индикатор — в строке поиска) или не удался (лента уже ищет
+  // по словам фразы) — объяснять внутреннюю кухню незачем
   if (state.phase !== 'done') return null;
   const { response, text } = state;
   const outcome = smartSearchOutcome(response);
-
-  if (outcome.kind === 'fallback') {
-    return (
-      <SmartNotice
-        title={
-          outcome.code === 'AI_TIMEOUT'
-            ? 'Не удалось обработать запрос. Попробуйте ещё раз.'
-            : outcome.message
-        }
-        text="Показан обычный поиск по словам."
-        onWrong={() => onWrong('not_understood')}
-      />
-    );
-  }
+  if (outcome.kind === 'fallback') return null;
 
   // Объявления открыты лентой — здесь показывать нечего
   if (listingPartOf(response)) return null;
@@ -211,7 +184,6 @@ function PanelBody({
       <SmartClarificationBlock
         clarification={part.clarification}
         onPick={(option) => onPick(option, text)}
-        onWrong={() => onWrong('not_understood')}
       />
     );
   }
@@ -230,10 +202,9 @@ function PanelBody({
             },
           },
         ]}
-        onWrong={() => onWrong('wrong_domain')}
       />
     );
   }
 
-  return <SmartNotice title={part.message} onWrong={() => onWrong('not_understood')} />;
+  return <SmartNotice title={part.message} />;
 }

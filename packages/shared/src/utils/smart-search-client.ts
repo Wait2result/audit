@@ -354,3 +354,23 @@ function lowerFirst(text: string): string {
   const isUpper = (char: string) => char !== char.toLowerCase() && char === char.toUpperCase();
   return isUpper(first) && !isUpper(second) ? first.toLowerCase() + text.slice(1) : text;
 }
+
+/**
+ * Найденная категория требует подтверждения («Сельхозживотные — подходит?»),
+ * когда умный поиск по фразе узнал только категорию: ни марки, ни модели, ни
+ * детали, ни цены, ни слов для поиска — и это не та категория, что уже открыта.
+ * «Конь» может оказаться и «Другими животными», а «Toyota Succeed» или
+ * «детское кресло» однозначны — их выдача открывается сразу, без вопроса.
+ */
+export function listingCategoryNeedsConfirmation(
+  query: SmartSearchNormalizedQuery,
+  openCategory: string | null,
+): boolean {
+  const category = typeof query.params.category === 'string' ? query.params.category : null;
+  if (!category || category === openCategory) return false;
+  if (typeof query.params.search === 'string' && query.params.search.trim()) return false;
+  // Место — не про то, что ищут: «конь в Каспийске» — всё ещё только категория
+  return query.conditions.every(
+    (condition) => condition.field === 'category' || condition.field === 'location',
+  );
+}

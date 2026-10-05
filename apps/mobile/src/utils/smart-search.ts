@@ -1,4 +1,5 @@
 import {
+  listingCategoryNeedsConfirmation,
   LISTING_RADIUS_OPTIONS,
   smartListingFilters,
   understoodNotes,
@@ -29,6 +30,8 @@ export function applySmartListing(
   part: SmartSearchPart,
   text: string,
   requestId: string,
+  /** Категория, открытая на экране, где спросили (null — главная раздела) */
+  openCategory: string | null = null,
 ): SmartListingTarget {
   if (!part.query) return {};
   const filters = smartListingFilters(part.query);
@@ -66,6 +69,8 @@ export function applySmartListing(
     requestId,
     scope,
     filtersKey: listingFiltersKey(extra),
+    needsConfirmation: listingCategoryNeedsConfirmation(part.query, openCategory),
+    confirmed: false,
   });
 
   return {

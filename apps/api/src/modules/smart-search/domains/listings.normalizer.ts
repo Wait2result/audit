@@ -1639,6 +1639,9 @@ export function normalizeListings(
     if (typeKey && type) {
       attributeFilter[typeKey] = type.code;
       covered.push(type.label, ...type.aliases);
+      // Поле могли уже разложить слова фразы («диски» — значение «Что продаётся»)
+      const sameField = conditions.findIndex((item) => item.field === typeKey);
+      if (sameField >= 0) conditions.splice(sameField, 1);
       conditions.push({
         field: typeKey,
         label: typeKey === 'goodsType' ? 'Тип товара' : 'Что продаётся',

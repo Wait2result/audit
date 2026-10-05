@@ -33,7 +33,9 @@ import { Icon } from '../../src/components/Icon';
 import { ListingCard } from '../../src/components/ListingCard';
 import { ListingSearchBox } from '../../src/components/ListingSearchBox';
 import { ListingSmartPanel, useListingSmartSearch } from '../../src/components/ListingSmartSearch';
-import { SmartNotice, SmartUnderstood } from '../../src/components/SmartSearchBlocks';
+import { CategoryConfirm } from '../../src/components/CategoryConfirm';
+import { CategoryPickerModal } from '../../src/components/CategoryPickerModal';
+import { EmptySearch } from '../../src/components/EmptySearch';
 import { ListingsMapView } from '../../src/components/ListingsMapView';
 import { Screen } from '../../src/components/Screen';
 import { useFavoriteActions } from '../../src/hooks/use-favorite-actions';
@@ -41,12 +43,13 @@ import { useListingArea } from '../../src/hooks/use-listing-area';
 import { useCityStore } from '../../src/store/city-store';
 import { useListingAreaStore } from '../../src/store/listing-area-store';
 import {
+  countFilters,
   useListingFilterStore,
   type ExtraListingFilters,
 } from '../../src/store/listing-filter-store';
 import { useSmartSearchStore } from '../../src/store/smart-search-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
-import { findCategoryBySlug } from '../../src/utils/listing-category-lookup';
+import { categoryPath, findCategoryBySlug } from '../../src/utils/listing-category-lookup';
 import { formatMoney } from '../../src/utils/money';
 import { listingFiltersKey, widerRadius } from '../../src/utils/smart-search';
 
@@ -97,14 +100,20 @@ export default function ListingsListScreen() {
   const setSort = (next: ListingSort) => setFilters({ ...extraFilters, sort: next });
   const resetFilters = () => resetScoped(scope);
 
-  // Понятый умным поиском запрос — строка «Понял запрос» над выдачей. Пока
-  // фильтры те же, что он разложил: снял чипс — строка про другое и скрывается
+  // Понятый умным поиском запрос. Над выдачей — не «Понял запрос», а только
+  // вопрос «Найдена категория — подходит?», когда узнана одна категория
+  // («Конь» → Сельхозживотные). Снял чипс или поменял фильтры — вопрос про
+  // другое и скрывается
   const understood = useSmartSearchStore((s) => s.listing);
   const setUnderstood = useSmartSearchStore((s) => s.setListing);
   const showUnderstood =
     understood !== null &&
     understood.scope === scope &&
     understood.filtersKey === listingFiltersKey(extraFilters);
+  const askCategory =
+    showUnderstood && Boolean(fromSmart) && understood.needsConfirmation && !understood.confirmed;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const activeFilterCount = countFilters(extraFilters);
 
   // В поле — фраза человека; в поиск по словам уходит только то, что умный
   // поиск не разложил по фильтрам (или вся фраза, если он не ответил)
@@ -223,6 +232,20 @@ export default function ListingsListScreen() {
     setFilters(next);
   };
 
+  const roots = categories.data ?? [];
+  const categoryTrail = slug ? categoryPath(roots, slug) : [];
+
+  /** Другая категория для той же фразы: выдача по её словам в выбранной категории. */
+  const chooseCategory = (next: ListingCategoryDto) => {
+    setPickerOpen(false);
+    const text = understood?.text ?? query;
+    setUnderstood(null);
+    router.replace({
+      pathname: '/listings/list',
+      params: { slug: next.slug, ...(text ? { q: text } : {}) },
+    });
+  };
+
   const header = (
     <View>
       <View style={styles.topRow}>
@@ -231,36 +254,24 @@ export default function ListingsListScreen() {
           accessibilityRole="button"
           accessibilityLabel="Назад"
           hitSlop={12}
-          style={({ pressed }) => [pressed && styles.pressed]}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
         >
           <Icon name="chevron-left" size={24} color={colors.text} />
         </Pressable>
 
         <View style={styles.titleBlock}>
-          <Text style={styles.title}>{category?.name ?? 'Объявления'}</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {category?.name ?? 'Объявления'}
+          </Text>
           <Text style={styles.count}>
             {total === undefined
               ? 'Ищем…'
               : `${formatCount(total)} ${plural(total, 'объявление', 'объявления', 'объявлений')}`}
           </Text>
         </View>
-
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: '/listings/filters',
-              params: { ...(slug ? { category: slug } : {}), ...(searching ? { q: query } : {}) },
-            })
-          }
-          accessibilityRole="button"
-          accessibilityLabel="Фильтры"
-          style={({ pressed }) => [styles.filterButton, pressed && styles.pressed]}
-        >
-          <Icon name="filter" size={20} color={colors.textMuted} />
-        </Pressable>
       </View>
 
-      <View style={styles.searchRow}>
+      <View style={styles.block}>
         <ListingSearchBox
           inputRef={inputRef}
           value={search}
@@ -270,12 +281,26 @@ export default function ListingsListScreen() {
             router.replace({ pathname: '/listings/list', params: { slug: target } })
           }
           cityId={cityId}
+          busy={smart.busy}
           placeholder={category ? `Поиск в «${category.name}»` : 'Поиск объявлений'}
         />
       </View>
 
+      {askCategory && category && understood && (
+        <View style={styles.block}>
+          <CategoryConfirm
+            slug={category.slug}
+            name={category.name}
+            path={categoryTrail.length > 1 ? (categoryTrail.at(-2)?.name ?? null) : null}
+            query={understood.text}
+            onConfirm={() => setUnderstood({ ...understood, confirmed: true })}
+            onChooseOther={() => setPickerOpen(true)}
+          />
+        </View>
+      )}
+
       {smart.visible && (
-        <View style={styles.smartPanel}>
+        <View style={styles.block}>
           <ListingSmartPanel
             controller={smart}
             onOpenCategory={(target) =>
@@ -285,25 +310,8 @@ export default function ListingsListScreen() {
         </View>
       )}
 
-      {showUnderstood && understood && smart.state.phase !== 'thinking' && (
-        <View style={styles.smartPanel}>
-          <SmartUnderstood
-            summary={understood.summary}
-            notes={understood.notes}
-            onWrong={() =>
-              smart.openFeedback({
-                requestId: understood.requestId,
-                originalQuery: understood.text,
-                failureType: 'wrong_conditions',
-                screen: 'listings',
-              })
-            }
-            onClose={() => setUnderstood(null)}
-          />
-        </View>
-      )}
-
-      <View style={styles.modeSwitch} accessibilityRole="tablist">
+      {/* Список или карта — один компактный переключатель на всю ширину */}
+      <View style={[styles.block, styles.modeSwitch]} accessibilityRole="tablist">
         {(
           [
             { value: 'list', label: 'Список', icon: 'grid' },
@@ -320,6 +328,7 @@ export default function ListingsListScreen() {
               }}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
+              accessibilityLabel={option.label}
               style={({ pressed }) => [
                 styles.modeOption,
                 active && styles.modeOptionActive,
@@ -337,6 +346,49 @@ export default function ListingsListScreen() {
             </Pressable>
           );
         })}
+      </View>
+
+      {/* Где искать и фильтры — один ряд: оба отвечают на «что показать» */}
+      <View style={[styles.block, styles.controls]}>
+        <Pressable
+          onPress={() => {
+            setSortOpen(false);
+            router.push('/listings/location');
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Где искать: ${area.summary}`}
+          style={({ pressed }) => [styles.pill, styles.areaPill, pressed && styles.pressed]}
+        >
+          <Icon name="location" size={16} color={colors.primary} />
+          <Text style={styles.pillLabel} numberOfLines={1}>
+            {area.summary}
+          </Text>
+          <Icon name="chevron-right" size={14} color={colors.textMuted} />
+        </Pressable>
+
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: '/listings/filters',
+              params: { ...(slug ? { category: slug } : {}), ...(searching ? { q: query } : {}) },
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel={`Фильтры${activeFilterCount > 0 ? `, выбрано ${activeFilterCount}` : ''}`}
+          style={({ pressed }) => [
+            styles.pill,
+            activeFilterCount > 0 && styles.pillActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Icon name="filter" size={16} color={colors.primary} />
+          <Text style={styles.pillLabel}>Фильтры</Text>
+          {activeFilterCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
 
       {chips.length > 0 && (
@@ -369,37 +421,20 @@ export default function ListingsListScreen() {
         </ScrollView>
       )}
 
-      <View style={styles.controls}>
+      {mode === 'list' && (
         <Pressable
-          onPress={() => {
-            setSortOpen(false);
-            router.push('/listings/location');
-          }}
+          onPress={() => setSortOpen((value) => !value)}
           accessibilityRole="button"
-          accessibilityLabel={`Где искать: ${area.summary}`}
-          style={({ pressed }) => [styles.controlRow, styles.areaRow, pressed && styles.pressed]}
+          accessibilityLabel={`Порядок: ${LISTING_SORT_LABELS[sort]}`}
+          accessibilityState={{ expanded: sortOpen }}
+          style={({ pressed }) => [styles.sortButton, pressed && styles.pressed]}
         >
-          <Icon name="location" size={14} color={colors.primary} />
           <Text style={styles.sortLabel} numberOfLines={1}>
-            {area.summary}
+            {LISTING_SORT_LABELS[sort]}
           </Text>
-          <Icon name="chevron-right" size={14} color={colors.primary} />
+          <Icon name="chevron-down" size={16} color={colors.primary} />
         </Pressable>
-
-        {mode === 'list' && (
-          <Pressable
-            onPress={() => setSortOpen((value) => !value)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: sortOpen }}
-            style={({ pressed }) => [styles.controlRow, pressed && styles.pressed]}
-          >
-            <Text style={styles.sortLabel} numberOfLines={1}>
-              {LISTING_SORT_LABELS[sort]}
-            </Text>
-            <Icon name="chevron-down" size={16} color={colors.primary} />
-          </Pressable>
-        )}
-      </View>
+      )}
 
       {mode === 'list' && sortOpen && (
         <View style={styles.sortList}>
@@ -441,6 +476,16 @@ export default function ListingsListScreen() {
           </Pressable>
         </View>
       )}
+
+      <CategoryPickerModal
+        visible={pickerOpen}
+        roots={roots}
+        // Сразу соседи найденной категории: «Животные» → собаки, кошки, другие…
+        initialPath={categoryTrail.slice(0, -1)}
+        title="Выберите категорию"
+        onClose={() => setPickerOpen(false)}
+        onSelect={chooseCategory}
+      />
     </View>
   );
 
@@ -494,9 +539,8 @@ export default function ListingsListScreen() {
                 <Text style={styles.resetLink}>Повторить</Text>
               </Pressable>
             </View>
-          ) : showUnderstood ? (
-            <SmartNotice
-              title="По вашему запросу ничего не найдено"
+          ) : showUnderstood || searching ? (
+            <EmptySearch
               actions={[
                 { label: 'Изменить запрос', onPress: () => inputRef.current?.focus() },
                 { label: 'Изменить город', onPress: () => router.push('/city-picker') },
@@ -661,24 +705,28 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     mapScreen: { flex: 1 },
     mapHeader: { paddingHorizontal: spacing.lg },
-    // Без собственной рамки и подложки: выбранный режим виден по тону, а
-    // не по ещё одной капсуле вокруг двух слов
+    // Отступ между смысловыми блоками экрана — один на все, без лишних рамок
+    block: { marginBottom: spacing.md },
+    // Переключатель «Список | Карта»: две равные половины в одной капсуле
     modeSwitch: {
       flexDirection: 'row',
-      alignSelf: 'flex-start',
-      gap: spacing.xs,
-      marginTop: spacing.sm,
+      padding: 3,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     modeOption: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 6,
       minHeight: 40,
-      paddingHorizontal: spacing.lg,
       borderRadius: radius.full,
     },
     modeOptionActive: { backgroundColor: colors.primarySoft },
-    modeLabel: { ...typography.caption, color: colors.textMuted },
+    modeLabel: { ...typography.body, color: colors.textMuted },
     modeLabelActive: { color: colors.primary, fontWeight: '600' },
     list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md },
     row: { gap: spacing.md, alignItems: 'stretch' },
@@ -687,29 +735,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     topRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
+      gap: spacing.sm,
       marginTop: spacing.md,
       marginBottom: spacing.md,
     },
+    back: { width: 40, height: 44, justifyContent: 'center' },
     titleBlock: { flex: 1 },
     title: { ...typography.heading, color: colors.text },
     count: { ...typography.caption, color: colors.textMuted },
     pressed: { opacity: 0.85 },
 
-    filterButton: {
-      width: 42,
-      height: 42,
-      borderRadius: radius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-
-    searchRow: { marginBottom: spacing.sm },
-    smartPanel: { marginBottom: spacing.sm },
-    hScroll: { flexGrow: 0, marginBottom: spacing.sm },
+    hScroll: { flexGrow: 0, marginBottom: spacing.md },
     chips: { gap: spacing.sm, paddingRight: spacing.lg },
     chip: {
       flexDirection: 'row',
@@ -730,25 +766,42 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     chipResetLabel: { ...typography.caption, color: colors.textMuted },
 
-    // Две кнопки в ряд: «где искать» и «как отсортировать». Рядом, потому
-    // что это один и тот же вопрос — что показать первым
-    // Обычные строки без рамок: слева место, справа порядок. Разделены
-    // отступом, а не капсулами
-    controls: {
+    // Место и фильтры — две капсулы в один ряд; месту — вся оставшаяся ширина
+    controls: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    pill: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.md,
-    },
-    controlRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
+      gap: 6,
       minHeight: 44,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
-    sortLabel: { ...typography.caption, color: colors.text, flexShrink: 1 },
-    // Место — главное условие выдачи, ему больше места, чем сортировке
-    areaRow: { flexShrink: 1 },
+    areaPill: { flex: 1, minWidth: 0 },
+    pillActive: { borderColor: colors.primary },
+    pillLabel: { ...typography.body, color: colors.text, flexShrink: 1 },
+    badge: {
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badgeText: { ...typography.label, color: colors.textOnPrimary },
+    // Порядок — маленькая подпись со стрелкой, а не ещё одна карточка
+    sortButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      minHeight: 40,
+      marginBottom: spacing.xs,
+    },
+    sortLabel: { ...typography.body, color: colors.text, fontWeight: '600', flexShrink: 1 },
     sortList: {
       borderRadius: radius.md,
       backgroundColor: colors.surface,
