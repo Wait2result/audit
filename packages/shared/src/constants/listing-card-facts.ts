@@ -88,6 +88,12 @@ export type CardFactSpec =
 const MODEL: CardFactSpec = ['brand', 'modelName'];
 const BRAND_MODEL: CardFactSpec = ['brand', 'model'];
 const LOOSE_MODEL: CardFactSpec = ['brandName', 'modelName'];
+const PART_FACTS: readonly CardFactSpec[] = [
+  'partGroup',
+  'partItem',
+  'partOriginality',
+  'partCondition',
+];
 
 /**
  * Приоритетные характеристики по категориям, от важной к менее важной.
@@ -107,7 +113,19 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'transport-moto': [BRAND_MODEL, 'year', 'engineCc', 'mileage'],
   'transport-trucks': [BRAND_MODEL, 'year', 'loadCapacity', 'mileage'],
   'transport-special': ['specialType', BRAND_MODEL, 'year', 'hours'],
-  'transport-parts': ['partType', BRAND_MODEL, 'partOrigin', 'condition'],
+  // Запчасти всех типов техники: категория и деталь, оригинал или аналог, состояние.
+  // Совместимость и номер — отдельным слоем, их добавляет сервер (см. summaryFor)
+  'transport-parts': PART_FACTS,
+  'transport-moto-parts': PART_FACTS,
+  'transport-truck-parts': PART_FACTS,
+  'transport-special-parts': PART_FACTS,
+  'transport-water-parts': PART_FACTS,
+  'electronics-phone-parts': PART_FACTS,
+  'electronics-laptop-parts': PART_FACTS,
+  'electronics-tv-parts': PART_FACTS,
+  'home-appliance-parts': PART_FACTS,
+  'home-climate-parts': PART_FACTS,
+  'business-parts': PART_FACTS,
   'transport-tires': ['diameter', 'season', 'tireType', 'brand', 'condition'],
   'transport-water': ['waterType', MODEL, 'year', 'length'],
   'transport-other': [LOOSE_MODEL, 'year', 'condition'],
@@ -126,7 +144,7 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'electronics-tablets': [BRAND_MODEL, 'screenSize', 'memory', 'condition'],
   'electronics-laptops': [BRAND_MODEL, 'screenSize', 'ram', 'storageSize', 'cpu'],
   'electronics-computers': ['brand', 'cpu', 'ram', 'storageSize'],
-  'electronics-components': ['componentType', LOOSE_MODEL, 'condition'],
+  'electronics-components': PART_FACTS,
   'electronics-tv': [MODEL, 'screenSize', 'resolution', 'smartTv'],
   'electronics-photo': ['photoType', BRAND_MODEL, 'condition'],
   'electronics-console': ['consoleType', 'storageSize', 'condition'],

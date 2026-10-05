@@ -78,7 +78,8 @@ describe('Наборы полей электроники', () => {
   });
 
   it('у каждой техники свой тип первым обязательным полем', () => {
-    expect(requiredOf('electronics-components')[0]).toBe('componentType');
+    // Комплектующие — запчасти для компьютера: первым обязательным полем стала категория детали
+    expect(requiredOf('electronics-components')[0]).toBe('partGroup');
     expect(requiredOf('electronics-photo')[0]).toBe('photoType');
     expect(requiredOf('electronics-console')[0]).toBe('consoleType');
     expect(requiredOf('electronics-audio')[0]).toBe('audioType');

@@ -68,12 +68,17 @@ describe('Наборы полей транспорта', () => {
     expect(keysOf('transport-water')).toEqual(expect.arrayContaining(['length', 'hullMaterial']));
   });
 
-  it('запчасть привязана к марке и модели машины', () => {
+  it('запчасть: категория детали обязательна, совместимость — справочники самой машины', () => {
+    // Запчасти устроены одинаково для всех типов техники — подробно в parts-taxonomy.spec.ts
     const attributes = attributesOf('transport-parts');
-    expect(attributes.find((a) => a.key === 'partType')?.required).toBe(true);
-    expect(attributes.find((a) => a.key === 'brand')?.dictionary).toBe('car_brand');
-    expect(attributes.find((a) => a.key === 'brand')?.label).toBe('Марка авто');
-    expect(attributes.find((a) => a.key === 'model')?.parentKey).toBe('brand');
+    expect(requiredOf('transport-parts')).toEqual(['partGroup']);
+    expect(attributes.find((a) => a.key === 'partItem')?.parentKey).toBe('partGroup');
+    expect(attributes.find((a) => a.key === 'compatBrand')?.dictionary).toBe('car_brand');
+    expect(attributes.find((a) => a.key === 'compatBrand')?.label).toBe('Марка авто');
+    expect(attributes.find((a) => a.key === 'compatModel')?.dictionary).toBe('car_model');
+    expect(attributes.find((a) => a.key === 'compatModel')?.parentKey).toBe('compatBrand');
+    // Марка и модель — не атрибуты запчасти: совместимость хранится отдельным слоем
+    expect(attributes.some((a) => a.key === 'brand' || a.key === 'model')).toBe(false);
   });
 
   it('шины: что продаётся и диаметр обязательны', () => {

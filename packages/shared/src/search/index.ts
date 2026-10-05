@@ -4,5 +4,6 @@
  * отдаёт то же намерение, что и она, — дальше путь общий.
  */
 export * from './types.js';
+export * from './parts.js';
 export * from './dictionary/index.js';
 export * from './parser/index.js';

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  FILTER_ONLY_ATTRIBUTES,
   isAttributeVisible,
   type ListingAttribute,
   type ListingAttributeColumn,
@@ -27,6 +28,7 @@ import {
   uuidSchema,
 } from './common.schema.js';
 import { addressVisibilitySchema, listingLocationSchema } from './geo.schema.js';
+import { listingPartInputSchema } from './listing-part.schema.js';
 
 /**
  * Проверка данных объявлений (Этап 7, версия 2).
@@ -104,6 +106,12 @@ const listingFields = {
   attributes: z.record(z.string(), z.unknown()),
 
   /**
+   * Запчасть: номера (OEM, артикул) и совместимость. Только у подкатегорий
+   * запчастей; у остальных объявлений слоя нет (docs/ADR/0012-запчасти.md).
+   */
+  part: listingPartInputSchema,
+
+  /**
    * Где находится: точка, адрес и его части. Район — не выбор человека, а
    * то, что геокодер определил по точке (см. geo.schema.ts).
    */
@@ -140,6 +148,8 @@ export const createListingSchema = z
     priceUnit: priceUnitSchema.optional(),
     isNegotiable: z.boolean().default(false),
     attributes: z.record(z.string(), z.unknown()).default({}),
+    // Запчасть: номера и совместимость; у остальных объявлений слоя нет
+    part: listingPartInputSchema.optional(),
     // Опубликованное объявление без точки не найдётся поиском по радиусу —
     // точка обязательна. Адрес и его части — нет
     location: listingLocationSchema,
@@ -513,6 +523,8 @@ export function attributesSchemaFor(
     for (const attribute of attributes) {
       // Скрытое поле («Face ID» не у Apple) не проверяется и не сохраняется:
       // форма его не показывала, значение — след прежнего выбора
+      // Совместимость и номер запчасти хранятся отдельным слоем, не атрибутами
+      if (FILTER_ONLY_ATTRIBUTES.has(attribute.key)) continue;
       if (!isAttributeVisible(attribute, raw)) continue;
 
       const value = raw[attribute.key];

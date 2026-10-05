@@ -20,6 +20,8 @@
  */
 import { DictionaryKind } from './dictionaries/index.js';
 import type { CategoryAttributeBinding } from './listing-attributes.js';
+import { partsBindings } from './parts/bindings.js';
+import { PARTS_EQUIPMENT, partsEquipmentByCode } from './parts/equipment-types.js';
 import type { ListingPriceUnit } from './listings.js';
 import type { ListingRentPeriod, ListingTransactionType } from './transactions.js';
 
@@ -175,16 +177,6 @@ const OTHER_VEHICLE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] =
   'condition',
 ];
 
-/** Запчасть привязана к машине: марка и модель — из справочника легковых. */
-const PARTS_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
-  { key: 'partType', required: true },
-  { key: 'brand', label: 'Марка авто', dictionary: DictionaryKind.CAR_BRAND },
-  { key: 'model', label: 'Модель авто', dictionary: DictionaryKind.CAR_MODEL },
-  'partOrigin',
-  'producer',
-  'condition',
-];
-
 const TIRES_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'tireType', required: true },
   'season',
@@ -330,14 +322,6 @@ const COMPUTER_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   'storage',
   'storageSize',
   'os',
-  { key: 'condition', required: true },
-  'warranty',
-];
-
-const COMPONENT_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
-  { key: 'componentType', required: true },
-  'brandName',
-  'modelName',
   { key: 'condition', required: true },
   'warranty',
 ];
@@ -600,6 +584,26 @@ const GOODS: Preset = {
   defaultPriceUnit: 'total',
 };
 
+/**
+ * Подкатегория запчастей типа техники. Цена — за штуку или целиком
+ * (комплект, пара, «в сборе» — отдельное поле partSaleUnit), только продажа.
+ * Тип техники — запись реестра PARTS_EQUIPMENT; вся подкатегория собирается из неё.
+ */
+function partsLeaf(code: string): SeedListingCategory {
+  const equipment = partsEquipmentByCode(code);
+  if (!equipment) throw new Error(`Нет типа техники для запчастей: ${code}`);
+  return {
+    slug: equipment.slug,
+    name: equipment.name,
+    itemLabel: equipment.itemLabel,
+    attributes: partsBindings(equipment),
+    transactions: ['sale'],
+    defaultTransaction: 'sale',
+    priceUnits: ['total', 'per_unit'],
+    defaultPriceUnit: 'total',
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Дерево
 // ─────────────────────────────────────────────────────────────────────────────
@@ -637,13 +641,11 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         attributes: SPECIAL_ATTRIBUTES,
         ...VEHICLE_DEAL,
       },
-      {
-        slug: 'transport-parts',
-        name: 'Запчасти',
-        itemLabel: 'Запчасть',
-        attributes: PARTS_ATTRIBUTES,
-        ...SALE_ONLY,
-      },
+      partsLeaf('passenger_car'),
+      partsLeaf('moto'),
+      partsLeaf('truck'),
+      partsLeaf('special_equipment'),
+      partsLeaf('water_transport'),
       {
         slug: 'transport-tires',
         name: 'Шины и диски',
@@ -789,13 +791,10 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         attributes: COMPUTER_ATTRIBUTES,
         ...SALE_ONLY,
       },
-      {
-        slug: 'electronics-components',
-        name: 'Комплектующие',
-        itemLabel: 'Комплектующее',
-        attributes: COMPONENT_ATTRIBUTES,
-        ...SALE_ONLY,
-      },
+      partsLeaf('computer'),
+      partsLeaf('phone'),
+      partsLeaf('laptop'),
+      partsLeaf('tv'),
       {
         slug: 'electronics-tv',
         name: 'Телевизоры',
@@ -858,6 +857,8 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         attributes: APPLIANCE_ATTRIBUTES,
         ...SALE_ONLY,
       },
+      partsLeaf('home_appliance'),
+      partsLeaf('climate_equipment'),
       { slug: 'home-dishes', name: 'Посуда', itemLabel: 'Посуда', ...GOODS, ...SALE_ONLY },
       {
         slug: 'home-light',
@@ -1222,6 +1223,7 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
         attributes: EQUIPMENT_ATTRIBUTES,
         ...RENTAL_DEAL,
       },
+      partsLeaf('other_equipment'),
       {
         slug: 'business-retail',
         name: 'Торговое оборудование',
@@ -1299,6 +1301,8 @@ export const SEED_LISTING_CATEGORIES: readonly SeedListingCategory[] = [
  */
 const GOODS_PREFIXES = ['electronics-', 'home-', 'personal-', 'hobby-'] as const;
 const GOODS_SLUGS: readonly string[] = [
+  // Подкатегории запчастей всех типов техники (реестр PARTS_EQUIPMENT)
+  ...PARTS_EQUIPMENT.map((equipment) => equipment.slug),
   'transport-parts',
   'transport-tires',
   'transport-accessories',

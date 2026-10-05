@@ -55,18 +55,6 @@ export const CATEGORY_SYNONYMS: readonly SearchDictionaryEntry[] = [
     'манипулятор',
   ),
   category(
-    'transport-parts',
-    'запчасти',
-    'запчасть',
-    'запчастей',
-    'автозапчасти',
-    'двигатель',
-    'коробка',
-    'бампер',
-    'фара',
-    'фары',
-  ),
-  category(
     'transport-tires',
     'шины',
     'шину',

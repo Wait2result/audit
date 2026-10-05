@@ -716,6 +716,131 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     ],
   }),
   def({ key: 'producer', label: 'Производитель', type: 'string' }),
+  // ── Запчасти и комплектующие (docs/ADR/0012-запчасти.md) ──────────────────
+  // Группа и деталь — из справочников таксономии (part_group_*, part_item_*),
+  // какой именно — задаёт привязка категории. Деталь — «модель» группы.
+  def({
+    key: 'partGroup',
+    label: 'Категория детали',
+    type: 'brand',
+    showInCard: true,
+  }),
+  def({
+    key: 'partItem',
+    label: 'Деталь',
+    type: 'model',
+    parentKey: 'partGroup',
+    showInCard: true,
+  }),
+  // Состояние, оригинальность и производитель — три разных понятия:
+  // «б/у» деталь может быть оригиналом Toyota, а новая — аналогом Denso
+  def({
+    key: 'partCondition',
+    label: 'Состояние',
+    type: 'enum',
+    options: [
+      { value: 'new', label: 'Новая' },
+      { value: 'used', label: 'Б/у' },
+      { value: 'contract', label: 'Контрактная' },
+      { value: 'restored', label: 'Восстановленная' },
+      { value: 'for_parts', label: 'На запчасти' },
+      { value: 'for_restoration', label: 'Под восстановление' },
+    ],
+    showInCard: true,
+  }),
+  def({
+    key: 'partOriginality',
+    label: 'Оригинал или аналог',
+    type: 'enum',
+    options: [
+      { value: 'original', label: 'Оригинал' },
+      { value: 'analog', label: 'Аналог', aliases: ['неоригинал', 'не оригинал'] },
+    ],
+    showInCard: true,
+  }),
+  def({ key: 'partManufacturer', label: 'Производитель детали', type: 'brand' }),
+  def({
+    key: 'partAvailability',
+    label: 'Наличие',
+    type: 'enum',
+    options: [
+      { value: 'in_stock', label: 'В наличии' },
+      { value: 'on_order', label: 'Под заказ' },
+    ],
+  }),
+  def({
+    key: 'partSaleUnit',
+    label: 'Продаётся',
+    type: 'enum',
+    options: [
+      { value: 'piece', label: 'Поштучно' },
+      { value: 'pair', label: 'Парой' },
+      { value: 'set', label: 'Комплектом' },
+      { value: 'assembly', label: 'В сборе' },
+    ],
+  }),
+  // Поля совместимости и номера для ФИЛЬТРА (FILTER_ONLY_ATTRIBUTES): значения
+  // хранятся не в атрибутах, а в отдельном слое (таблицы listing_compatibility
+  // и listing_part_numbers), форма подачи их не показывает
+  def({
+    key: 'compatBrand',
+    label: 'Марка техники',
+    type: 'brand',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatModel',
+    label: 'Модель техники',
+    type: 'model',
+    parentKey: 'compatBrand',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatBrandText',
+    label: 'Производитель техники',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatModelText',
+    label: 'Модель техники',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatYear',
+    label: 'Год выпуска техники',
+    type: 'number',
+    min: 1950,
+    max: 2035,
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatChassis',
+    label: 'Кузов',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'compatEngine',
+    label: 'Двигатель',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
+  def({
+    key: 'partNumber',
+    label: 'OEM / артикул',
+    type: 'string',
+    searchable: false,
+    showInDetails: false,
+  }),
   def({
     key: 'tireType',
     label: 'Что продаётся',
@@ -1741,6 +1866,23 @@ export const ATTRIBUTE_DEFINITIONS: Readonly<Record<string, AttributeDefinition>
   Object.fromEntries(DEFINITIONS.map((item) => [item.key, item]));
 
 export const ATTRIBUTE_DEFINITION_LIST: readonly AttributeDefinition[] = DEFINITIONS;
+
+/**
+ * Поля, которые есть только в фильтре запчастей: совместимость и номер
+ * хранятся отдельным слоем, а не в атрибутах объявления. Форма подачи их не
+ * показывает (у неё свой редактор совместимости и номеров), сервер при записи
+ * атрибутов их пропускает, а фильтр читает через слой.
+ */
+export const FILTER_ONLY_ATTRIBUTES: ReadonlySet<string> = new Set([
+  'compatBrand',
+  'compatModel',
+  'compatBrandText',
+  'compatModelText',
+  'compatYear',
+  'compatChassis',
+  'compatEngine',
+  'partNumber',
+]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Сборка полей категории

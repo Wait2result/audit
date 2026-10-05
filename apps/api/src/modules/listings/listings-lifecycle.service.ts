@@ -14,6 +14,7 @@ import {
   defaultPriceUnit,
   expiresAtFor,
   hoursUntilBump,
+  isPartsCategory,
   rentPeriodChoices,
   rentPeriodOfUnit,
   transactionCardLabel,
@@ -56,6 +57,7 @@ import {
   phoneColumns,
   type LocationColumns,
 } from './listing-location.js';
+import { PART_LAYER_SELECT, partDto, preparePart, type PreparedPart } from './listing-parts.js';
 import { ListingsService } from './listings.service.js';
 
 /**
@@ -155,6 +157,8 @@ export class ListingsLifecycleService {
 
     const deal = this.resolveDeal(category, catalogue, dto, publish);
     const prepared = this.prepare(catalogue, category, dto.attributes ?? {}, publish, deal);
+    // Слой запчасти (номера и совместимость): только у подкатегорий запчастей
+    const part = preparePart(catalogue, category.slug, dto.part);
 
     const price = dto.price ?? null;
     const now = new Date();
@@ -196,6 +200,7 @@ export class ListingsLifecycleService {
           data: prepared.values.map((value) => ({ ...value, listingId: created.id })),
         });
       }
+      if (part) await this.writePart(tx, created.id, part);
 
       return created;
     });
@@ -285,7 +290,14 @@ export class ListingsLifecycleService {
 
     if (listing.status === ModerationStatus.APPROVED) data.needsReview = true;
 
-    await this.prisma.listing.update({ where: { id: listingId }, data });
+    // Слой запчасти заменяется целиком: список строк правят как список
+    const part =
+      dto.part !== undefined ? preparePart(catalogue, category.slug, dto.part) : undefined;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.listing.update({ where: { id: listingId }, data });
+      if (part !== undefined && part !== null) await this.writePart(tx, listingId, part);
+    });
 
     if (dto.photoIds !== undefined) {
       await this.setPhotos(listingId, userId, dto.photoIds);
@@ -540,12 +552,49 @@ export class ListingsLifecycleService {
       addressVisibility: listing.addressVisibility,
       photos,
       attributes: this.listings.allAttributes(row),
+      part: await this.fullPart(listing.id, row.category.slug),
       condition: listing.condition,
       contactPhone: listing.contactPhone,
       contactName: listing.contactName,
       allowChat: listing.allowChat,
       allowCalls: listing.allowCalls,
     };
+  }
+
+  /** Заменить слой запчасти: старые строки убираются, новые записываются. */
+  private async writePart(
+    tx: Prisma.TransactionClient,
+    listingId: string,
+    part: PreparedPart,
+  ): Promise<void> {
+    await tx.listingCompatibility.deleteMany({ where: { listingId } });
+    await tx.listingPartNumber.deleteMany({ where: { listingId } });
+    if (part.compatibility.length > 0) {
+      await tx.listingCompatibility.createMany({
+        data: part.compatibility.map((row) => ({ ...row, listingId })),
+      });
+    }
+    if (part.numbers.length > 0) {
+      await tx.listingPartNumber.createMany({
+        data: part.numbers.map((row) => ({ ...row, listingId })),
+      });
+    }
+  }
+
+  /** Слой запчасти целиком — для экрана правки (в строке списка только первые строки). */
+  private async fullPart(listingId: string, categorySlug: string) {
+    if (!isPartsCategory(categorySlug)) return null;
+    const [compatibility, numbers] = await Promise.all([
+      this.prisma.listingCompatibility.findMany({
+        where: { listingId },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.listingPartNumber.findMany({
+        where: { listingId },
+        orderBy: { sortOrder: 'asc' },
+      }),
+    ]);
+    return partDto(categorySlug, compatibility, numbers);
   }
 
   // ── Проверки ──────────────────────────────────────────────────────────────
@@ -956,6 +1005,7 @@ const MY_LISTING_SELECT = {
   city: { select: { name: true, latitude: true, longitude: true } },
   seller: { select: { isVerified: true, ratingAverage: true, ratingCount: true } },
   _count: { select: { favorites: true } },
+  ...PART_LAYER_SELECT,
 } satisfies Prisma.ListingSelect;
 
 /**

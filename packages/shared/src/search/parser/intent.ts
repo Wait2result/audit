@@ -14,6 +14,9 @@ import { matchEntries, matchPhrases, type DictionaryHit, type PhraseHit } from '
 import { norm, sameStem } from './normalize.js';
 import { normalizeSearchText } from './normalize.js';
 import { extractNumericConditions, type NumericValue } from './numbers.js';
+import { extractPartNumbers, scanParts } from './parts-scan.js';
+import { isPartsCategory } from '../../constants/parts/equipment-types.js';
+import { dualCategories, partAliasStemKey } from '../parts.js';
 import { consume, leftover, tokenize, type SearchToken } from './tokenize.js';
 
 /**
@@ -192,7 +195,29 @@ const ROOMS_BY_WORD: ReadonlyMap<string, number> = new Map(
 /** Разделы, где слово «заказать» и блюдо означают доставку, а не покупку. */
 const FOOD_DOMAINS: readonly SmartSearchDomain[] = ['places', 'delivery'];
 
+/**
+ * Запчасти во фразе: что названо и к какой технике подсказка. Тип техники и
+ * деталь окончательно выбирает сервер по справочникам и марке (см.
+ * listings.normalizer: applyPartsIntent) — здесь только то, что видно в словах.
+ */
+interface PartsFindings {
+  /** Названия деталей и групп из фразы */
+  aliases: string[];
+  /** Типы техники, названные словами («айфон» → phone, «экскаватор» → special_equipment) */
+  equipment: string[];
+  /** Вид техники внутри типа: specialType = excavator */
+  kinds: { attribute: string; option: string }[];
+  /** «Запчасти на …» без названия детали */
+  generic: boolean;
+  numbers: string[];
+  chassis: string | null;
+  engine: string | null;
+  /** Слово — и деталь, и обычная категория; сервер предложит оба смысла */
+  dualCategories: string[];
+}
+
 interface Analysis {
+  parts: PartsFindings | null;
   tokens: SearchToken[];
   phrases: PhraseHit[];
   entities: DictionaryHit[];
@@ -480,7 +505,132 @@ function pickCategory(hits: readonly DictionaryHit[]): string | null {
   return best.entry.canonical;
 }
 
-function analyze(text: string, options: LocalParseOptions): Analysis {
+/** Слова типа техники, которые одновременно марка или модель: их ищет справочник каталога. */
+const BRAND_LIKE_WORDS: ReadonlySet<string> = new Set([
+  'айфон',
+  'айфона',
+  'iphone',
+  'макбук',
+  'макбука',
+  'macbook',
+  'камаз',
+  'камаза',
+  'газель',
+  'газели',
+  'маз',
+  'урал',
+]);
+
+/**
+ * Слова, которые называют ещё что-то кроме детали: «дверь» — и деталь, и дверь для
+ * дома, «камера» — и деталь телефона, и фотокамера. Без другого признака запчастей
+ * («запчасти», марка, номер, тип техники) такое слово остаётся обычным.
+ */
+let nonPartKeys: Set<string> | null = null;
+function isDualPart(text: string): boolean {
+  if (!nonPartKeys) {
+    nonPartKeys = new Set();
+    for (const entry of SEARCH_DICTIONARY) {
+      if (entry.type === 'category' && isPartsCategory(entry.canonical)) continue;
+      for (const alias of entry.aliases) nonPartKeys.add(partAliasStemKey(alias));
+    }
+  }
+  return nonPartKeys.has(partAliasStemKey(text));
+}
+
+/** Запчасти во фразе: слова съедаются только если это точно запрос о запчастях. */
+function findParts(
+  tokens: SearchToken[],
+  numbers: readonly string[],
+  options: LocalParseOptions,
+): PartsFindings | null {
+  const scan = scanParts(tokens);
+  const itemHits = scan.hits.filter((hit) => hit.isItem);
+  const dual = itemHits.filter((hit) => isDualPart(hit.text));
+  const solid = itemHits.filter((hit) => !isDualPart(hit.text));
+  const generic = scan.generic.length > 0;
+  const codes = scan.chassis.length > 0 || scan.engine.length > 0;
+
+  // Запрос о запчастях — когда есть название детали, слово «запчасти» или номер.
+  // Одно название группы («стиралка», «тормоза») или техники («телефон») — нет
+  let evidence =
+    solid.length > 0 || generic || numbers.length > 0 || (scan.hits.length > 0 && codes);
+  let dualCategoriesFound: string[] = [];
+  if (!evidence && dual.length > 0) {
+    // Одно двусмысленное слово и больше ничего («камера», «дверь»): это вопрос «что
+    // именно?» — техника на выбор плюс обычная категория, а не молчаливый выбор
+    const covered = new Set<number>();
+    for (const hit of scan.hits) for (let i = hit.start; i < hit.end; i += 1) covered.add(i);
+    const rest = tokens.filter(
+      (token, index) => !token.consumed && !covered.has(index) && !FILLER_WORDS.has(token.text),
+    );
+    // Считаются только детали: название группы («кондиционер» у климата и авто) не двусмысленность
+    const equipments = new Set(
+      dual[0]!.matches.filter((match) => match.item !== null).map((match) => match.equipment),
+    );
+    if (dual.length === 1 && rest.length === 0 && equipments.size >= 2) {
+      evidence = true;
+      dualCategoriesFound = dualCategories(dual[0]!.text);
+    }
+  }
+  if (!evidence && dual.length > 0) {
+    if (scan.equipment.length > 0) {
+      evidence = true;
+    } else if (options.subject) {
+      // «Дверь на камри» — деталь: марка и модель говорят о технике
+      const own = new Set(
+        dual.flatMap((hit) => [...Array(hit.end - hit.start).keys()].map((i) => hit.start + i)),
+      );
+      const words = tokens
+        .filter((token, index) => !token.consumed && !own.has(index))
+        .map((t) => t.text);
+      const hit = options.subject(words, words.join(' '));
+      evidence = Boolean(hit && (hit.brand || hit.model));
+    }
+  }
+  if (!evidence) return null;
+
+  const take = (from: number, to: number): void => consume(tokens, from, to, 'part');
+  for (const hit of scan.hits) take(hit.start, hit.end);
+  for (const item of scan.generic) take(item.start, item.end);
+  // «Айфон», «макбук», «камаз» — и тип техники, и марка с моделью: слово остаётся
+  // во фразе, чтобы справочник нашёл iPhone 13, а не только «телефон»
+  for (const item of scan.equipment) {
+    if (!(item.end - item.start === 1 && BRAND_LIKE_WORDS.has(tokens[item.start]!.text)))
+      take(item.start, item.end);
+  }
+  for (const item of scan.chassis) take(item.index, item.index + 1);
+  for (const item of scan.engine) take(item.start, item.end);
+
+  const equipment = new Set<string>();
+  const kinds: { attribute: string; option: string }[] = [];
+  for (const item of scan.equipment) {
+    for (const hit of item.hits) {
+      equipment.add(hit.equipment);
+      if (hit.kind && !kinds.some((k) => k.attribute === hit.kind!.attribute)) kinds.push(hit.kind);
+    }
+  }
+  for (const item of scan.generic) if (item.equipment) equipment.add(item.equipment);
+  // Код двигателя вида «1NZ-FE», «2JZ» — японский легковой мотор: подсказка к легковым
+  if (scan.engine.length > 0 && equipment.size === 0) equipment.add('passenger_car');
+
+  return {
+    aliases: scan.hits.map((hit) => hit.text),
+    equipment: [...equipment],
+    kinds,
+    generic,
+    numbers: [...numbers],
+    chassis: scan.chassis[0]?.value ?? null,
+    engine: scan.engine[0]?.value ?? null,
+    dualCategories: dualCategoriesFound,
+  };
+}
+
+function analyze(
+  text: string,
+  options: LocalParseOptions,
+  partNumbers: readonly string[] = [],
+): Analysis {
   const tokens = tokenize(normalizeSearchText(text));
   // «Желательно», «лучше» — пожелание к следующему условию; слово само ничего не ищет
   for (let i = 0; i < tokens.length; i += 1) {
@@ -492,6 +642,8 @@ function analyze(text: string, options: LocalParseOptions): Analysis {
     tokens.map((token) => token.text).join(' '),
   );
   const numeric = extractNumericConditions(tokens, { realty });
+  // Запчасти — раньше словаря: «рейка», «граната», «матрица» не должны уйти в категории
+  const parts = findParts(tokens, partNumbers, options);
   const entities = matchEntries(tokens, SEARCH_DICTIONARY, { noFuzzy: NO_FUZZY });
   // «В Дагестане» — лента новостей по республике и признак региона для остальных разделов
   const region =
@@ -528,7 +680,23 @@ function analyze(text: string, options: LocalParseOptions): Analysis {
     region,
     subject,
   );
-  return { tokens, phrases, entities, numeric, city, region, nearMe, subject, ...decision };
+  // Запчасти — всегда объявления: тип техники и деталь потом уточнит сервер
+  const forced: Partial<Analysis> = parts
+    ? { domain: 'listings', ambiguous: [], action: false, strong: true }
+    : {};
+  return {
+    parts,
+    tokens,
+    phrases,
+    entities,
+    numeric,
+    city,
+    region,
+    nearMe,
+    subject,
+    ...decision,
+    ...forced,
+  };
 }
 
 /** Признаки, по которым фразу делят на независимые части: «кино завтра и новости». */
@@ -548,11 +716,28 @@ function buildCore(analysis: Analysis, text: string): SmartSearchIntentCore {
     if (target[field] === undefined) target[field] = value;
   };
 
+  const parts = analysis.parts;
   if (domain === 'listings') {
-    // Словарь важнее классификатора: «участок под строительство» — участок, не стройка
-    const category =
-      pickCategory(entities) ?? analysis.subject?.category ?? categoryByFields(entities, numeric);
+    // Словарь важнее классификатора: «участок под строительство» — участок, не стройка.
+    // У запчастей категорию выбирает сервер: «рейка на суксид» — автозапчасти, а не «Автомобили»
+    const category = parts
+      ? null
+      : (pickCategory(entities) ??
+        analysis.subject?.category ??
+        categoryByFields(entities, numeric));
     if (category) filters.category = category;
+    if (parts) {
+      if (parts.aliases.length > 0) filters.partAlias = parts.aliases.slice(0, 6);
+      if (parts.equipment.length > 0) filters.equipmentType = parts.equipment.slice(0, 6);
+      if (parts.generic) filters.parts = true;
+      if (parts.dualCategories.length > 0) filters.partDual = parts.dualCategories.slice(0, 3);
+      if (parts.numbers.length > 0)
+        filters.partNumber =
+          parts.numbers.length === 1 ? parts.numbers[0]! : parts.numbers.slice(0, 4);
+      if (parts.chassis) filters.compatChassis = parts.chassis;
+      if (parts.engine) filters.compatEngine = parts.engine;
+      for (const kind of parts.kinds) filters[kind.attribute] = kind.option;
+    }
     for (const hit of entriesOf(entities, 'category')) {
       const rooms = ROOMS_BY_WORD.get(hit.alias);
       if (rooms !== undefined && filters.rooms === undefined) filters.rooms = rooms;
@@ -566,8 +751,10 @@ function buildCore(analysis: Analysis, text: string): SmartSearchIntentCore {
     for (const hit of entriesOf(entities, 'period')) put(hit, 'rentPeriod', hit.entry.canonical);
     if (filters.rentPeriod !== undefined && filters.transactionType === undefined)
       filters.transactionType = 'rent';
-    for (const [field, value] of Object.entries(numeric)) {
-      if (field === 'maxMinutes') continue;
+    for (const [rawField, value] of Object.entries(numeric)) {
+      if (rawField === 'maxMinutes') continue;
+      // У запчасти год — год техники, к которой она подходит
+      const field = parts && rawField === 'year' ? 'compatYear' : rawField;
       if (filters[field] === undefined) filters[field] = value;
     }
     // Правило сервера: жильё «до 40 тысяч» без слов «купить»/«снять» — помесячная
@@ -637,6 +824,12 @@ function buildCore(analysis: Analysis, text: string): SmartSearchIntentCore {
 
 function recognizedOf(analysis: Analysis): string[] {
   const items: string[] = [];
+  if (analysis.parts) {
+    for (const alias of analysis.parts.aliases) items.push(`part:${alias}`);
+    for (const equipment of analysis.parts.equipment) items.push(`equipment:${equipment}`);
+    for (const number of analysis.parts.numbers) items.push(`part_number:${number}`);
+    if (analysis.parts.generic) items.push('parts:generic');
+  }
   if (analysis.domain) items.push(`domain:${analysis.domain}`);
   for (const hit of analysis.entities) items.push(`${hit.entry.type}:${hit.entry.canonical}`);
   for (const hit of analysis.phrases) items.push(`phrase:${hit.phrase.phrase}`);
@@ -653,8 +846,9 @@ function recognizedOf(analysis: Analysis): string[] {
 function parseWhole(
   text: string,
   options: LocalParseOptions,
+  partNumbers: readonly string[] = [],
 ): { core: SmartSearchIntentCore; analysis: Analysis } {
-  const analysis = analyze(text, options);
+  const analysis = analyze(text, options, partNumbers);
   return { core: buildCore(analysis, text), analysis };
 }
 
@@ -662,12 +856,21 @@ function parseWhole(
  * Фраза человека → намерение по словарю и правилам. Составная фраза
  * («кино завтра и новости») делится на части, если у частей разные разделы.
  */
-export function parseSearchIntent(text: string, options: LocalParseOptions = {}): LocalParseResult {
+export function parseSearchIntent(
+  source: string,
+  options: LocalParseOptions = {},
+): LocalParseResult {
+  // Номера деталей — раньше всего: пока дефисы на месте, «90915-YZZD1» — один номер
+  const extracted = extractPartNumbers(source);
+  const text = extracted.text;
   const normalized = normalizeSearchText(text);
-  const pieces = text
-    .split(PART_SPLIT)
-    .map((piece) => piece.trim())
-    .filter((piece) => piece.length > 0);
+  const pieces =
+    extracted.numbers.length > 0
+      ? []
+      : text
+          .split(PART_SPLIT)
+          .map((piece) => piece.trim())
+          .filter((piece) => piece.length > 0);
 
   let primary: { core: SmartSearchIntentCore; analysis: Analysis };
   let subqueries: SmartSearchIntentCore[] = [];
@@ -681,7 +884,7 @@ export function parseSearchIntent(text: string, options: LocalParseOptions = {})
     primary = withDomain[0]!;
     subqueries = withDomain.slice(1, 4).map((part) => ({ ...part.core, intent: 'search' }));
   } else {
-    primary = parseWhole(normalized, options);
+    primary = parseWhole(normalized, options, extracted.numbers);
   }
 
   const intent: SmartSearchIntent = { schemaVersion: '1', ...primary.core, subqueries };

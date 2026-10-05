@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  isPartsCategory,
   ErrorCode,
   LISTING_PRICE_UNIT_SUFFIX,
   ListingAddressVisibility,
@@ -53,6 +54,13 @@ import {
   type FeedCursorRow,
 } from './listing-query.js';
 import {
+  PART_LAYER_SELECT,
+  partCardFacts,
+  partDto,
+  type StoredCompatibility,
+  type StoredPartNumber,
+} from './listing-parts.js';
+import {
   LISTING_RANK_WINDOW,
   distanceCursor,
   feedCursor,
@@ -100,6 +108,8 @@ export const LISTING_SELECT = {
   district: { select: { name: true } },
   city: { select: { name: true, latitude: true, longitude: true } },
   seller: { select: { isVerified: true, ratingAverage: true, ratingCount: true } },
+  // Слой запчасти: совместимость и номер для строки под заголовком
+  ...PART_LAYER_SELECT,
 } satisfies Prisma.ListingSelect;
 
 export type ListingRow = Prisma.ListingGetPayload<{ select: typeof LISTING_SELECT }>;
@@ -478,6 +488,9 @@ export class ListingsService {
         category: { select: { slug: true } },
         district: { select: { name: true } },
         city: { select: { name: true, latitude: true, longitude: true } },
+        // Слой запчасти целиком — на странице объявления нужны все строки
+        compatibility: { orderBy: { sortOrder: 'asc' } },
+        partNumbers: { orderBy: { sortOrder: 'asc' } },
         seller: {
           select: {
             id: true,
@@ -529,6 +542,7 @@ export class ListingsService {
       location: publicLocation(listing),
       photos,
       attributes,
+      part: partDto(listing.category.slug, listing.compatibility, listing.partNumbers),
       attributeLabels: catalogue.labelsFor(catalogue.attributesOf(listing.categoryId), attributes),
       condition: listing.condition,
       seller: this.toSellerDto(listing.seller, avatars[0] ?? null),
@@ -802,6 +816,8 @@ export class ListingsService {
       categoryId: string;
       transactionType: ListingRow['transactionType'];
       rentPeriod: ListingRow['rentPeriod'];
+      compatibility?: readonly StoredCompatibility[];
+      partNumbers?: readonly StoredPartNumber[];
     },
     catalogue: ListingCatalogue,
   ): string {
@@ -821,7 +837,13 @@ export class ListingsService {
         ? transactionCardLabel(row.transactionType, row.rentPeriod, category.slug)
         : null;
 
-    return [transaction, summary].filter(Boolean).join(' · ');
+    // У запчасти первым идёт то, ради чего её ищут: к чему подходит, и номер
+    const layer =
+      category && isPartsCategory(category.slug)
+        ? partCardFacts(row.compatibility ?? [], row.partNumbers ?? [])
+        : null;
+
+    return [layer?.compatibility, transaction, summary, layer?.number].filter(Boolean).join(' · ');
   }
 
   toDto(

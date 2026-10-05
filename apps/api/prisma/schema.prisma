@@ -1229,8 +1229,8 @@ model ListingCategory {
   parentId String? @map("parent_id") @db.Uuid
 
   /// Устойчивый код для ссылок: realty-flats-sale, transport-cars
-  slug String @unique @db.VarChar(60)
-  name String @db.VarChar(80)
+  slug      String  @unique @db.VarChar(60)
+  name      String  @db.VarChar(80)
   /// Как назвать один объект в заголовке формы: «Квартира», «Автомобиль».
   /// Пусто — форма скажет «Объявление».
   itemLabel String? @map("item_label") @db.VarChar(60)
@@ -1248,7 +1248,7 @@ model ListingCategory {
 
   /// Допустимые единицы цены. Какие из них подходят конкретной сделке —
   /// решает PriceConfig в packages/shared: «сдам надолго» — только в месяц.
-  allowedPriceUnits String[] @default(["total"]) @map("allowed_price_units")
+  allowedPriceUnits String[]         @default(["total"]) @map("allowed_price_units")
   /// Единица цены, которую форма предлагает по умолчанию: у аренды и работы —
   /// в месяц, у вещей — целиком.
   defaultPriceUnit  ListingPriceUnit @default(total) @map("default_price_unit")
@@ -1302,14 +1302,14 @@ model ListingAttributeDefinition {
   /// string | number | boolean | enum | multiEnum | date | brand | model
   type  String @db.VarChar(20)
 
-  shortLabel String? @map("short_label") @db.VarChar(40)
-  unit       String? @db.VarChar(20)
-  min        Float?
-  max        Float?
+  shortLabel     String? @map("short_label") @db.VarChar(40)
+  unit           String? @db.VarChar(20)
+  min            Float?
+  max            Float?
   /// Во сколько раз значение увеличивается при хранении: площадь — в десятых
-  scale      Int?
+  scale          Int?
   /// [{ "value": "auto", "label": "Автомат" }] для enum и multiEnum
-  options    Json?
+  options        Json?
   /// Вид справочника для brand и model: car_brand, car_model
   dictionaryKind String? @map("dictionary_kind") @db.VarChar(40)
   /// Поле-родитель: у модели — марка
@@ -1365,13 +1365,13 @@ model ListingCategoryAttribute {
 /// через parentValue. Пустая строка вместо null у parentValue — чтобы
 /// уникальность (kind, parent, value) работала и у записей без родителя.
 model ListingDictionaryEntry {
-  id          String  @id @default(uuid()) @db.Uuid
-  kind        String  @db.VarChar(40)
-  value       String  @db.VarChar(80)
-  label       String  @db.VarChar(120)
-  parentValue String  @default("") @map("parent_value") @db.VarChar(80)
-  sortOrder   Int     @default(0) @map("sort_order")
-  isActive    Boolean @default(true) @map("is_active")
+  id          String   @id @default(uuid()) @db.Uuid
+  kind        String   @db.VarChar(40)
+  value       String   @db.VarChar(80)
+  label       String   @db.VarChar(120)
+  parentValue String   @default("") @map("parent_value") @db.VarChar(80)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
   /// Другие написания для поиска: «тойота», «тайота»
   aliases     String[] @default([])
   /// Дополнительные признаки: { "faceId": true } у моделей телефонов
@@ -1443,8 +1443,8 @@ model Listing {
   /// Поисковый текст: марка, модель, значения перечислений, категория,
   /// город и район — словами. По нему и по заголовку с описанием строится
   /// search_vector (триггером в базе) и работает поиск.
-  searchText   String                  @default("") @map("search_text") @db.Text
-  searchVector Unsupported("tsvector")? @map("search_vector")
+  searchText   String                                @default("") @map("search_text") @db.Text
+  searchVector Unsupported("tsvector")?              @map("search_vector")
   /// Точка для радиуса — geography, чтобы ST_DWithin считал метры честно
   geom         Unsupported("geography(Point,4326)")?
 
@@ -1468,38 +1468,38 @@ model Listing {
   // подсказке — человек их не вводит и районы не выбирает. У села нет
   // города (city пусто, settlement — само село), у города нет settlement
   /// «Россия»
-  country          String?                    @db.VarChar(80)
+  country           String?                  @db.VarChar(80)
   /// «Республика Дагестан»
-  region           String?                    @db.VarChar(160)
+  region            String?                  @db.VarChar(160)
   /// Административный район или городской округ: «Карабудахкентский район»
-  districtName     String?                    @map("district") @db.VarChar(160)
+  districtName      String?                  @map("district") @db.VarChar(160)
   /// Район внутри города: «Советский район». По нему же выставляется districtId
-  cityDistrict     String?                    @map("city_district") @db.VarChar(160)
+  cityDistrict      String?                  @map("city_district") @db.VarChar(160)
   /// Город или посёлок городского типа
-  cityName         String?                    @map("city") @db.VarChar(160)
+  cityName          String?                  @map("city") @db.VarChar(160)
   /// Село, посёлок, хутор
-  settlement       String?                    @db.VarChar(160)
-  street           String?                    @db.VarChar(200)
-  houseNumber      String?                    @map("house_number") @db.VarChar(40)
+  settlement        String?                  @db.VarChar(160)
+  street            String?                  @db.VarChar(200)
+  houseNumber       String?                  @map("house_number") @db.VarChar(40)
   /// Полный адрес от геокодера
-  formattedAddress String?                    @map("formatted_address") @db.VarChar(500)
+  formattedAddress  String?                  @map("formatted_address") @db.VarChar(500)
   /// Насколько точна точка: дом, улица, центр населённого пункта или ручная
-  locationAccuracy ListingLocationAccuracy?   @map("location_accuracy")
+  locationAccuracy  ListingLocationAccuracy? @map("location_accuracy")
   /// Что из адреса видят другие. Координаты для поиска хранятся всегда
-  addressVisibility ListingAddressVisibility  @default(approximate) @map("address_visibility")
+  addressVisibility ListingAddressVisibility @default(approximate) @map("address_visibility")
 
   /// Телефон для связи. Отдельно от телефона аккаунта: человек может
   /// продавать с рабочего номера. В списке НЕ отдаётся — только по нажатию
   /// «Показать номер», иначе номера соберёт первый же скрипт.
   /// Хранится в E.164 («+79501234567») — по нему звонят и сравнивают.
-  contactPhone String  @map("contact_phone") @db.VarChar(20)
+  contactPhone            String  @map("contact_phone") @db.VarChar(20)
   /// Тот же номер по частям — под будущие международные номера: код страны
   /// без «+» («7») и номер без него («9501234567»)
   contactPhoneCountryCode String? @map("contact_phone_country_code") @db.VarChar(4)
   contactPhoneNational    String? @map("contact_phone_national") @db.VarChar(15)
-  contactName  String? @map("contact_name") @db.VarChar(60)
-  allowChat    Boolean @default(true) @map("allow_chat")
-  allowCalls   Boolean @default(true) @map("allow_calls")
+  contactName             String? @map("contact_name") @db.VarChar(60)
+  allowChat               Boolean @default(true) @map("allow_chat")
+  allowCalls              Boolean @default(true) @map("allow_calls")
 
   /// Первая фотография. Остальные — в media по ownerType = listing.
   coverMediaId String? @map("cover_media_id") @db.Uuid
@@ -1546,13 +1546,16 @@ model Listing {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  city      City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  district  District?         @relation(fields: [districtId], references: [id], onDelete: SetNull)
-  category  ListingCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  city            City                    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  district        District?               @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  category        ListingCategory         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   seller          User                    @relation("ListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   favorites       FavoriteListing[]
   reports         ListingReport[]
   attributeValues ListingAttributeValue[]
+  /// Слой запчасти: к чему подходит деталь и под какими номерами её ищут
+  compatibility   ListingCompatibility[]
+  partNumbers     ListingPartNumber[]
 
   /// Лента категории и лента города: город и статус стоят первыми, потому
   /// что они есть в КАЖДОМ запросе витрины
@@ -1586,9 +1589,9 @@ model Listing {
 /// новое поле. Число и строка в отдельных колонках с индексами: диапазон
 /// по числу и равенство по строке — оба индексом, без перебора JSON.
 model ListingAttributeValue {
-  id        String  @id @default(uuid()) @db.Uuid
-  listingId String  @map("listing_id") @db.Uuid
-  key       String  @db.VarChar(60)
+  id        String   @id @default(uuid()) @db.Uuid
+  listingId String   @map("listing_id") @db.Uuid
+  key       String   @db.VarChar(60)
   numValue  Decimal? @map("num_value") @db.Decimal(18, 4)
   textValue String?  @map("text_value") @db.VarChar(200)
 
@@ -1598,6 +1601,57 @@ model ListingAttributeValue {
   @@index([key, numValue])
   @@index([key, textValue])
   @@map("listing_attribute_values")
+}
+
+/// Совместимость запчасти: одна строка — одна техника, к которой деталь
+/// подходит. Список, а не атрибут: «подходит к Succeed, Probox и Caldina» не
+/// лежит ни в одном скалярном поле. Марка и модель — коды из справочников
+/// самой техники (car_model, phone_model…) или текст там, где справочника
+/// нет; кузов, двигатель, годы и модификация — необязательные уточнения.
+model ListingCompatibility {
+  id            String  @id @default(uuid()) @db.Uuid
+  listingId     String  @map("listing_id") @db.Uuid
+  /// Тип техники: passenger_car, phone, tv… — по подкатегории объявления
+  equipmentType String  @map("equipment_type") @db.VarChar(30)
+  brand         String? @db.VarChar(80)
+  brandLabel    String? @map("brand_label") @db.VarChar(120)
+  model         String? @db.VarChar(80)
+  modelLabel    String? @map("model_label") @db.VarChar(120)
+  chassis       String? @db.VarChar(40)
+  yearFrom      Int?    @map("year_from")
+  yearTo        Int?    @map("year_to")
+  engine        String? @db.VarChar(60)
+  modification  String? @db.VarChar(120)
+  sortOrder     Int     @default(0) @map("sort_order")
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([equipmentType, brand, model])
+  @@index([brand, model])
+  @@index([chassis])
+  @@index([engine])
+  @@map("listing_compatibility")
+}
+
+/// Номера детали: OEM, каталожный, производителя, артикул. Несколько на
+/// деталь. Поиск — по ключу номера (без регистра, дефисов и пробелов), точно
+/// или по началу: «90915-YZZD1» находится и по «90915yzzd1», и по «90915».
+model ListingPartNumber {
+  id        String @id @default(uuid()) @db.Uuid
+  listingId String @map("listing_id") @db.Uuid
+  /// oem | catalog | manufacturer | article
+  kind      String @default("oem") @db.VarChar(16)
+  /// Как написал продавец
+  number    String @db.VarChar(60)
+  /// Ключ для поиска: верхний регистр, только буквы и цифры
+  numberKey String @map("number_key") @db.VarChar(60)
+  sortOrder Int    @default(0) @map("sort_order")
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("listing_part_numbers")
 }
 
 /// Избранные объявления. Отдельная таблица, как и у заведений: в схеме это
@@ -1749,18 +1803,18 @@ model SmartSearchFeedback {
 
 /// Нераспознанные фразы умного поиска — обезличенный журнал для пополнения словаря
 model SmartSearchUnrecognized {
-  id     String  @id @default(uuid()) @db.Uuid
+  id           String   @id @default(uuid()) @db.Uuid
   /// Нормализованная фраза без телефонов и почты; одинаковые фразы считаются
-  phrase String  @unique @db.VarChar(300)
-  domain String? @db.VarChar(20)
-  screen String? @db.VarChar(20)
+  phrase       String   @unique @db.VarChar(300)
+  domain       String?  @db.VarChar(20)
+  screen       String?  @db.VarChar(20)
   /// Слова, которых словарь не знает: «суксидик»
   unknownWords String[] @map("unknown_words")
   count        Int      @default(1)
   /// new → reviewed (слово добавлено в словарь или фраза признана мусором)
-  status      String   @default("new") @db.VarChar(20)
-  firstSeenAt DateTime @default(now()) @map("first_seen_at")
-  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  status       String   @default("new") @db.VarChar(20)
+  firstSeenAt  DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at")
 
   @@index([status, count])
   @@map("smart_search_unrecognized")

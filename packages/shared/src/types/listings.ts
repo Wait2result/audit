@@ -11,6 +11,7 @@ import type { ModerationStatus } from '../constants/moderation.js';
 import type { ListingAddressVisibility } from '../constants/geo.js';
 import type { ListingRentPeriod, ListingTransactionType } from '../constants/transactions.js';
 import type { MediaDto } from './api.js';
+import type { ListingPartDto } from '../schemas/listing-part.schema.js';
 import type { ListingLocationDto, MyListingLocationDto } from './geo.js';
 
 /**
@@ -143,6 +144,8 @@ export interface ListingDetailsDto extends ListingDto {
   photos: MediaDto[];
   /** Значения характеристик: ключ поля набора → значение */
   attributes: Record<string, string | number | boolean | string[]>;
+  /** Слой запчасти: номера и совместимость. Пусто у объявлений, которые не запчасти */
+  part: ListingPartDto | null;
   /** Подписи значений из справочников: «toyota» → «Toyota» */
   attributeLabels: Record<string, string>;
   condition: ListingCondition | null;
@@ -227,6 +230,7 @@ export interface MyListingDetailsDto extends MyListingDto {
   addressVisibility: ListingAddressVisibility;
   photos: MediaDto[];
   attributes: Record<string, string | number | boolean | string[]>;
+  part: ListingPartDto | null;
   condition: ListingCondition | null;
   contactPhone: string;
   contactName: string | null;

@@ -1,0 +1,101 @@
+/**
+ * Производители деталей: тот, кто сделал запчасть (Denso, Bosch, KYB…).
+ * Не путать с производителем техники (Toyota) — это разные поля, хотя
+ * названия иногда совпадают: оригинальная деталь Toyota сделана для Toyota.
+ * «Оригинал или аналог» — отдельное поле, как и состояние.
+ */
+export interface PartManufacturerSeed {
+  value: string;
+  label: string;
+  aliases?: readonly string[];
+}
+
+export const PART_MANUFACTURERS: readonly PartManufacturerSeed[] = [
+  // Автомобильные: производители техники, делающие оригинал
+  { value: 'toyota', label: 'Toyota', aliases: ['тойота', 'toyota genuine'] },
+  { value: 'lexus', label: 'Lexus', aliases: ['лексус'] },
+  { value: 'nissan', label: 'Nissan', aliases: ['ниссан'] },
+  { value: 'honda', label: 'Honda', aliases: ['хонда'] },
+  { value: 'mazda', label: 'Mazda', aliases: ['мазда'] },
+  { value: 'mitsubishi', label: 'Mitsubishi', aliases: ['мицубиси', 'митсубиси'] },
+  { value: 'subaru', label: 'Subaru', aliases: ['субару'] },
+  { value: 'suzuki', label: 'Suzuki', aliases: ['сузуки'] },
+  {
+    value: 'hyundai_mobis',
+    label: 'Hyundai Mobis',
+    aliases: ['хендай', 'мобис', 'hyundai', 'kia'],
+  },
+  { value: 'bmw', label: 'BMW', aliases: ['бмв'] },
+  { value: 'mercedes', label: 'Mercedes-Benz', aliases: ['мерседес', 'mercedes'] },
+  { value: 'vag', label: 'VAG', aliases: ['фольксваген', 'ауди', 'volkswagen', 'audi', 'skoda'] },
+  { value: 'ford', label: 'Ford', aliases: ['форд'] },
+  { value: 'gm', label: 'GM', aliases: ['дженерал моторс', 'opel', 'chevrolet'] },
+  { value: 'lada', label: 'LADA / АвтоВАЗ', aliases: ['лада', 'ваз', 'автоваз'] },
+  { value: 'gaz', label: 'ГАЗ', aliases: ['газ'] },
+  { value: 'kamaz', label: 'КАМАЗ', aliases: ['камаз'] },
+  // Поставщики комплектующих
+  { value: 'denso', label: 'Denso', aliases: ['денсо'] },
+  { value: 'aisin', label: 'Aisin', aliases: ['айсин'] },
+  { value: 'advics', label: 'Advics', aliases: ['адвикс'] },
+  { value: 'bosch', label: 'Bosch', aliases: ['бош'] },
+  { value: 'trw', label: 'TRW' },
+  { value: 'zf', label: 'ZF' },
+  { value: 'kyb', label: 'KYB', aliases: ['кяб', 'каяба'] },
+  { value: 'sachs', label: 'Sachs', aliases: ['закс'] },
+  { value: 'monroe', label: 'Monroe', aliases: ['монро'] },
+  { value: 'lemforder', label: 'Lemförder', aliases: ['лемфердер'] },
+  { value: 'febi', label: 'Febi', aliases: ['феби'] },
+  { value: 'moog', label: 'Moog' },
+  { value: 'febest', label: 'Febest', aliases: ['фебест'] },
+  { value: 'valeo', label: 'Valeo', aliases: ['валео'] },
+  { value: 'hella', label: 'Hella', aliases: ['хелла'] },
+  { value: 'osram', label: 'Osram', aliases: ['осрам'] },
+  { value: 'philips', label: 'Philips', aliases: ['филипс'] },
+  { value: 'ngk', label: 'NGK', aliases: ['нгк'] },
+  { value: 'gates', label: 'Gates', aliases: ['гейтс'] },
+  { value: 'dayco', label: 'Dayco' },
+  { value: 'skf', label: 'SKF' },
+  { value: 'nsk', label: 'NSK' },
+  { value: 'ntn', label: 'NTN' },
+  { value: 'koyo', label: 'Koyo' },
+  { value: 'mahle', label: 'Mahle', aliases: ['мале'] },
+  { value: 'mann', label: 'Mann-Filter', aliases: ['манн', 'mann'] },
+  { value: 'brembo', label: 'Brembo', aliases: ['брембо'] },
+  { value: 'ate', label: 'ATE' },
+  { value: 'ferodo', label: 'Ferodo' },
+  { value: 'textar', label: 'Textar' },
+  { value: 'delphi', label: 'Delphi', aliases: ['делфи'] },
+  { value: 'continental', label: 'Continental', aliases: ['континенталь'] },
+  { value: 'magneti_marelli', label: 'Magneti Marelli' },
+  { value: 'sakura', label: 'Sakura', aliases: ['сакура'] },
+  { value: 'jet', label: 'Jet' },
+  // Электроника и техника
+  { value: 'apple', label: 'Apple', aliases: ['эпл', 'эппл'] },
+  { value: 'samsung', label: 'Samsung', aliases: ['самсунг'] },
+  { value: 'xiaomi', label: 'Xiaomi', aliases: ['сяоми', 'ксиаоми'] },
+  { value: 'huawei', label: 'Huawei', aliases: ['хуавей'] },
+  { value: 'lg', label: 'LG', aliases: ['лж', 'элджи'] },
+  { value: 'sony', label: 'Sony', aliases: ['сони'] },
+  { value: 'lenovo', label: 'Lenovo', aliases: ['леново'] },
+  { value: 'asus', label: 'ASUS', aliases: ['асус'] },
+  { value: 'hp', label: 'HP' },
+  { value: 'dell', label: 'Dell', aliases: ['делл'] },
+  { value: 'acer', label: 'Acer', aliases: ['асер'] },
+  { value: 'bosch_home', label: 'Bosch (быт. техника)', aliases: ['bosch home'] },
+  { value: 'indesit', label: 'Indesit', aliases: ['индезит'] },
+  { value: 'electrolux', label: 'Electrolux', aliases: ['электролюкс'] },
+  { value: 'whirlpool', label: 'Whirlpool', aliases: ['вирпул'] },
+  { value: 'candy', label: 'Candy' },
+  { value: 'atlant', label: 'Атлант', aliases: ['atlant'] },
+  { value: 'daikin', label: 'Daikin', aliases: ['дайкин'] },
+  // Спецтехника и мото
+  { value: 'caterpillar', label: 'Caterpillar', aliases: ['катерпиллер', 'cat'] },
+  { value: 'komatsu', label: 'Komatsu', aliases: ['комацу'] },
+  { value: 'jcb', label: 'JCB' },
+  { value: 'hitachi', label: 'Hitachi', aliases: ['хитачи'] },
+  { value: 'kayaba', label: 'Kayaba' },
+  { value: 'yamaha', label: 'Yamaha', aliases: ['ямаха'] },
+  { value: 'mercury', label: 'Mercury', aliases: ['меркури'] },
+  { value: 'tohatsu', label: 'Tohatsu', aliases: ['тохатсу'] },
+  { value: 'other', label: 'Другой производитель', aliases: ['другой', 'неизвестный'] },
+];

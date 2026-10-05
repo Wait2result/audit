@@ -1,10 +1,12 @@
 import {
+  FILTER_ONLY_ATTRIBUTES,
   LISTING_RANKING,
   ListingSort,
   type GeoPoint,
   type ListingAttribute,
   type ListingListQuery,
   type ListingPriceUnit,
+  partNumberKey,
 } from '@dagestan/shared';
 
 import { Prisma } from '../../generated/prisma/client.js';
@@ -205,25 +207,106 @@ function valueSql(attribute: ListingAttribute, value: unknown): Prisma.Sql | nul
   return exists(sql`v."text_value" = ${String(value)}`);
 }
 
+/** Значение фильтра как непустой список строк (или одно значение). */
+function texts(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items
+    .filter((item) => typeof item === 'string' || typeof item === 'number')
+    .map((item) => String(item).trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 12);
+}
+
+/**
+ * Совместимость запчасти: ОДНА строка слоя должна подойти под все условия сразу.
+ * «Toyota Succeed 2016» — это строка с маркой Toyota, моделью Succeed и
+ * годом в её промежутке, а не «где-то Toyota, где-то Succeed, где-то 2016».
+ * Годы: пустая граница строки — без предела («с 2010» подходит и к 2020 году).
+ */
+function compatibilitySql(filter: Record<string, unknown>): Prisma.Sql | null {
+  const parts: Prisma.Sql[] = [];
+
+  const brands = texts(filter.compatBrand);
+  if (brands.length > 0) parts.push(sql`k."brand" IN (${join(brands)})`);
+  const models = texts(filter.compatModel);
+  if (models.length > 0) parts.push(sql`k."model" IN (${join(models)})`);
+
+  // Свободный текст там, где у техники нет справочника марок и моделей
+  const brandText = textNeedle(texts(filter.compatBrandText)[0]);
+  if (brandText) parts.push(sql`k."brand_label" ILIKE ${`%${brandText}%`}`);
+  const modelText = textNeedle(texts(filter.compatModelText)[0]);
+  if (modelText) parts.push(sql`k."model_label" ILIKE ${`%${modelText}%`}`);
+
+  const chassis = textNeedle(texts(filter.compatChassis)[0]);
+  if (chassis) parts.push(sql`k."chassis" ILIKE ${`${chassis}%`}`);
+  const engine = textNeedle(texts(filter.compatEngine)[0]);
+  if (engine) parts.push(sql`k."engine" ILIKE ${`${engine}%`}`);
+
+  const year = filter.compatYear;
+  if (year !== undefined && year !== null && year !== '') {
+    const range =
+      typeof year === 'object' && !Array.isArray(year)
+        ? (year as { from?: unknown; to?: unknown })
+        : { from: year, to: year };
+    const from = Number(range.from);
+    const to = Number(range.to);
+    if (Number.isFinite(from))
+      parts.push(sql`(k."year_to" IS NULL OR k."year_to" >= ${Math.trunc(from)})`);
+    if (Number.isFinite(to))
+      parts.push(sql`(k."year_from" IS NULL OR k."year_from" <= ${Math.trunc(to)})`);
+  }
+
+  if (parts.length === 0) return null;
+  return sql`EXISTS (SELECT 1 FROM "listing_compatibility" k WHERE k."listing_id" = l."id" AND ${join(parts, ' AND ')})`;
+}
+
+/**
+ * Номер детали: по ключу (без регистра, дефисов и пробелов), точно или по
+ * началу — «90915» находит «90915-YZZD1». Ключ — только буквы и цифры, так
+ * что в LIKE ничего опасного нет.
+ */
+export function partNumberSql(value: unknown): Prisma.Sql | null {
+  const key = partNumberKey(texts(value)[0] ?? '');
+  if (key.length < 3) return null;
+  return sql`EXISTS (SELECT 1 FROM "listing_part_numbers" n WHERE n."listing_id" = l."id" AND n."number_key" LIKE ${`${key}%`})`;
+}
+
 /**
  * Условия по характеристикам категории: колоночные — напрямую, остальные —
  * через таблицу значений. Поле, которого нет в фильтрах (`filterable: false`)
  * или которого нет у категории, пропускается.
+ *
+ * Поля совместимости и номер (FILTER_ONLY_ATTRIBUTES) — не атрибуты: они
+ * читаются из слоя запчасти, а совместимость собирается в одно условие.
  */
 export function attributeSql(
   attributes: readonly ListingAttribute[],
   filter: Record<string, unknown>,
 ): Prisma.Sql[] {
   const result: Prisma.Sql[] = [];
+  const compat: Record<string, unknown> = {};
 
   for (const attribute of attributes) {
     const value = filter[attribute.key];
     if (value === undefined || value === null || value === '') continue;
     if (!attribute.filterable) continue;
 
+    if (FILTER_ONLY_ATTRIBUTES.has(attribute.key)) {
+      if (attribute.key === 'partNumber') {
+        const condition = partNumberSql(value);
+        if (condition) result.push(condition);
+      } else {
+        compat[attribute.key] = value;
+      }
+      continue;
+    }
+
     const condition = attribute.column ? columnSql(attribute, value) : valueSql(attribute, value);
     if (condition) result.push(condition);
   }
+
+  const compatibility = compatibilitySql(compat);
+  if (compatibility) result.push(compatibility);
 
   return result;
 }
@@ -271,6 +354,12 @@ export function searchSql(search: string): Prisma.Sql | null {
     sql`${query} <% l."search_text"`,
   ];
   if (prefix) parts.push(sql`l."search_vector" @@ to_tsquery('russian', ${prefix})`);
+  // Запрос, похожий на номер детали («90915-YZZD1», «04465GR1»): ищется ещё и
+  // по номерам слоя запчасти — без названия, по одному коду
+  if (/\d/.test(query) && !/\s/.test(query)) {
+    const number = partNumberSql(query);
+    if (number) parts.push(number);
+  }
 
   return sql`(${join(parts, ' OR ')})`;
 }
