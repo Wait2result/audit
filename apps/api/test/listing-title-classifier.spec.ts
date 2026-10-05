@@ -158,3 +158,34 @@ describe('Категория по заголовку', () => {
     }
   });
 });
+
+describe('запчасти по заголовку', () => {
+  it.each([
+    ['Рулевая рейка Toyota Succeed', 'transport-parts', 'steering_rack'],
+    ['Гидронасос на экскаватор', 'transport-special-parts', 'hydraulic_pump'],
+    ['Дисплей на айфон 13', 'electronics-phone-parts', 'phone_display'],
+    ['Компрессор холодильника', 'home-appliance-parts', 'fridge_compressor'],
+    ['Видеокарта GTX 1060', 'electronics-components', 'computer_gpu'],
+    ['Плата телевизора Samsung', 'electronics-tv-parts', 'tv_mainboard'],
+  ])('«%s» → %s', (title, slug, item) => {
+    const result = guess(title);
+    expect(result.slug).toBe(slug);
+    expect(result.attributes.partItem).toBe(item);
+    expect(findSeedCategory(result.slug)).not.toBeNull();
+  });
+
+  it.each([
+    ['Toyota Camry 2019 в отличном состоянии', 'transport-cars'],
+    ['iPhone 13 экран разбит', 'electronics-phones'],
+    ['Стиральная машина Bosch', 'home-appliances'],
+  ])('«%s» — не запчасть', (title, slug) => {
+    expect(guess(title).slug).toBe(slug);
+  });
+
+  it.each(['Экран', 'Насос', 'Плата'])('«%s» — двусмысленно: запчасть не угадывается', (title) => {
+    const verdict = classifyListingTitle(title);
+    expect(
+      verdict.kind === 'guess' ? verdict.guess.attributes.partItem : undefined,
+    ).toBeUndefined();
+  });
+});

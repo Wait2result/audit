@@ -32,6 +32,7 @@ import { Button } from '../../../src/components/Button';
 import { Icon } from '../../../src/components/Icon';
 import {
   AttributeField,
+  formFields,
   DealPicker,
   needsDealChoice,
   resolveUnit,
@@ -45,6 +46,15 @@ import {
 import { ListingLocationPicker } from '../../../src/components/ListingLocationPicker';
 import { DEFAULT_COUNTRY, PhoneInput } from '../../../src/components/PhoneInput';
 import { PhotoGridEditor } from '../../../src/components/PhotoGridEditor';
+import {
+  PartLayerEditor,
+  emptyPartLayer,
+  isPartsLeaf,
+  partLayerError,
+  partLayerFromDto,
+  partLayerToInput,
+  type PartLayerValue,
+} from '../../../src/components/PartLayerEditor';
 import { Screen } from '../../../src/components/Screen';
 import { TextField } from '../../../src/components/TextField';
 import { usePhotoEditor } from '../../../src/hooks/use-photo-editor';
@@ -97,6 +107,7 @@ export default function EditListingScreen() {
   // Десять цифр после +7
   const [phone, setPhone] = useState('');
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [partLayer, setPartLayer] = useState<PartLayerValue>(emptyPartLayer);
   const [deal, setDeal] = useState<DealValue>({
     transactionType: null,
     rentPeriod: null,
@@ -127,12 +138,13 @@ export default function EditListingScreen() {
       rentPeriod: listing.rentPeriod,
       priceUnit: listing.price.unit,
     });
+    setPartLayer(partLayerFromDto(listing.part));
     replacePhotos(listing.photos);
     setHydrated(true);
   }, [listing, hydrated, replacePhotos]);
 
   const fields = useMemo(
-    () => attributesOfCategory(categories.data ?? [], listing?.categorySlug),
+    () => formFields(attributesOfCategory(categories.data ?? [], listing?.categorySlug)),
     [categories.data, listing?.categorySlug],
   );
   const category = findCategoryBySlug(categories.data ?? [], listing?.categorySlug);
@@ -145,6 +157,7 @@ export default function EditListingScreen() {
     title.trim().length >= 5 &&
     description.trim().length >= 10 &&
     ruMobileError(phone) === null &&
+    (!isPartsLeaf(listing?.categorySlug) || partLayerError(partLayer) === null) &&
     (!category || dealComplete(category, deal)) &&
     fields.every((field) => !field.required || hasValue(values[field.key]));
 
@@ -165,6 +178,7 @@ export default function EditListingScreen() {
       priceUnit,
       isNegotiable: priceless ? false : isNegotiable,
       attributes: values,
+      ...(isPartsLeaf(listing.categorySlug) ? { part: partLayerToInput(partLayer) } : {}),
       // Место не стирается: без новой точки остаётся прежнее
       ...(location ? { location } : {}),
       addressVisibility: visibility,
@@ -272,6 +286,15 @@ export default function EditListingScreen() {
               }
             />
           ))}
+
+        {listing && isPartsLeaf(listing.categorySlug) && (
+          <PartLayerEditor
+            slug={listing.categorySlug}
+            value={partLayer}
+            onChange={setPartLayer}
+            error={showErrors ? partLayerError(partLayer) : null}
+          />
+        )}
 
         {!priceless && (
           <Field label={`Цена, ₽${LISTING_PRICE_UNIT_SUFFIX[priceUnit]}`}>

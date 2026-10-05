@@ -40,6 +40,7 @@ import {
   createStyles as createFieldStyles,
   dealComplete,
   defaultDeal,
+  formFields,
   resolveUnit,
   hasValue,
   minLengthError,
@@ -49,6 +50,14 @@ import {
 import { ListingLocationPicker } from '../../src/components/ListingLocationPicker';
 import { DEFAULT_COUNTRY, PhoneInput } from '../../src/components/PhoneInput';
 import { PhotoGridEditor } from '../../src/components/PhotoGridEditor';
+import {
+  PartLayerEditor,
+  emptyPartLayer,
+  isPartsLeaf,
+  partLayerError,
+  partLayerToInput,
+  type PartLayerValue,
+} from '../../src/components/PartLayerEditor';
 import { RemoteImage } from '../../src/components/RemoteImage';
 import { Screen } from '../../src/components/Screen';
 import { TextField } from '../../src/components/TextField';
@@ -133,7 +142,13 @@ export default function NewListingScreen() {
     guessCategory.id !== category?.id &&
     guess.slug !== dismissedSlug;
 
-  const fields = useMemo<readonly ListingAttribute[]>(() => category?.attributes ?? [], [category]);
+  const fields = useMemo<readonly ListingAttribute[]>(
+    () => formFields(category?.attributes),
+    [category],
+  );
+  const [partLayer, setPartLayer] = useState<PartLayerValue>(emptyPartLayer);
+  const isParts = isPartsLeaf(category?.slug);
+  const partError = isParts ? partLayerError(partLayer) : null;
   const visibleFields = fields.filter((field) => isAttributeVisible(field, values));
   const requiredFields = visibleFields.filter((field) => field.required);
   const optionalFields = visibleFields.filter((field) => !field.required);
@@ -145,8 +160,10 @@ export default function NewListingScreen() {
 
   /** Выбрать категорию: сделка по умолчанию, значения — только подходящие ей. */
   const applyCategory = (next: ListingCategoryDto, fromGuess: ListingTitleGuess | null) => {
-    const keys = new Set((next.attributes ?? []).map((field) => field.key));
+    const keys = new Set(formFields(next.attributes).map((field) => field.key));
     setCategory(next);
+    // Номера и совместимость относятся к одному типу техники: у другого раздела начинаем заново
+    if (next.slug !== category?.slug) setPartLayer(emptyPartLayer());
     setValues((current) => {
       const kept = Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
       const prefill = Object.fromEntries(
@@ -156,7 +173,7 @@ export default function NewListingScreen() {
     });
     // Из заголовка заполнено необязательное поле (модель) — показываем его,
     // а не прячем подставленное под «Ещё характеристики»
-    const optionalPrefill = (next.attributes ?? []).some(
+    const optionalPrefill = formFields(next.attributes).some(
       (field) => !field.required && fromGuess?.attributes[field.key] !== undefined,
     );
     if (optionalPrefill) setMoreOpen(true);
@@ -189,6 +206,7 @@ export default function NewListingScreen() {
   if (missingFields.length > 0) {
     missing.push(missingFields.map((field) => field.label.toLowerCase()).join(', '));
   }
+  if (partError) missing.push('номера и совместимость');
   if (!location) missing.push('место');
   if (ruMobileError(phone)) missing.push('телефон');
   if (description.trim().length < 10) missing.push('описание');
@@ -217,6 +235,7 @@ export default function NewListingScreen() {
       priceUnit,
       isNegotiable: priceless ? false : isNegotiable,
       attributes: values,
+      ...(isParts ? { part: partLayerToInput(partLayer) } : {}),
       location,
       addressVisibility: visibility,
       contactPhone: `+7${phone}`,
@@ -424,6 +443,18 @@ export default function NewListingScreen() {
               Заполните: {missingFields.map((field) => field.label.toLowerCase()).join(', ')}
             </Text>
           )}
+        </View>
+      )}
+
+      {/* ── Номера и совместимость запчасти ─────────────────────────── */}
+      {category && isParts && (
+        <View style={styles.section}>
+          <PartLayerEditor
+            slug={category.slug}
+            value={partLayer}
+            onChange={setPartLayer}
+            error={showErrors ? partError : null}
+          />
         </View>
       )}
 

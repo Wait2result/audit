@@ -1,0 +1,450 @@
+import {
+  PART_NUMBER_KINDS,
+  PART_NUMBER_KIND_LABELS,
+  partNumberKey,
+  partsEquipmentBySlug,
+  type ListingPartDto,
+  type ListingPartInput,
+  type PartNumberKind,
+  type PartsEquipment,
+} from '@dagestan/shared';
+import { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { useDictionary } from '../api/queries';
+import { radius, spacing, typography, useThemeColors } from '../theme';
+import { Icon } from './Icon';
+import { Field, OptionChips, createStyles as createFieldStyles } from './ListingFormFields';
+import { SearchableSelect } from './SearchableSelect';
+
+/**
+ * Номера и совместимость запчасти — слой объявления, а не обычные
+ * характеристики: у детали несколько номеров и она подходит к нескольким
+ * машинам. Форма подачи и форма правки показывают этот редактор для
+ * подкатегорий запчастей и больше нигде.
+ *
+ * Марка и модель берутся из тех же справочников, что у самой техники
+ * (`car_brand`, `phone_model` …); где справочника нет — свободный текст.
+ */
+
+const MAX_NUMBERS = 10;
+const MAX_ROWS = 30;
+
+export interface PartNumberRow {
+  kind: PartNumberKind;
+  value: string;
+}
+
+export interface CompatibilityRow {
+  brand: string;
+  model: string;
+  chassis: string;
+  yearFrom: string;
+  yearTo: string;
+  engine: string;
+}
+
+/** Состояние редактора: строки хранятся текстом, как их печатает человек. */
+export interface PartLayerValue {
+  numbers: PartNumberRow[];
+  compatibility: CompatibilityRow[];
+}
+
+export const emptyPartLayer = (): PartLayerValue => ({ numbers: [], compatibility: [] });
+
+const emptyRow = (): CompatibilityRow => ({
+  brand: '',
+  model: '',
+  chassis: '',
+  yearFrom: '',
+  yearTo: '',
+  engine: '',
+});
+
+/** Слой с сервера (правка объявления) → состояние редактора. */
+export function partLayerFromDto(part: ListingPartDto | null | undefined): PartLayerValue {
+  if (!part) return emptyPartLayer();
+  return {
+    numbers: part.numbers.map((number) => ({ kind: number.kind, value: number.value })),
+    compatibility: part.compatibility.map((row) => ({
+      brand: row.brand ?? '',
+      model: row.model ?? '',
+      chassis: row.chassis ?? '',
+      yearFrom: row.yearFrom !== null ? String(row.yearFrom) : '',
+      yearTo: row.yearTo !== null ? String(row.yearTo) : '',
+      engine: row.engine ?? '',
+    })),
+  };
+}
+
+const yearOf = (text: string): number | undefined => {
+  const year = Number(text.trim());
+  return Number.isInteger(year) && year > 0 ? year : undefined;
+};
+
+const rowIsEmpty = (row: CompatibilityRow) =>
+  !row.brand && !row.model && !row.chassis && !row.engine && !row.yearFrom && !row.yearTo;
+
+/**
+ * Текст ошибки или null. Пустые строки пропускаются — их при отправке просто
+ * не будет; а строка только с годами или годы наоборот — нет.
+ */
+export function partLayerError(value: PartLayerValue): string | null {
+  for (const number of value.numbers) {
+    if (number.value.trim() && partNumberKey(number.value).length < 3) {
+      return `Номер «${number.value.trim()}» слишком короткий`;
+    }
+  }
+  for (const row of value.compatibility) {
+    if (rowIsEmpty(row)) continue;
+    if (!row.brand && !row.model && !row.chassis && !row.engine) {
+      return 'В строке совместимости укажите марку, модель, кузов или двигатель';
+    }
+    const from = yearOf(row.yearFrom);
+    const to = yearOf(row.yearTo);
+    if ((row.yearFrom && from === undefined) || (row.yearTo && to === undefined)) {
+      return 'Год — число, например 2014';
+    }
+    if (from !== undefined && to !== undefined && from > to) {
+      return 'Год «от» больше года «до»';
+    }
+  }
+  return null;
+}
+
+/** Состояние редактора → тело запроса `part`. */
+export function partLayerToInput(value: PartLayerValue): ListingPartInput {
+  return {
+    numbers: value.numbers
+      .filter((number) => number.value.trim() !== '')
+      .map((number) => ({ kind: number.kind, value: number.value.trim() })),
+    compatibility: value.compatibility
+      .filter((row) => !rowIsEmpty(row))
+      .map((row) => {
+        const yearFrom = yearOf(row.yearFrom);
+        const yearTo = yearOf(row.yearTo);
+        return {
+          ...(row.brand.trim() ? { brand: row.brand.trim() } : {}),
+          ...(row.model.trim() ? { model: row.model.trim() } : {}),
+          ...(row.chassis.trim() ? { chassis: row.chassis.trim() } : {}),
+          ...(row.engine.trim() ? { engine: row.engine.trim() } : {}),
+          ...(yearFrom !== undefined ? { yearFrom } : {}),
+          ...(yearTo !== undefined ? { yearTo } : {}),
+        };
+      }),
+  };
+}
+
+/** Это подкатегория запчастей (есть редактор слоя)? */
+export const isPartsLeaf = (slug: string | null | undefined): boolean =>
+  partsEquipmentBySlug(slug) !== undefined;
+
+export function PartLayerEditor({
+  slug,
+  value,
+  onChange,
+  error,
+}: {
+  slug: string;
+  value: PartLayerValue;
+  onChange: (value: PartLayerValue) => void;
+  error?: string | null;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const equipment = partsEquipmentBySlug(slug);
+  if (!equipment) return null;
+
+  const setNumber = (index: number, patch: Partial<PartNumberRow>) =>
+    onChange({
+      ...value,
+      numbers: value.numbers.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    });
+  const setRow = (index: number, patch: Partial<CompatibilityRow>) =>
+    onChange({
+      ...value,
+      compatibility: value.compatibility.map((row, i) =>
+        i === index ? { ...row, ...patch } : row,
+      ),
+    });
+
+  return (
+    <View style={styles.wrap}>
+      {/* ── Номера ─────────────────────────────────────────────────── */}
+      <Text style={styles.title}>Номера детали</Text>
+      <Text style={styles.hint}>
+        По номеру деталь находят без названия. Можно указать несколько: оригинальный, каталожный,
+        артикул.
+      </Text>
+      {value.numbers.map((row, index) => (
+        <View key={`number-${index}`} style={styles.card}>
+          <View style={styles.cardHead}>
+            <Text style={styles.cardTitle}>Номер {index + 1}</Text>
+            <RemoveButton
+              label={`Убрать номер ${index + 1}`}
+              onPress={() =>
+                onChange({ ...value, numbers: value.numbers.filter((_, i) => i !== index) })
+              }
+            />
+          </View>
+          <OptionChips
+            options={PART_NUMBER_KINDS.map((kind) => ({
+              value: kind,
+              label: PART_NUMBER_KIND_LABELS[kind],
+            }))}
+            selected={[row.kind]}
+            onToggle={(next) => setNumber(index, { kind: next as PartNumberKind })}
+          />
+          <TextInput
+            value={row.value}
+            onChangeText={(text) => setNumber(index, { value: text })}
+            placeholder="Например, 90915-YZZD1"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={60}
+            accessibilityLabel={`Номер детали ${index + 1}`}
+            style={styles.input}
+          />
+        </View>
+      ))}
+      {value.numbers.length < MAX_NUMBERS && (
+        <AddButton
+          label="Добавить номер"
+          onPress={() =>
+            onChange({ ...value, numbers: [...value.numbers, { kind: 'oem', value: '' }] })
+          }
+        />
+      )}
+
+      {/* ── Совместимость ──────────────────────────────────────────── */}
+      <Text style={[styles.title, styles.titleGap]}>Подходит к</Text>
+      <Text style={styles.hint}>
+        {equipment.brandKind
+          ? 'Марка и модель — из справочника техники. Строк может быть несколько.'
+          : 'Впишите, к чему подходит деталь. Строк может быть несколько.'}
+      </Text>
+      {value.compatibility.map((row, index) => (
+        <View key={`compat-${index}`} style={styles.card}>
+          <View style={styles.cardHead}>
+            <Text style={styles.cardTitle}>Вариант {index + 1}</Text>
+            <RemoveButton
+              label={`Убрать вариант ${index + 1}`}
+              onPress={() =>
+                onChange({
+                  ...value,
+                  compatibility: value.compatibility.filter((_, i) => i !== index),
+                })
+              }
+            />
+          </View>
+          <CompatibilityRowFields
+            equipment={equipment}
+            row={row}
+            onChange={(patch) => setRow(index, patch)}
+          />
+        </View>
+      ))}
+      {value.compatibility.length < MAX_ROWS && (
+        <AddButton
+          label="Добавить, к чему подходит"
+          onPress={() =>
+            onChange({ ...value, compatibility: [...value.compatibility, emptyRow()] })
+          }
+        />
+      )}
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function CompatibilityRowFields({
+  equipment,
+  row,
+  onChange,
+}: {
+  equipment: PartsEquipment;
+  row: CompatibilityRow;
+  onChange: (patch: Partial<CompatibilityRow>) => void;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const brands = useDictionary(equipment.brandKind, null);
+  const models = useDictionary(equipment.modelKind, row.brand || null);
+  const brandOptions = brands.data ?? [];
+  const modelOptions = row.brand ? (models.data ?? []) : [];
+
+  return (
+    <View style={styles.rowFields}>
+      {brandOptions.length > 0 ? (
+        <SearchableSelect
+          label={equipment.brandLabel}
+          value={row.brand || undefined}
+          options={brandOptions}
+          // Марка сменилась — модель прежней марки не остаётся
+          onChange={(next) => onChange({ brand: next ?? '', model: '' })}
+          clearLabel="Не указывать"
+        />
+      ) : (
+        <Field label={equipment.brandLabel}>
+          <TextInput
+            value={row.brand}
+            onChangeText={(text) => onChange({ brand: text })}
+            placeholder="Впишите марку"
+            placeholderTextColor={colors.textFaint}
+            maxLength={80}
+            style={styles.input}
+            accessibilityLabel={equipment.brandLabel}
+          />
+        </Field>
+      )}
+
+      {modelOptions.length > 0 ? (
+        <SearchableSelect
+          label="Модель"
+          value={row.model || undefined}
+          options={modelOptions}
+          onChange={(next) => onChange({ model: next ?? '' })}
+          allowCustom
+          placeholder="Выберите или впишите модель"
+        />
+      ) : (
+        <Field label="Модель">
+          <TextInput
+            value={row.model}
+            onChangeText={(text) => onChange({ model: text })}
+            placeholder={
+              equipment.brandKind && !row.brand ? 'Сначала выберите марку' : 'Впишите модель'
+            }
+            placeholderTextColor={colors.textFaint}
+            maxLength={80}
+            style={styles.input}
+            accessibilityLabel="Модель"
+          />
+        </Field>
+      )}
+
+      {equipment.compat.chassis && (
+        <Field label="Кузов">
+          <TextInput
+            value={row.chassis}
+            onChangeText={(text) => onChange({ chassis: text })}
+            placeholder="Например, NCP165"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={40}
+            style={styles.input}
+            accessibilityLabel="Кузов"
+          />
+        </Field>
+      )}
+      {equipment.compat.engine && (
+        <Field label="Двигатель">
+          <TextInput
+            value={row.engine}
+            onChangeText={(text) => onChange({ engine: text })}
+            placeholder="Например, 1NZ-FE"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={60}
+            style={styles.input}
+            accessibilityLabel="Двигатель"
+          />
+        </Field>
+      )}
+      {equipment.compat.year && (
+        <View style={styles.years}>
+          <View style={styles.year}>
+            <Field label="Год от">
+              <TextInput
+                value={row.yearFrom}
+                onChangeText={(text) => onChange({ yearFrom: text.replace(/\D/g, '').slice(0, 4) })}
+                placeholder="2014"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="number-pad"
+                style={styles.input}
+                accessibilityLabel="Год от"
+              />
+            </Field>
+          </View>
+          <View style={styles.year}>
+            <Field label="Год до">
+              <TextInput
+                value={row.yearTo}
+                onChangeText={(text) => onChange({ yearTo: text.replace(/\D/g, '').slice(0, 4) })}
+                placeholder="2020"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="number-pad"
+                style={styles.input}
+                accessibilityLabel="Год до"
+              />
+            </Field>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function AddButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.add, pressed && styles.pressed]}
+    >
+      <Icon name="plus" size={16} color={colors.primary} />
+      <Text style={styles.addLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function RemoveButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={12}>
+      <Icon name="trash" size={18} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => {
+  const fieldStyles = createFieldStyles(colors);
+  return StyleSheet.create({
+    wrap: { gap: spacing.md },
+    pressed: { opacity: 0.85 },
+    title: { ...typography.subheading, color: colors.text },
+    titleGap: { marginTop: spacing.md },
+    hint: { ...typography.caption, color: colors.textMuted },
+    card: {
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceMuted,
+    },
+    cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    cardTitle: { ...typography.caption, color: colors.textMuted, fontWeight: '600' },
+    rowFields: { gap: spacing.md },
+    years: { flexDirection: 'row', gap: spacing.md },
+    year: { flex: 1 },
+    input: fieldStyles.input,
+    add: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 44,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderStyle: 'dashed',
+    },
+    addLabel: { ...typography.body, color: colors.primary, fontWeight: '600' },
+    error: { ...typography.caption, color: colors.danger },
+  });
+};

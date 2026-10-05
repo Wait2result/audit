@@ -1,3 +1,5 @@
+import { isPartsCategory } from '@dagestan/shared';
+
 import type { IconName } from '../components/Icon';
 
 /**
@@ -66,6 +68,8 @@ export function sectionIcon(slug: string): IconName {
 export function subcategoryIcon(slug: string): IconName {
   const own = SUBCATEGORY_ICONS[slug];
   if (own) return own;
+  // Запчасти любого типа техники — один и тот же ярлык, как у раздела «Автозапчасти»
+  if (isPartsCategory(slug)) return 'tools';
 
   const section = slug.split('-')[0] ?? '';
   return SECTION_ICONS[section] ?? 'tag';

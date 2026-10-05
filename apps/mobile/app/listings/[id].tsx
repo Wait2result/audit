@@ -43,6 +43,7 @@ import { useCityStore } from '../../src/store/city-store';
 import { formatMemberSince } from '../../src/utils/member-since';
 import { shareListing } from '../../src/utils/share';
 import { radius, shadow, spacing, typography, useThemeColors } from '../../src/theme';
+import { PartBlock } from '../../src/components/PartBlock';
 import { attributesOfCategory } from '../../src/utils/listing-category-lookup';
 
 /**
@@ -210,6 +211,8 @@ export default function ListingScreen() {
 
         <Text style={styles.sectionTitle}>Описание</Text>
         <Text style={styles.description}>{listing.description}</Text>
+
+        {listing.part && <PartBlock part={listing.part} />}
 
         {attributes.some((attribute) => listing.attributes[attribute.key] !== undefined) && (
           <>

@@ -1,4 +1,5 @@
 import {
+  FILTER_ONLY_ATTRIBUTES,
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
   allowedPriceUnits,
@@ -29,6 +30,16 @@ import { SearchableSelect } from './SearchableSelect';
  * каждая свою копию, исправление одной не спасло бы от той же ошибки в
  * другой. Одно место правки — и обе формы не могут разойтись.
  */
+
+/**
+ * Поля категории для формы: без «фильтровых» (совместимость, номер детали) —
+ * их значения хранятся слоем запчасти, и у формы для них свой редактор.
+ */
+export function formFields(
+  attributes: readonly ListingAttribute[] | undefined,
+): readonly ListingAttribute[] {
+  return (attributes ?? []).filter((field) => !FILTER_ONLY_ATTRIBUTES.has(field.key));
+}
 
 /** Подпись и поле под ней — общая обёртка, чтобы отступы не расходились. */
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {

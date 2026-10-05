@@ -717,7 +717,11 @@ function ModelFilter({
     return (
       <View style={styles.block}>
         <Text style={styles.blockTitle}>{attribute.label}</Text>
-        <Text style={styles.hint}>Сначала выберите марку</Text>
+        <Text style={styles.hint}>
+          {attribute.parentKey === 'partGroup'
+            ? 'Сначала выберите категорию детали'
+            : 'Сначала выберите марку'}
+        </Text>
       </View>
     );
   }

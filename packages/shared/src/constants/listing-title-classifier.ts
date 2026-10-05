@@ -1,3 +1,11 @@
+import {
+  decideParts,
+  findEquipmentWord,
+  findPartAlias,
+  partAliasMaxWords,
+  partLabels,
+} from '../search/parts.js';
+import { partsEquipmentByCode } from './parts/equipment-types.js';
 import { BRAND_ALIASES, MODEL_ALIASES } from './dictionaries/aliases.js';
 import { CAR_BRANDS, OTHER_BRAND } from './dictionaries/car-brands.js';
 import { modelValue } from './dictionaries/index.js';
@@ -58,6 +66,7 @@ export function classifyListingTitle(title: string): ListingTitleVerdict {
   // Услуги раньше недвижимости и вещей: «ремонт квартир» — услуга, а не
   // квартира, «ремонт холодильников» — не холодильник
   const guess =
+    partsGuess(text, words) ??
     phoneGuess(text) ??
     vehicleGuess(text, words) ??
     serviceGuess(words) ??
@@ -188,6 +197,86 @@ function matchesModel(padded: string, label: string, brandForms: readonly string
     const at = padded.indexOf(marker);
     return at >= 0 && !/^\d( |$)/.test(padded.slice(at + marker.length));
   });
+}
+
+/**
+ * Запчасть по заголовку: «Рулевая рейка Toyota Succeed», «Дисплей на айфон 13».
+ * Деталь названа в начале заголовка и однозначна для типа техники (который
+ * называют слова, марка после детали или сама деталь). «Toyota Camry с новым
+ * двигателем» и «iPhone 13 экран разбит» — это машина и телефон, а не детали:
+ * там марка стоит раньше названия детали.
+ */
+function partsGuess(text: string, words: readonly string[]): ListingTitleGuess | null {
+  const maxWords = partAliasMaxWords();
+  let start = -1;
+  let end = -1;
+  let phrase = '';
+  let items = 0;
+  for (let i = 0; i < words.length && start < 0; i += 1) {
+    for (let length = Math.min(maxWords, words.length - i); length >= 1; length -= 1) {
+      const candidate = words.slice(i, i + length).join(' ');
+      const found = findPartAlias(candidate);
+      if (found.some((match) => match.item !== null)) {
+        start = i;
+        end = i + length;
+        phrase = candidate;
+        items = found.length;
+        break;
+      }
+    }
+  }
+  if (start < 0 || items === 0 || start > 1) return null;
+
+  const equipment = new Set<string>();
+  let kind: { attribute: string; option: string } | undefined;
+  for (const word of words) {
+    for (const hit of findEquipmentWord(word)) {
+      equipment.add(hit.equipment);
+      if (hit.kind) kind = hit.kind;
+    }
+  }
+  // Марка после детали подсказывает тип техники; марка до неё — это сама техника
+  const rest = words.slice(end);
+  const before = words.slice(0, start);
+  const carBrand = (list: readonly string[]) =>
+    CAR_BRANDS.some(
+      (item) =>
+        item.value !== OTHER_BRAND &&
+        [item.value, normalize(item.label), ...(BRAND_ALIASES[item.value] ?? [])].some((form) =>
+          list.includes(form),
+        ),
+    );
+  if (carBrand(before)) return null;
+  if (equipment.size === 0 && carBrand(rest)) equipment.add('passenger_car');
+  if (equipment.size === 0) {
+    const phoneBrand = PHONE_BRANDS.some((item) =>
+      [item.value, normalize(item.label), ...(BRAND_ALIASES[item.value] ?? [])].some((form) =>
+        rest.includes(form),
+      ),
+    );
+    if (phoneBrand) equipment.add('phone');
+  }
+
+  const decision = decideParts({
+    aliases: [phrase],
+    equipment: [...equipment] as never,
+  });
+  if (decision.status !== 'resolved') return null;
+  const { equipment: code, group, item } = decision.resolution;
+  if (!item) return null;
+  const target = partsEquipmentByCode(code);
+  if (!target) return null;
+
+  const labels = partLabels(code, group, item);
+  const attributes: Record<string, string | number> = {};
+  if (group) attributes.partGroup = group;
+  attributes.partItem = item;
+  if (kind && target.kind?.attribute === kind.attribute) attributes[kind.attribute] = kind.option;
+  return {
+    slug: target.slug,
+    attributes,
+    details: [labels.group, labels.item].filter((label): label is string => Boolean(label)),
+  };
 }
 
 /** Автомобиль по марке, модели и году; мотоцикл, шины и запчасти — по словам. */
