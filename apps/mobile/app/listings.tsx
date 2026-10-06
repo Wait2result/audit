@@ -1,8 +1,14 @@
-import { ModerationStatus, plural, resolveCardLayout } from '@dagestan/shared';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  ModerationStatus,
+  plural,
+  resolveCardLayout,
+  type ListingCategoryDto,
+} from '@dagestan/shared';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Pressable,
   ScrollView,
@@ -33,7 +39,7 @@ import {
   type ExtraListingFilters,
 } from '../src/store/listing-filter-store';
 import { radius, shadow, spacing, typography, useThemeColors } from '../src/theme';
-import { sectionIcon } from '../src/utils/listing-icons';
+import { sectionIcon, subcategoryIcon } from '../src/utils/listing-icons';
 
 /**
  * Объявления: первый экран раздела (Этап 7).
@@ -68,8 +74,14 @@ export default function ListingsScreen() {
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  // Выбранный раздел ленты категорий; null — «Все»
-  const [section, setSection] = useState<string | null>(null);
+  // Путь по дереву категорий: [] — «Все», [Транспорт], [Транспорт, Автомобили].
+  // Лента категорий показывает детей последнего узла — каталог «проваливается»
+  // внутрь, а не открывает отдельный экран «Подкатегории». Лента объявлений —
+  // по последнему узлу вместе со всем, что под ним
+  const [trail, setTrail] = useState<ListingCategoryDto[]>([]);
+  const section = trail.at(-1)?.slug ?? null;
+  /** На уровень выше: «Запчасти ← Автомобили ← Транспорт ← Все». */
+  const goUp = useCallback(() => setTrail((current) => current.slice(0, -1)), []);
 
   // Фильтры хранятся по категории: у общей ленты свой набор, у раздела свой
   const scope = section ?? '';
@@ -133,7 +145,34 @@ export default function ListingsScreen() {
   const total = feed.data?.pages[0]?.total;
 
   const roots = categories.data ?? [];
-  const selected = roots.find((root) => root.slug === section) ?? null;
+  const selected = trail.at(-1) ?? null;
+  // Следующий уровень того же списка: дети выбранного узла (без ярлыков-ссылок)
+  const level = selected
+    ? selected.children.filter((child) => !child.shortcut && !child.deprecatedToSlug)
+    : roots;
+  const crumbs = trailLabel(trail);
+
+  // Системная «Назад» на Android тоже поднимается по уровням каталога, а не
+  // уводит с экрана, пока выбран раздел
+  useFocusEffect(
+    useCallback(() => {
+      if (trail.length === 0) return undefined;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        goUp();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [trail.length, goUp]),
+  );
+
+  /** Нажатие в ленте категорий: узел с детьми — глубже, конечная — её объявления. */
+  const openNode = (node: ListingCategoryDto) => {
+    if (node.children.length > 0) {
+      setTrail((current) => [...current, node]);
+      return;
+    }
+    router.push({ pathname: '/listings/list', params: { slug: node.slug } });
+  };
   // Квартиры и вакансии читают, а не разглядывают — им нужен список
   const layout = resolveCardLayout(selected);
 
@@ -151,9 +190,12 @@ export default function ListingsScreen() {
       <View style={styles.topRow}>
         {/* Явный выход в главное меню: свайп назад работает, но его знают не все */}
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+          // Внутри каталога — на уровень выше, с первого уровня — в главное меню
+          onPress={() =>
+            trail.length > 0 ? goUp() : router.canGoBack() ? router.back() : router.replace('/')
+          }
           accessibilityRole="button"
-          accessibilityLabel="Назад"
+          accessibilityLabel={trail.length > 0 ? `Назад: ${trail.at(-2)?.name ?? 'Все'}` : 'Назад'}
           hitSlop={12}
           style={({ pressed }) => [styles.back, pressed && styles.pressed]}
         >
@@ -260,40 +302,48 @@ export default function ListingsScreen() {
         />
       </View>
 
+      {!searching && crumbs !== '' && (
+        // Где человек в каталоге — одной строкой, без отдельного блока
+        <Text style={styles.crumbs} numberOfLines={1} accessibilityLabel={`Раздел: ${crumbs}`}>
+          {crumbs}
+        </Text>
+      )}
+
       {!searching && (
         <ScrollView
+          // Новый уровень — с начала ленты, а не с прокрутки прежнего
+          key={section ?? 'root'}
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.categoriesScroll}
           contentContainerStyle={styles.categoriesContent}
           accessibilityLabel="Категории"
         >
-          <SectionButton
-            icon="grid"
-            label="Все"
-            active={section === null}
-            onPress={() => setSection(null)}
-          />
-          {roots.map((root) => (
+          {selected ? (
             <SectionButton
-              key={root.id}
-              icon={sectionIcon(root.slug)}
-              label={root.name}
-              active={section === root.slug}
-              // Первое нажатие выбирает раздел и показывает его объявления тут же;
-              // повторное — открывает подкатегории
-              onPress={() =>
-                section === root.slug
-                  ? router.push({ pathname: '/listings/category', params: { slug: root.slug } })
-                  : setSection(root.slug)
-              }
+              icon="chevron-left"
+              label={trail.at(-2)?.name ?? 'Все'}
+              accessibilityLabel={`Назад: ${trail.at(-2)?.name ?? 'Все'}`}
+              onPress={goUp}
+            />
+          ) : (
+            <SectionButton icon="grid" label="Все" active onPress={() => setTrail([])} />
+          )}
+          {level.map((node) => (
+            <SectionButton
+              key={node.id}
+              icon={selected ? subcategoryIcon(node.slug) : sectionIcon(node.slug)}
+              label={node.name}
+              onPress={() => openNode(node)}
             />
           ))}
-          <SectionButton
-            icon="chevron-right"
-            label="Ещё"
-            onPress={() => router.push('/listings/categories')}
-          />
+          {!selected && (
+            <SectionButton
+              icon="chevron-right"
+              label="Ещё"
+              onPress={() => router.push('/listings/categories')}
+            />
+          )}
         </ScrollView>
       )}
 
@@ -302,17 +352,6 @@ export default function ListingsScreen() {
 
         {!searching && (
           <View style={styles.links}>
-            {selected && (
-              <Pressable
-                onPress={() =>
-                  router.push({ pathname: '/listings/category', params: { slug: selected.slug } })
-                }
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.allLink, pressed && styles.pressed]}
-              >
-                <Text style={styles.allLinkLabel}>Подкатегории</Text>
-              </Pressable>
-            )}
             <Pressable
               onPress={() =>
                 router.push({
@@ -390,15 +429,24 @@ export default function ListingsScreen() {
   );
 }
 
+/** «Транспорт → Автомобили»: путь по каталогу, повтор имени не пишется. */
+function trailLabel(trail: readonly ListingCategoryDto[]): string {
+  const names: string[] = [];
+  for (const node of trail) if (names.at(-1) !== node.name) names.push(node.name);
+  return names.join(' → ');
+}
+
 /** Плитка раздела. Иконка — умолчание по коду раздела, см. listing-icons. */
 function SectionButton({
   icon,
   label,
   active = false,
+  accessibilityLabel,
   onPress,
 }: {
   icon: IconName;
   label: string;
+  accessibilityLabel?: string;
   /** Выбранный раздел выделяется акцентом: тонкая рамка и подпись, без плашки */
   active?: boolean;
   onPress: () => void;
@@ -410,7 +458,7 @@ function SectionButton({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: active }}
       style={styles.categoryCell}
     >
@@ -553,6 +601,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     filterBadgeText: { ...typography.label, color: colors.textOnPrimary },
 
     // Лента выходит за поля экрана: так видно, что прокручивается дальше
+    crumbs: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.sm },
     categoriesScroll: { marginHorizontal: -spacing.lg },
     categoriesContent: { paddingHorizontal: spacing.lg, gap: spacing.lg },
     // Ширина по подписи: длинное название не переносится на вторую строку

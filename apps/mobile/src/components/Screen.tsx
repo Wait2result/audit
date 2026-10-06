@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement, ReactNode, Ref } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -50,6 +50,8 @@ interface ScreenProps {
    * длинной формы («Опубликовать»).
    */
   footer?: ReactNode;
+  /** Ссылка на прокрутку — чтобы экран мог довести человека до нужного места */
+  scrollRef?: Ref<ScrollView>;
 }
 
 /**
@@ -74,6 +76,7 @@ export function Screen({
   backgroundColor,
   refreshControl,
   footer,
+  scrollRef,
 }: ScreenProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -112,6 +115,7 @@ export function Screen({
       >
         {scroll ? (
           <ScrollView
+            ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"

@@ -2,14 +2,19 @@ import {
   DAGESTAN_DEFAULT_CENTER,
   EXACT_ADDRESS_SECTIONS,
   LISTING_PRICE_UNIT_SUFFIX,
+  RENT_PERIOD_LABELS,
   classifyListingTitle,
   describeAttributes,
   describeCardFacts,
+  operationLabels,
   partLabels,
   partsEquipmentBySlug,
   carryAttributes,
   fieldsForValues,
   isAttributeVisible,
+  isCategoryStep,
+  openStepIndex,
+  planListingSteps,
   partMakerReset,
   ruMobileDigits,
   ruMobileError,
@@ -22,7 +27,7 @@ import {
   withAttributeValue,
 } from '@dagestan/shared';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -44,9 +49,11 @@ import {
 import { publishErrorText } from '../../src/utils/publish-error';
 import { Button } from '../../src/components/Button';
 import { CategoryPickerModal } from '../../src/components/CategoryPickerModal';
+import { FormStep } from '../../src/components/FormStep';
 import { Icon } from '../../src/components/Icon';
 import {
   AttributeField,
+  AttributeValueText,
   DealPicker,
   Field,
   createStyles as createFieldStyles,
@@ -56,7 +63,7 @@ import {
   resolveUnit,
   hasValue,
   minLengthError,
-  needsDealChoice,
+  needsDealStep,
   type DealValue,
 } from '../../src/components/ListingFormFields';
 import { ListingLocationPicker } from '../../src/components/ListingLocationPicker';
@@ -91,14 +98,21 @@ import { subcategoryIcon } from '../../src/utils/listing-icons';
 import { formatMoney } from '../../src/utils/money';
 
 /**
- * Подача объявления — одна форма, а не девять шагов (ТЗ «Объявления», п. 8).
+ * Подача объявления — пошагово, на одном экране (ТЗ «Форма размещения»).
  *
- * Порядок — как человек думает о вещи: что это (заголовок — и категория
- * подсказывается по нему сама), как выглядит (фото), главное о ней
- * (обязательные характеристики; остальные — под «Ещё характеристики»),
- * сколько стоит, где, и описание. Кнопка публикации закреплена внизу и
- * доступна всегда: если чего-то не хватает, она скажет, чего именно. Перед
- * публикацией — предпросмотр карточки.
+ * Человек видит один следующий шаг, а не анкету из двадцати полей:
+ * заполнил текущий — появился следующий, заполненные свёрнуты в строку
+ * «Что вы делаете · Продам ✓» и открываются снова по нажатию. Какие шаги
+ * вообще будут, решает категория — тем же описанием полей, по которому
+ * строятся фильтры и проверка на сервере: заголовок → категория → сделка и
+ * срок аренды → обязательные характеристики и тип (деталь, тип товара) по
+ * одной → необязательные одним шагом → номера и совместимость запчасти →
+ * фото → цена (единица — по сделке) → место и телефон → описание →
+ * предпросмотр и публикация.
+ *
+ * Выбор из вариантов закрывает шаг сам; текст, число и несколько вариантов —
+ * кнопкой «Далее». Поменяли раннее (категорию, сделку) — сбрасывается только
+ * то, что перестало подходить, и форма называет, что именно.
  *
  * Подсказка категории — предложение, а не решение: её подтверждают одним
  * нажатием, меняют или пропускают. Из заголовка форма сразу берёт то, что в
@@ -134,7 +148,6 @@ export default function NewListingScreen() {
     rentPeriod: null,
     priceUnit: null,
   });
-  const [moreOpen, setMoreOpen] = useState(false);
   const { photos, uploading, addPhotos, removePhoto, movePhoto, makeCover } = usePhotoEditor();
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -147,8 +160,6 @@ export default function NewListingScreen() {
   const [phone, setPhone] = useState(() =>
     user?.phone?.startsWith('+79') ? ruMobileDigits(user.phone) : '',
   );
-  // Ошибки полей — после первой попытки опубликовать, а не с порога
-  const [showErrors, setShowErrors] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const roots = useMemo(() => categories.data ?? [], [categories.data]);
@@ -173,6 +184,12 @@ export default function NewListingScreen() {
     [category],
   );
   const [partLayer, setPartLayer] = useState<PartLayerValue>(emptyPartLayer);
+  // Пошаговая подача: подтверждённые кнопкой «Далее» шаги и шаг, открытый для правки
+  const [confirmed, setConfirmed] = useState<ReadonlySet<string>>(new Set());
+  const [editing, setEditing] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const stepsTop = useRef(0);
+  const stepY = useRef<Record<string, number>>({});
   const isParts = isPartsLeaf(category?.slug);
   const partError = isParts ? partLayerError(partLayer) : null;
   // Техника из заголовка — предложение для «Подходит к», пока продавец его не принял
@@ -213,7 +230,6 @@ export default function NewListingScreen() {
     values,
   );
   const requiredFields = visibleFields.filter((field) => field.required);
-  const optionalFields = visibleFields.filter((field) => !field.required);
 
   const priceUnit = category ? resolveUnit(category, deal) : 'total';
   const priceSuffix = LISTING_PRICE_UNIT_SUFFIX[priceUnit];
@@ -246,12 +262,10 @@ export default function NewListingScreen() {
     if (category && lost.length > 0) {
       toast(`Не подходят новой категории и сброшены: ${lost.join(', ').toLowerCase()}`);
     }
-    // Из заголовка заполнено необязательное поле (модель) — показываем его,
-    // а не прячем подставленное под «Ещё характеристики»
-    const optionalPrefill = formFields(next.attributes).some(
-      (field) => !field.required && fromGuess?.attributes[field.key] !== undefined,
-    );
-    if (optionalPrefill) setMoreOpen(true);
+    // Шаги новой категории проходятся заново; общее (фото, цена, место,
+    // описание) остаётся подтверждённым
+    setConfirmed((current) => new Set([...current].filter((id) => !isCategoryStep(id))));
+    setEditing(null);
 
     const base = defaultDeal(next);
     setDeal(
@@ -293,7 +307,6 @@ export default function NewListingScreen() {
 
   const openPreview = () => {
     if (!ready) {
-      setShowErrors(true);
       toast(`Осталось указать: ${missing.join('; ')}`);
       return;
     }
@@ -339,14 +352,6 @@ export default function NewListingScreen() {
     );
   };
 
-  if (categories.isLoading) {
-    return (
-      <Screen>
-        <ActivityIndicator color={colors.primary} style={styles.loader} />
-      </Screen>
-    );
-  }
-
   // Предпросмотр — как строка карточки: у запчасти деталь, производитель и «Б/У оригинал»
   const stored = storedForm(fields, values);
   const partNames = (() => {
@@ -378,90 +383,116 @@ export default function NewListingScreen() {
     setValues(next);
   };
 
-  return (
-    <Screen
-      scroll
-      footer={
-        <Button
-          label={ready ? 'Проверить и опубликовать' : `Осталось заполнить: ${missing.length}`}
-          onPress={openPreview}
-          variant={ready ? 'primary' : 'secondary'}
-          fullWidth
-        />
-      }
-    >
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/listings'))}
-          accessibilityRole="button"
-          accessibilityLabel="Назад"
-          hitSlop={12}
-        >
-          <Icon name="chevron-left" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={styles.title}>Новое объявление</Text>
-      </View>
+  /**
+   * Сменилась сделка («Продам» → «Сдам» и обратно): поля, которые при новой
+   * сделке не показываются (условия аренды у продажи), сбрасываются — и форма
+   * говорит какие. Остальное остаётся.
+   */
+  const changeDeal = (next: DealValue) => {
+    const gone = fields.filter(
+      (field) =>
+        hasValue(values[field.key]) &&
+        isAttributeVisible(field, values, deal) &&
+        !isAttributeVisible(field, values, next),
+    );
+    if (gone.length > 0) {
+      const rest = { ...values };
+      for (const field of gone) delete rest[field.key];
+      setValues(rest);
+      toast(
+        `Не подходят выбранной сделке и сброшены: ${gone.map((field) => field.label.toLowerCase()).join(', ')}`,
+      );
+    }
+    // Единица цены сменилась (₽/сут → ₽): прежнюю цену нужно подтвердить заново
+    if (category && resolveUnit(category, next) !== resolveUnit(category, deal)) {
+      setConfirmed((done) => new Set([...done].filter((id) => id !== 'price')));
+    }
+    setDeal(next);
+  };
 
-      {/* ── Что это ─────────────────────────────────────────────────── */}
-      <View style={styles.section}>
+  // Характеристики-шаги: обязательные и «что именно» (деталь, тип товара) — по
+  // одной; остальные необязательные — одним шагом «Дополнительно»
+  const plan = planListingSteps({
+    hasCategory: category !== null,
+    dealStep: category !== null && needsDealStep(category),
+    visibleFields,
+    partLayer: isParts,
+    priceless,
+  });
+  const { stepFields, detailFields } = plan;
+  const dealSummary = deal.transactionType
+    ? [
+        category ? operationLabels(category.slug, deal.transactionType).create : null,
+        deal.rentPeriod ? RENT_PERIOD_LABELS[deal.rentPeriod] : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+  const filledDetails = detailFields.filter((field) => hasValue(values[field.key])).length;
+  const partInput = partLayerToInput(partLayer);
+
+  const built: StepSpec[] = [
+    {
+      id: 'title',
+      title: 'Заголовок',
+      valid: title.trim().length >= 5 && verdict.kind !== 'request',
+      summary: title.trim(),
+      body: (
         <TextField
-          label="Заголовок"
+          label="Что продаёте или сдаёте"
           value={title}
           onChangeText={setTitle}
           placeholder="Например, iPhone 15 Pro 256 ГБ или 2-комнатная квартира"
           maxLength={120}
-          error={
-            verdict.kind === 'request'
-              ? verdict.message
-              : showErrors
-                ? minLengthError(title, 5)
-                : undefined
-          }
+          error={verdict.kind === 'request' ? verdict.message : minLengthError(title, 5)}
         />
-
-        {showGuess && guessCategory && guess && (
-          <View style={styles.guess}>
-            <Text style={styles.guessLabel}>Похоже, это:</Text>
-            <Text style={styles.guessPath}>
-              {[categoryPathLabel(roots, guessCategory.slug), ...guess.details]
-                .filter(Boolean)
-                .join(' → ')}
-            </Text>
-            <View style={styles.guessActions}>
-              <Pressable
-                onPress={() => applyCategory(guessCategory, guess)}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.guessPrimary, pressed && styles.pressed]}
-              >
-                <Icon name="check" size={16} color={colors.textOnPrimary} />
-                <Text style={styles.guessPrimaryLabel}>Да, это</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setDismissedSlug(guess.slug);
-                  setPickerOpen(true);
-                }}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.guessSecondary, pressed && styles.pressed]}
-              >
-                <Text style={styles.guessSecondaryLabel}>Другая категория</Text>
-              </Pressable>
+      ),
+    },
+    {
+      id: 'category',
+      title: 'Категория',
+      auto: true,
+      valid: category !== null,
+      summary: category ? categoryPathLabel(roots, category.slug) : '',
+      body: (
+        <>
+          {showGuess && guessCategory && guess && (
+            <View style={styles.guess}>
+              <Text style={styles.guessLabel}>Похоже, это:</Text>
+              <Text style={styles.guessPath}>
+                {[categoryPathLabel(roots, guessCategory.slug), ...guess.details]
+                  .filter(Boolean)
+                  .join(' → ')}
+              </Text>
+              <View style={styles.guessActions}>
+                <Pressable
+                  onPress={() => applyCategory(guessCategory, guess)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.guessPrimary, pressed && styles.pressed]}
+                >
+                  <Icon name="check" size={16} color={colors.textOnPrimary} />
+                  <Text style={styles.guessPrimaryLabel}>Да, это</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setDismissedSlug(guess.slug);
+                    setPickerOpen(true);
+                  }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.guessSecondary, pressed && styles.pressed]}
+                >
+                  <Text style={styles.guessSecondaryLabel}>Другая категория</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        )}
-
-        <Field label="Категория">
+          )}
           <Pressable
             onPress={() => setPickerOpen(true)}
             accessibilityRole="button"
             accessibilityLabel={
               category ? `Категория: ${category.name}. Изменить` : 'Выбрать категорию'
             }
-            style={({ pressed }) => [
-              styles.categoryRow,
-              showErrors && !category && styles.categoryRowError,
-              pressed && styles.pressed,
-            ]}
+            style={({ pressed }) => [styles.categoryRow, pressed && styles.pressed]}
           >
             {category ? (
               <>
@@ -481,57 +512,57 @@ export default function NewListingScreen() {
               </>
             )}
           </Pressable>
-        </Field>
-      </View>
+        </>
+      ),
+    },
+  ];
 
-      {/* ── Фото ────────────────────────────────────────────────────── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Фотографии</Text>
-        <PhotoGridEditor
-          photos={photos}
-          onAdd={() => void addPhotos()}
-          onRemove={removePhoto}
-          onMove={movePhoto}
-          onMakeCover={makeCover}
-          uploading={uploading}
-        />
-      </View>
+  if (category && needsDealStep(category)) {
+    built.push({
+      id: 'deal',
+      title: 'Что вы делаете',
+      auto: true,
+      valid: dealComplete(category, deal),
+      summary: dealSummary,
+      body: <DealPicker category={category} value={deal} onChange={changeDeal} part="deal" />,
+    });
+  }
 
-      {/* ── Главное о вещи ──────────────────────────────────────────── */}
-      {category && (needsDealChoice(category) || visibleFields.length > 0) && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Главное</Text>
-          {needsDealChoice(category) && (
-            <DealPicker category={category} value={deal} onChange={setDeal} />
-          )}
-          {requiredFields.map((field) => (
-            <AttributeField
-              key={field.key}
-              field={field}
-              value={values[field.key]}
-              values={values}
-              onChange={(value) => setValue(field.key, value)}
-            />
-          ))}
-          {optionalFields.length > 0 && (
-            <Pressable
-              onPress={() => setMoreOpen((open) => !open)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: moreOpen }}
-              style={({ pressed }) => [styles.more, pressed && styles.pressed]}
-            >
-              <Text style={styles.moreLabel}>
-                {moreOpen ? 'Скрыть' : `Ещё характеристики (${optionalFields.length})`}
-              </Text>
-              <Icon
-                name={moreOpen ? 'arrow-up' : 'chevron-down'}
-                size={16}
-                color={colors.primary}
-              />
-            </Pressable>
-          )}
-          {moreOpen &&
-            optionalFields.map((field) => (
+  if (category) {
+    for (const field of stepFields) {
+      const single = field.type === 'enum' || field.type === 'brand' || field.type === 'model';
+      built.push({
+        id: `field:${field.key}`,
+        title: field.label,
+        auto: single,
+        optional: !field.required,
+        valid: hasValue(values[field.key]),
+        summary: <AttributeValueText field={field} value={values[field.key]} values={values} />,
+        body: (
+          <AttributeField
+            field={field}
+            value={values[field.key]}
+            values={values}
+            onChange={(value) => setValue(field.key, value)}
+            bare
+          />
+        ),
+      });
+    }
+
+    if (detailFields.length > 0) {
+      built.push({
+        id: 'details',
+        title: 'Дополнительно',
+        optional: true,
+        valid: true,
+        summary: filledDetails > 0 ? `Указано: ${filledDetails}` : 'Пропущено',
+        body: (
+          <>
+            <Text style={styles.hint}>
+              Необязательно, но с подробностями объявление находят чаще.
+            </Text>
+            {detailFields.map((field) => (
               <AttributeField
                 key={field.key}
                 field={field}
@@ -540,32 +571,67 @@ export default function NewListingScreen() {
                 onChange={(value) => setValue(field.key, value)}
               />
             ))}
-          {showErrors && missingFields.length > 0 && (
-            <Text style={styles.error}>
-              Заполните: {missingFields.map((field) => field.label.toLowerCase()).join(', ')}
-            </Text>
-          )}
-        </View>
-      )}
+          </>
+        ),
+      });
+    }
 
-      {/* ── Номера и совместимость запчасти ─────────────────────────── */}
-      {category && isParts && (
-        <View style={styles.section}>
+    if (isParts) {
+      built.push({
+        id: 'part',
+        title: 'Номер и совместимость',
+        valid: partError === null,
+        summary:
+          [
+            partInput.numbers.length > 0 ? `Номеров: ${partInput.numbers.length}` : null,
+            partInput.compatibility.length > 0
+              ? `Подходит к: ${partInput.compatibility.length}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || 'Не указано',
+        body: (
           <PartLayerEditor
             slug={category.slug}
             value={partLayer}
             onChange={setPartLayer}
-            error={showErrors ? partError : null}
+            error={partError}
             suggestion={compatSuggestion}
             onDismissSuggestion={() => setDismissedCompat(compatSuggestion?.label ?? null)}
           />
-        </View>
-      )}
+        ),
+      });
+    }
 
-      {/* ── Цена ────────────────────────────────────────────────────── */}
-      {!priceless && (
-        <View style={styles.section}>
-          <Field label={`Цена, ₽${priceSuffix}`}>
+    built.push({
+      id: 'photos',
+      title: 'Фотографии',
+      valid: !uploading,
+      summary: photos.length > 0 ? `Фото: ${photos.length}` : 'Без фото',
+      body: (
+        <>
+          <Text style={styles.hint}>До 10 фото, первое станет обложкой.</Text>
+          <PhotoGridEditor
+            photos={photos}
+            onAdd={() => void addPhotos()}
+            onRemove={removePhoto}
+            onMove={movePhoto}
+            onMakeCover={makeCover}
+            uploading={uploading}
+          />
+        </>
+      ),
+    });
+
+    if (!priceless) {
+      built.push({
+        id: 'price',
+        title: `Цена, ₽${priceSuffix}`,
+        valid: true,
+        summary: priceText + (isNegotiable && price ? ' · торг' : ''),
+        body: (
+          <>
+            <DealPicker category={category} value={deal} onChange={changeDeal} part="units" />
             <TextInput
               value={price}
               onChangeText={(text) => setPrice(text.replace(/[^\d]/g, ''))}
@@ -575,59 +641,170 @@ export default function NewListingScreen() {
               keyboardType="number-pad"
               accessibilityLabel="Цена"
             />
-          </Field>
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Торг уместен</Text>
-            <Switch value={isNegotiable} onValueChange={setNegotiable} />
-          </View>
-          <Text style={styles.hint}>Без цены в карточке будет «Цена договорная».</Text>
-        </View>
-      )}
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Торг уместен</Text>
+              <Switch value={isNegotiable} onValueChange={setNegotiable} />
+            </View>
+            <Text style={styles.hint}>Без цены в карточке будет «Цена договорная».</Text>
+          </>
+        ),
+      });
+    }
 
-      {/* ── Где и как связаться ─────────────────────────────────────── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Где находится</Text>
-        <ListingLocationPicker
-          value={location}
-          onChange={setLocation}
-          visibility={visibility}
-          onChangeVisibility={setVisibility}
-          defaultCenter={
-            currentCity
-              ? { latitude: currentCity.latitude, longitude: currentCity.longitude }
-              : DAGESTAN_DEFAULT_CENTER
-          }
-          error={showErrors && !location ? 'Укажите, где находится объявление' : undefined}
-        />
-
-        <Field label="Телефон для связи">
-          <PhoneInput
-            mobileOnly
-            value={phone}
-            onChangeValue={setPhone}
-            country={DEFAULT_COUNTRY}
-            onChangeCountry={() => undefined}
-            error={showErrors ? (ruMobileError(phone) ?? undefined) : undefined}
+    built.push({
+      id: 'location',
+      title: 'Где находится и телефон',
+      valid: location !== null && !ruMobileError(phone),
+      summary: location ? locationLabel(location, cityName ?? 'Дагестан') : '',
+      body: (
+        <>
+          <ListingLocationPicker
+            value={location}
+            onChange={setLocation}
+            visibility={visibility}
+            onChangeVisibility={setVisibility}
+            defaultCenter={
+              currentCity
+                ? { latitude: currentCity.latitude, longitude: currentCity.longitude }
+                : DAGESTAN_DEFAULT_CENTER
+            }
           />
-          <Text style={styles.hint}>
-            Номер увидят те, кто нажмёт «Показать номер». Можно указать рабочий, а не личный.
-          </Text>
-        </Field>
-      </View>
+          <Field label="Телефон для связи">
+            <PhoneInput
+              mobileOnly
+              value={phone}
+              onChangeValue={setPhone}
+              country={DEFAULT_COUNTRY}
+              onChangeCountry={() => undefined}
+              error={phone ? (ruMobileError(phone) ?? undefined) : undefined}
+            />
+            <Text style={styles.hint}>
+              Номер увидят те, кто нажмёт «Показать номер». Можно указать рабочий, а не личный.
+            </Text>
+          </Field>
+        </>
+      ),
+    });
 
-      {/* ── Описание ────────────────────────────────────────────────── */}
-      <View style={styles.section}>
+    built.push({
+      id: 'description',
+      title: 'Описание',
+      valid: description.trim().length >= 10,
+      summary: description.trim(),
+      body: (
         <TextField
-          label="Описание"
+          label="Опишите подробнее"
           value={description}
           onChangeText={setDescription}
-          placeholder="Опишите подробнее товар, услугу или предложение"
+          placeholder="Состояние, комплектация, что важно знать покупателю"
           style={styles.textarea}
           multiline
           maxLength={3000}
-          error={showErrors ? minLengthError(description, 10) : undefined}
+          error={minLengthError(description, 10)}
           hint="Номер телефона и ссылки в описании не нужны — связаться можно по кнопке в объявлении."
         />
+      ),
+    });
+  }
+
+  // Порядок и состав шагов — из общего плана (shared), разметка — здесь
+  const specs = plan.steps.flatMap((id) => built.filter((spec) => spec.id === id));
+  const current = openStepIndex(specs, confirmed);
+  const currentId = specs[current]?.id ?? null;
+  // Все шаги пройдены (и категория выбрана) — можно смотреть и публиковать
+  const allDone = category !== null && current === specs.length;
+
+  /** Закрыть шаг: «Далее», «Пропустить» или «Готово» после правки. */
+  const confirmStep = (id: string) => {
+    setConfirmed((done) => new Set(done).add(id));
+    setEditing(null);
+  };
+
+  // Открылся новый шаг — довести до него человека
+  useEffect(() => {
+    if (!currentId) return;
+    const timer = setTimeout(() => {
+      const y = stepY.current[currentId];
+      if (y !== undefined) {
+        scrollRef.current?.scrollTo({ y: Math.max(0, stepsTop.current + y - spacing.lg) });
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [currentId]);
+
+  if (categories.isLoading) {
+    return (
+      <Screen>
+        <ActivityIndicator color={colors.primary} style={styles.loader} />
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen
+      scroll
+      scrollRef={scrollRef}
+      footer={
+        allDone ? (
+          <Button
+            label={ready ? 'Проверить и опубликовать' : `Осталось заполнить: ${missing.length}`}
+            onPress={openPreview}
+            variant={ready ? 'primary' : 'secondary'}
+            fullWidth
+          />
+        ) : undefined
+      }
+    >
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/listings'))}
+          accessibilityRole="button"
+          accessibilityLabel="Назад"
+          hitSlop={12}
+        >
+          <Icon name="chevron-left" size={24} color={colors.text} />
+        </Pressable>
+        <Text style={styles.title}>Новое объявление</Text>
+      </View>
+
+      <View
+        onLayout={(event) => {
+          stepsTop.current = event.nativeEvent.layout.y;
+        }}
+      >
+        {specs.slice(0, current + 1).map((spec, index) => {
+          const open = index === current || spec.id === editing;
+          const stepNext = !open
+            ? null
+            : spec.id === editing && index !== current
+              ? { label: 'Готово', enabled: spec.valid || spec.optional === true }
+              : spec.auto
+                ? spec.optional && !spec.valid
+                  ? { label: 'Пропустить', enabled: true }
+                  : null
+                : {
+                    label:
+                      spec.optional && spec.id !== 'details' && !spec.valid
+                        ? 'Пропустить'
+                        : 'Далее',
+                    enabled: spec.valid || spec.optional === true,
+                  };
+          return (
+            <FormStep
+              key={spec.id}
+              title={spec.title}
+              summary={spec.summary || 'Не указано'}
+              state={open ? 'open' : 'done'}
+              onEdit={() => setEditing(spec.id)}
+              next={stepNext ? { ...stepNext, onPress: () => confirmStep(spec.id) } : null}
+              onLayout={(event) => {
+                stepY.current[spec.id] = event.nativeEvent.layout.y;
+              }}
+            >
+              {spec.body}
+            </FormStep>
+          );
+        })}
       </View>
 
       <CategoryPickerModal
@@ -701,6 +878,20 @@ export default function NewListingScreen() {
       </Modal>
     </Screen>
   );
+}
+
+/** Шаг пошаговой подачи: что спросить, когда он заполнен и что о нём сказать свёрнутым. */
+interface StepSpec {
+  id: string;
+  title: string;
+  /** Заполнен по правилам поля (без учёта «Далее») */
+  valid: boolean;
+  /** Выбор из вариантов закрывает шаг сам; иначе — кнопкой «Далее» */
+  auto?: boolean;
+  /** Можно пропустить */
+  optional?: boolean;
+  summary: ReactNode;
+  body: ReactNode;
 }
 
 /**

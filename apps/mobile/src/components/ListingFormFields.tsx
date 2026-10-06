@@ -3,6 +3,7 @@ import {
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
   allowedPriceUnits,
+  attributeValueLabel,
   defaultPriceUnit,
   operationLabels,
   pluralize,
@@ -48,7 +49,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
 
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
       {children}
     </View>
   );
@@ -140,16 +141,21 @@ export function AttributeField({
   value,
   values,
   onChange,
+  bare = false,
 }: {
   field: ListingAttribute;
   value: unknown;
   values: Record<string, unknown>;
   onChange: (value: unknown) => void;
+  /** Без своей подписи — поле уже названо заголовком шага пошаговой формы */
+  bare?: boolean;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const label = field.required ? `${field.label} *` : field.label;
+  const labelled = (text: string, node: React.ReactNode) =>
+    bare ? <View style={styles.field}>{node}</View> : <Field label={text}>{node}</Field>;
 
   if (field.type === 'boolean') {
     return (
@@ -201,38 +207,40 @@ export function AttributeField({
     }
 
     return withHint(
-      <Field label={label}>
+      labelled(
+        label,
         <OptionChips
           options={field.options}
           selected={typeof value === 'string' ? [value] : []}
           onToggle={(next) => onChange(value === next ? undefined : next)}
-        />
-      </Field>,
+        />,
+      ),
     );
   }
 
   if (field.type === 'multiEnum' && field.options) {
     const selected = Array.isArray(value) ? (value as string[]) : [];
-    return (
-      <Field label={label}>
-        <OptionChips
-          options={field.options}
-          selected={selected}
-          onToggle={(next) => {
-            const list = selected.includes(next)
-              ? selected.filter((item) => item !== next)
-              : [...selected, next];
-            onChange(list.length > 0 ? list : undefined);
-          }}
-        />
-      </Field>
+    return labelled(
+      label,
+      <OptionChips
+        options={field.options}
+        selected={selected}
+        onToggle={(next) => {
+          const list = selected.includes(next)
+            ? selected.filter((item) => item !== next)
+            : [...selected, next];
+          onChange(list.length > 0 ? list : undefined);
+        }}
+      />,
     );
   }
 
   const numeric = field.type === 'number' || field.type === 'date';
 
-  return (
-    <Field label={field.unit ? `${label}, ${field.unit}` : label}>
+  return labelled(
+    field.unit ? `${label}, ${field.unit}` : label,
+    <>
+      {bare && field.unit ? <Text style={styles.hint}>В единицах: {field.unit}</Text> : null}
       <TextInput
         value={plainValue(value)}
         onChangeText={(text) =>
@@ -251,7 +259,7 @@ export function AttributeField({
         accessibilityLabel={field.label}
         style={styles.input}
       />
-    </Field>
+    </>,
   );
 }
 
@@ -390,10 +398,16 @@ export function DealPicker({
   category,
   value,
   onChange,
+  part = 'all',
 }: {
   category: DealCategory;
   value: DealValue;
   onChange: (value: DealValue) => void;
+  /**
+   * Что показать: всё сразу (правка), только сделку и срок (шаг «Что вы
+   * делаете») или только единицу цены (шаг «Цена» пошаговой подачи)
+   */
+  part?: 'all' | 'deal' | 'units';
 }) {
   const options = category.transactions.map((type) => ({
     value: type,
@@ -407,13 +421,17 @@ export function DealPicker({
   const units = unitChoices(category, value);
   // Срок и единица — одно и то же для жилья: второго выбора рядом не нужно
   const showUnits =
-    units.length > 1 && !(value.transactionType === 'rent' && needsRentPeriod(category));
+    part !== 'deal' &&
+    units.length > 1 &&
+    !(value.transactionType === 'rent' && needsRentPeriod(category));
+  const showDeal = part !== 'units';
   const unitOptions = units.map((unit) => ({ value: unit, label: PRICE_UNIT_LABELS[unit] }));
 
   return (
     <>
-      {options.length > 1 && (
-        <Field label="Что вы делаете *">
+      {showDeal && options.length > 1 && (
+        // Шаг пошаговой подачи уже называется «Что вы делаете» — вторая подпись лишняя
+        <Field label={part === 'deal' ? '' : 'Что вы делаете *'}>
           <OptionChips
             options={options}
             selected={value.transactionType ? [value.transactionType] : []}
@@ -429,7 +447,7 @@ export function DealPicker({
         </Field>
       )}
 
-      {value.transactionType === 'rent' && needsRentPeriod(category) && (
+      {showDeal && value.transactionType === 'rent' && needsRentPeriod(category) && (
         <Field label="На какой срок *">
           <OptionChips
             options={periodOptions}
@@ -451,6 +469,14 @@ export function DealPicker({
         </Field>
       )}
     </>
+  );
+}
+
+/** Есть ли у категории выбор сделки или срока аренды — отдельный шаг подачи. */
+export function needsDealStep(category: DealCategory): boolean {
+  return (
+    category.transactions.length > 1 ||
+    (category.transactions.includes('rent') && needsRentPeriod(category))
   );
 }
 
@@ -512,3 +538,32 @@ export const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     optionLabel: { ...typography.caption, color: colors.textMuted },
     optionLabelActive: { color: colors.textOnPrimary, fontWeight: '600' },
   });
+
+/**
+ * Выбранное значение словами — для свёрнутого шага: «2 комн.», «Toyota»,
+ * «Succeed» (подпись модели — из справочника по выбранной марке).
+ */
+export function AttributeValueText({
+  field,
+  value,
+  values,
+}: {
+  field: ListingAttribute;
+  value: unknown;
+  values: Record<string, unknown>;
+}) {
+  const parent = field.parentKey ? values[field.parentKey] : undefined;
+  const parentValue = typeof parent === 'string' ? parent : null;
+  const needsDictionary = field.type === 'model' && Boolean(field.dictionary) && !field.options;
+  const entries = useDictionary(
+    needsDictionary && parentValue ? field.dictionary : undefined,
+    parentValue,
+  );
+  const labels = Object.fromEntries(
+    (entries.data ?? []).map((entry) => [entry.value, entry.label]),
+  );
+  if (!hasValue(value)) return <>Не указано</>;
+  if (field.type === 'boolean') return <>{value === true ? 'Да' : 'Нет'}</>;
+  const text = attributeValueLabel(field, value, labels);
+  return <>{field.type === 'number' && field.unit ? `${text} ${field.unit}` : text}</>;
+}
