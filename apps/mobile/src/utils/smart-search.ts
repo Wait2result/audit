@@ -71,6 +71,7 @@ export function applySmartListing(
     filtersKey: listingFiltersKey(extra),
     needsConfirmation: listingCategoryNeedsConfirmation(part.query, openCategory),
     confirmed: false,
+    elsewhere: part.query.elsewhere ?? null,
   });
 
   return {

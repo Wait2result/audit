@@ -333,6 +333,17 @@ export function prefixQuery(search: string): string {
 }
 
 /**
+ * Запрос — один код кузова («NCP165», «GRX130») или двигателя («1NZ», «2JZ-GE»):
+ * буквы и цифры без пробелов. Возвращается в верхнем регистре, без спецсимволов LIKE.
+ */
+export function bodyOrEngineCode(query: string): string | null {
+  const value = query.trim();
+  if (!/^(?:[A-Za-z]{2,4}\d{2,3}[A-Za-z]?|\d[A-Za-z]{2,3}(?:-[A-Za-z]{1,4})?)$/.test(value))
+    return null;
+  return value.toUpperCase();
+}
+
+/**
  * Условие поиска. Три способа, объединённые «или»:
  *   • полнотекстовый с морфологией («диваны» находит «диван») — по вектору
  *     из заголовка, поискового текста и описания;
@@ -361,6 +372,14 @@ export function searchSql(search: string): Prisma.Sql | null {
   if (/\d/.test(query) && !/\s/.test(query)) {
     const number = partNumberSql(query);
     if (number) parts.push(number);
+  }
+  // Код кузова или двигателя («NCP165», «1NZ»): ищется ещё и в «Подходит к» —
+  // продавец мог указать кузов только в совместимости, а не в заголовке
+  const code = bodyOrEngineCode(query);
+  if (code) {
+    parts.push(
+      sql`EXISTS (SELECT 1 FROM "listing_compatibility" k WHERE k."listing_id" = l."id" AND (k."chassis" ILIKE ${`${code}%`} OR k."engine" ILIKE ${`${code}%`}))`,
+    );
   }
 
   return sql`(${join(parts, ' OR ')})`;

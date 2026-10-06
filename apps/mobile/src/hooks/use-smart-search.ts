@@ -47,7 +47,10 @@ export function useSmartSearch(
   defaults: { screen: Screen; listingCategory?: string | null },
 ) {
   const cityId = useCityStore((s) => s.cityId);
-  const sessionId = useSmartSearchStore((s) => s.sessions[channel]);
+  const scope = defaults.listingCategory ?? '';
+  const session = useSmartSearchStore((s) => s.sessions[channel]);
+  // Сессия из другой категории не продолжается: где искать — решает открытый экран
+  const sessionId = session && session.scope === scope ? session.id : undefined;
   const setSession = useSmartSearchStore((s) => s.setSession);
   const [state, setState] = useState<SmartSearchState>({ phase: 'idle' });
   const inFlight = useRef<AbortController | null>(null);
@@ -93,7 +96,7 @@ export function useSmartSearch(
           response = await ask(undefined);
         }
         if (controller.signal.aborted) return { phase: 'idle' };
-        setSession(channel, response.sessionId);
+        setSession(channel, response.sessionId, scope);
         const next: SmartSearchState = { phase: 'done', text, response };
         setState(next);
         logSmartSearch({
@@ -132,7 +135,7 @@ export function useSmartSearch(
         if (inFlight.current === controller) inFlight.current = null;
       }
     },
-    [channel, cityId, defaults.listingCategory, defaults.screen, sessionId, setSession],
+    [channel, cityId, defaults.listingCategory, defaults.screen, scope, sessionId, setSession],
   );
 
   /** Новый поиск: прошлый контекст больше не уточняется. */
@@ -147,10 +150,10 @@ export function useSmartSearch(
   const show = useCallback(
     (text: string, response: SmartSearchResponse) => {
       // Следующая фраза продолжит этот же поиск
-      setSession(channel, response.sessionId);
+      setSession(channel, response.sessionId, scope);
       setState({ phase: 'done', text, response });
     },
-    [channel, setSession],
+    [channel, scope, setSession],
   );
 
   return { state, run, reset, show };

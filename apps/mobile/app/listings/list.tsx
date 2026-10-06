@@ -11,7 +11,7 @@ import {
   type ListingCategoryDto,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -69,13 +69,17 @@ export default function ListingsListScreen() {
   const cityId = useCityStore((s) => s.cityId);
   // q — слова для поиска (с первого экрана раздела или остаток умного
   // поиска); smart — экран открыт умным поиском, фильтры уже разложены
+  // ask — фраза, которую нужно разобрать заново в этой категории («Искать во
+  // всех категориях», «Возможно, вы ищете …»)
   const {
     slug,
     q,
+    ask,
     smart: fromSmart,
   } = useLocalSearchParams<{
     slug?: string;
     q?: string;
+    ask?: string;
     smart?: string;
   }>();
   const { toggleListing } = useFavoriteActions();
@@ -118,16 +122,28 @@ export default function ListingsListScreen() {
   // В поле — фраза человека; в поиск по словам уходит только то, что умный
   // поиск не разложил по фильтрам (или вся фраза, если он не ответил)
   const [search, setSearch] = useState(
-    fromSmart && understood?.scope === scope ? understood.text : (q ?? ''),
+    ask ?? (fromSmart && understood?.scope === scope ? understood.text : (q ?? '')),
   );
   const [query, setQuery] = useState(q ?? '');
   const searching = query.length >= 2;
   const inputRef = useRef<TextInput>(null);
 
+  const categories = useListingCategories();
+  const roots = categories.data ?? [];
+
   const smart = useListingSmartSearch({
     category: slug ?? null,
-    onListings: (target) => {
-      if ((target.slug ?? '') !== scope) {
+    onListings: (target, text) => {
+      const next = target.slug ?? '';
+      if (next !== scope) {
+        // Поиск внутри категории из неё не уходит: открытая категория важнее
+        // слов фразы, истории и прошлых поисков. Сервер держит то же правило;
+        // здесь — страховка, чтобы экран никогда не перескочил сам
+        if (scope && !categoryPath(roots, next).some((item) => item.slug === scope)) {
+          setUnderstood(null);
+          setQuery(text);
+          return;
+        }
         router.replace({ pathname: '/listings/list', params: { ...target, smart: '1' } });
         return;
       }
@@ -150,10 +166,17 @@ export default function ListingsListScreen() {
     void smart.submit(clean);
   };
 
+  // Фраза, переданная разобрать здесь заново, — один раз при открытии экрана
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!ask || asked.current) return;
+    asked.current = true;
+    void smart.submit(ask);
+  }, [ask, smart]);
+
   const setRadius = useListingAreaStore((s) => s.setRadius);
 
-  const categories = useListingCategories();
-  const category = findCategory(categories.data ?? [], slug);
+  const category = findCategory(roots, slug);
   const fields = category?.attributes ?? [];
 
   const freshBefore = useMemo(
@@ -232,8 +255,20 @@ export default function ListingsListScreen() {
     setFilters(next);
   };
 
-  const roots = categories.data ?? [];
   const categoryTrail = slug ? categoryPath(roots, slug) : [];
+  // «Возможно, вы ищете …»: слова похожи на другую категорию, но поиск остался здесь
+  const elsewhere = showUnderstood ? understood.elsewhere : null;
+  // Та же фраза в другой категории или во всех — только явным нажатием. Фраза
+  // разбирается заново уже там: «Конь» в «Сельхозживотных» — сама категория,
+  // а не слово для поиска
+  const askIn = (target: string | null) => {
+    const text = (understood?.text ?? query).trim();
+    setUnderstood(null);
+    router.replace({
+      pathname: '/listings/list',
+      params: { ...(target ? { slug: target } : {}), ...(text ? { ask: text } : {}) },
+    });
+  };
 
   /** Другая категория для той же фразы: выдача по её словам в выбранной категории. */
   const chooseCategory = (next: ListingCategoryDto) => {
@@ -297,6 +332,21 @@ export default function ListingsListScreen() {
             onChooseOther={() => setPickerOpen(true)}
           />
         </View>
+      )}
+
+      {elsewhere && (
+        <Pressable
+          onPress={() => askIn(elsewhere.slug)}
+          accessibilityRole="button"
+          accessibilityLabel={`Возможно, вы ищете: ${elsewhere.name}`}
+          style={({ pressed }) => [styles.block, styles.elsewhere, pressed && styles.pressed]}
+        >
+          <Icon name="search" size={16} color={colors.primary} />
+          <Text style={styles.elsewhereText} numberOfLines={1}>
+            Возможно, вы ищете: <Text style={styles.elsewhereName}>{elsewhere.name}</Text>
+          </Text>
+          <Icon name="chevron-right" size={16} color={colors.primary} />
+        </Pressable>
       )}
 
       {smart.visible && (
@@ -540,9 +590,29 @@ export default function ListingsListScreen() {
               </Pressable>
             </View>
           ) : showUnderstood || searching ? (
+            // Нет результатов — так и сказано; запрос не подменяется «всем разделом»
             <EmptySearch
+              title={
+                category && searching
+                  ? `В разделе «${category.name}» по запросу «${query}» ничего не найдено`
+                  : searching
+                    ? `По запросу «${query}» ничего не найдено`
+                    : undefined
+              }
               actions={[
                 { label: 'Изменить запрос', onPress: () => inputRef.current?.focus() },
+                { label: 'Выбрать категорию', onPress: () => setPickerOpen(true) },
+                ...(slug
+                  ? [{ label: 'Искать во всех категориях', onPress: () => askIn(null) }]
+                  : []),
+                ...(elsewhere
+                  ? [
+                      {
+                        label: `Искать в «${elsewhere.name}»`,
+                        onPress: () => askIn(elsewhere.slug),
+                      },
+                    ]
+                  : []),
                 { label: 'Изменить город', onPress: () => router.push('/city-picker') },
                 ...(area.radiusKm !== null
                   ? [
@@ -820,6 +890,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     sortOptionLast: { borderTopWidth: 1, borderTopColor: colors.border },
     sortOptionText: { ...typography.body, color: colors.text },
 
+    // «Возможно, вы ищете: …» — одна строка-ссылка, не карточка
+    elsewhere: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 40,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.full,
+      backgroundColor: colors.primarySoft,
+    },
+    elsewhereText: { ...typography.caption, color: colors.text, flex: 1 },
+    elsewhereName: { color: colors.primary, fontWeight: '600' },
     empty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxxl },
     emptyText: { ...typography.body, color: colors.textMuted, textAlign: 'center' },
     resetLink: { ...typography.body, color: colors.primary, fontWeight: '600' },

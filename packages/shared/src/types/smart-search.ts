@@ -78,6 +78,12 @@ export interface SmartSearchNormalizedQuery {
    * с теми же фильтрами, ничего не пересчитывая.
    */
   params: Record<string, unknown>;
+  /**
+   * Поиск шёл в открытой категории, а слова фразы больше похожи на другую
+   * («Конь» в «Запчастях»). Категория при этом НЕ меняется — это только
+   * подсказка «Возможно, вы ищете …», переход — по нажатию человека.
+   */
+  elsewhere?: { slug: string; name: string } | null;
 }
 
 export type SmartSearchResults =

@@ -1129,10 +1129,32 @@ function applyPartsIntent(
     return { kind: 'ok', intent, part: null, numberSearch: null };
   }
 
+  /**
+   * Запчасть здесь не ищется — слова остаются поиском по словам. Категория
+   * открыта на экране, а не выбрана к этой фразе: «рейка» в «Доме и ремонте» —
+   * не деталь машины, но и не пустое место, иначе выдача стала бы всем разделом.
+   */
+  const asWords = (): PartsOutcome => {
+    const next = withoutKeys(['partNumber']);
+    if (asText(filters.category) === null) {
+      const words = [intent.query, ...aliases, ...(number ? [number] : [])].filter(Boolean);
+      next.query = words.join(' ').slice(0, 120) || null;
+    }
+    return { kind: 'ok', intent: next, part: null, numberSearch: null };
+  };
+
+  // Раздел или основной тип, внутри которого есть запчасти («Транспорт», «Дом и
+  // ремонт»): тип техники решают слова фразы, но только среди запчастей раздела
+  const scopeEquipment: PartsEquipmentTypeCode[] | null =
+    explicit && !explicitEquipment
+      ? PARTS_EQUIPMENT.filter((equipment) => {
+          const leaf = catalogue.findBySlug(equipment.slug);
+          return leaf !== null && withinScope(catalogue, leaf, explicit);
+        }).map((equipment) => equipment.code)
+      : null;
+
   // Человек выбрал обычную категорию («Фотоаппараты» вместо «камера» — деталь телефона)
-  if (explicit && !explicitEquipment) {
-    return { kind: 'ok', intent: withoutKeys(['partNumber']), part: null, numberSearch: null };
-  }
+  if (scopeEquipment !== null && scopeEquipment.length === 0) return asWords();
 
   const brand = asText(filters.brand ?? intent.preferences.brand);
   const model = asText(filters.model ?? intent.preferences.model);
@@ -1154,7 +1176,30 @@ function applyPartsIntent(
   // его основной тип техники. Слабее слов и марки — только когда их нет
   if (evidence.length === 0 && makerEquipment.length > 0) evidence = [makerEquipment[0]!];
 
-  const decision = decideParts({ aliases, equipment: evidence, group, item, slug: explicitLeaf });
+  let decision = decideParts({ aliases, equipment: evidence, group, item, slug: explicitLeaf });
+
+  // Открыт раздел, а не запчасти: техника — только та, чьи запчасти лежат в нём.
+  // «рейка» в «Доме и ремонте» — не вопрос «для легковой или грузовика?»
+  if (scopeEquipment !== null) {
+    const outside = (code: PartsEquipmentTypeCode) => !scopeEquipment.includes(code);
+    if (decision.status === 'resolved' && outside(decision.resolution.equipment)) return asWords();
+    if (decision.status === 'group' && outside(decision.equipment)) return asWords();
+    if (decision.status === 'equipment') {
+      const inside = decision.equipments.filter((code) => !outside(code));
+      if (inside.length === 0) return asWords();
+      if (inside.length === 1) {
+        evidence = inside;
+        decision = decideParts({ aliases, equipment: inside, group, item, slug: explicitLeaf });
+      }
+    }
+    if (decision.status === 'none') {
+      const inside = (evidence.length > 0 ? evidence : COMMON_EQUIPMENT).filter(
+        (code) => !outside(code),
+      );
+      if (inside.length === 0) return asWords();
+      evidence = inside;
+    }
+  }
 
   /**
    * Производитель для выбранной техники. Уместен — фильтр «Производитель
@@ -1245,12 +1290,13 @@ function applyPartsIntent(
   }
 
   // Несколько типов техники — или «запчасти» без единой подсказки
-  const candidates =
+  const candidates = (
     decision.status === 'equipment'
       ? decision.equipments
       : evidence.length > 1
         ? evidence
-        : COMMON_EQUIPMENT;
+        : COMMON_EQUIPMENT
+  ).filter((code) => scopeEquipment === null || scopeEquipment.includes(code));
   if (decision.status === 'none' && evidence.length === 1) {
     const question = typeQuestion();
     if (question) return question;
@@ -1286,6 +1332,47 @@ function applyPartsIntent(
       ),
     },
   };
+}
+
+/**
+ * Код кузова во фразе: «NCP165» («NCP 165» разбор уже склеил). Слова техники
+ * с числом («gtx970», «ram16») кодом кузова не считаются.
+ */
+function hasCarCode(query: string | null): boolean {
+  return (query ?? '').split(/\s+/).some((word) => {
+    const match = /^([a-z]{3})\d{2,3}[a-z]?$/i.exec(word);
+    return match !== null && !NOT_CAR_CODE.has(match[1]!.toLowerCase());
+  });
+}
+
+const NOT_CAR_CODE = new Set(['gtx', 'rtx', 'ram', 'ssd', 'hdd', 'usb', 'cpu', 'gpu', 'mac']);
+
+const CAR_PARTS_SLUG = 'transport-parts';
+
+/** Открытая категория, из которой поиск не уходит; null — поиск по всем категориям. */
+function scopeOf(
+  catalogue: ListingCatalogue,
+  context: DomainRequestContext,
+): CategoryRecord | null {
+  if (!context.scopeLocked || !context.listingCategory) return null;
+  return catalogue.findBySlug(context.listingCategory);
+}
+
+/** Категория — сама граница или лежит внутри неё (направление основного типа и т. п.). */
+function withinScope(
+  catalogue: ListingCatalogue,
+  category: CategoryRecord,
+  scope: CategoryRecord,
+): boolean {
+  return catalogue.pathOf(category).some((item) => item.id === scope.id);
+}
+
+/**
+ * Категория — сама техника запчастей, открытых на экране: «Toyota Succeed» в
+ * «Запчастях» автомобилей — не другая категория, а «Подходит к».
+ */
+function machineOfScope(category: CategoryRecord, scope: CategoryRecord): boolean {
+  return partsEquipmentBySlug(scope.slug)?.machineSlug === category.slug;
 }
 
 /**
@@ -1390,6 +1477,22 @@ export function normalizeListings(
     if (guess.kind === 'guess') category = findCategory(catalogue, guess.guess.slug);
   }
 
+  // ── Граница поиска: открытая категория ────────────────────────────────────
+  // Поиск, запущенный внутри категории, из неё не уходит: «Конь» в «Запчастях»
+  // ищется в запчастях словами, а «Сельхозживотные» — только подсказка рядом.
+  // Марка и модель автомобиля в запчастях автомобилей — это «Подходит к»
+  const scope = scopeOf(catalogue, context);
+  let elsewhere: CategoryRecord | null = null;
+  if (scope && (!category || !withinScope(catalogue, category, scope))) {
+    if (category && !machineOfScope(category, scope)) elsewhere = category;
+    category = scope;
+  }
+  // Код кузова или двигателя («NCP165», «1NZ») вне запчастей — похоже на автозапчасть
+  if (scope && !elsewhere && !partsEquipmentBySlug(scope.slug) && hasCarCode(intent.query)) {
+    const parts = catalogue.findBySlug(CAR_PARTS_SLUG);
+    if (parts && !withinScope(catalogue, parts, scope)) elsewhere = parts;
+  }
+
   const attributes = category ? attributesFor(catalogue, category) : [];
   if (category) {
     raw.category = category.slug;
@@ -1407,6 +1510,10 @@ export function normalizeListings(
   const modelField = modelAttribute(attributes);
   let brandEntry: DictionaryRecord | null = null;
 
+  // Названное, но в этой категории не применимое (марка телефона в запчастях
+  // машин, модели нет в справочнике) не пропадает, а ищется словами: иначе
+  // «Honor 400» в «Запчастях» стал бы поиском по одному числу
+  const lostWords: string[] = [];
   if (brandCandidate && brandField?.dictionary) {
     brandEntry = findEntry(catalogue.dictionaryEntries(brandField.dictionary), brandCandidate);
     if (!brandEntry) {
@@ -1414,9 +1521,11 @@ export function normalizeListings(
         field: 'brand',
         reason: `Марки «${brandCandidate}» нет в справочнике категории`,
       });
+      lostWords.push(brandCandidate);
     }
   } else if (brandCandidate && category) {
     ignored.push({ field: 'brand', reason: 'У этой категории нет поля марки' });
+    lostWords.push(brandCandidate);
   }
 
   if (modelRaw !== undefined && modelField?.dictionary) {
@@ -1482,10 +1591,14 @@ export function normalizeListings(
     for (const missing of resolved.missing) {
       ignored.push({ field: 'model', reason: `Модели «${missing}» нет в справочнике` });
       query.unresolved.push(missing);
+      lostWords.push(missing);
     }
   } else if (modelRaw !== undefined && category) {
     const text = asText(modelRaw);
-    if (text) query.unresolved.push(text);
+    if (text) {
+      query.unresolved.push(text);
+      lostWords.push(text);
+    }
   }
 
   if (brandEntry && brandField) {
@@ -1780,7 +1893,12 @@ export function normalizeListings(
   if (sort) raw.sort = sort;
 
   // ── Текст ─────────────────────────────────────────────────────────────────
-  const text = leftoverText(intent.query, covered, category?.slug);
+  // Слова, узнанные как предмет другой категории, в этой категории ничего не
+  // фильтруют — они остаются словами поиска, а не пропадают
+  const source = elsewhere
+    ? context.text
+    : [...lostWords, intent.query].filter(Boolean).join(' ') || null;
+  const text = leftoverText(source, covered, category?.slug);
   if (text) {
     raw.search = text.slice(0, 120);
     query.text = raw.search as string;
@@ -1830,6 +1948,7 @@ export function normalizeListings(
 
   query.params = raw;
   query.sort = intent.sort;
+  if (elsewhere) query.elsewhere = { slug: elsewhere.slug, name: elsewhere.name };
   // Быстрые значения: «хочу машину» — марки, «хочу квартиру» — купить или снять.
   // Не вопрос, а подсказка рядом с кнопкой «Открыть»: в раздел можно перейти и так (D15)
   const suggestions = category

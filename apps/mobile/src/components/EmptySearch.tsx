@@ -10,8 +10,11 @@ import { Icon } from './Icon';
  * снять фильтр); экран передаёт те, что сейчас имеют смысл.
  */
 export function EmptySearch({
+  title = 'По вашему запросу ничего не найдено',
   actions,
 }: {
+  /** «В разделе «Дом и ремонт» по запросу «рейка» ничего не найдено» */
+  title?: string;
   actions: readonly { label: string; onPress: () => void }[];
 }) {
   const colors = useThemeColors();
@@ -22,7 +25,7 @@ export function EmptySearch({
       <View style={styles.icon}>
         <Icon name="search" size={22} color={colors.primary} />
       </View>
-      <Text style={styles.title}>По вашему запросу ничего не найдено</Text>
+      <Text style={styles.title}>{title}</Text>
       <Text style={styles.text}>Попробуйте изменить запрос или выбрать другую категорию.</Text>
       {actions.length > 0 && (
         <View style={styles.actions}>

@@ -27,6 +27,12 @@ const recordSchema = z.object({
   updatedAt: z.number(),
   /** Сколько уточнений подряд — для журнала и предела */
   turns: z.number().int().min(1).max(1000),
+  /**
+   * Где искали: открытая категория объявлений ('' — без категории). Фраза из
+   * другой категории — не уточнение этого поиска, а новый поиск. У записей
+   * старого формата поля нет — такие считаются начатыми вне категории
+   */
+  scope: z.string().max(60).optional(),
 });
 
 export type SearchContextRecord = z.infer<typeof recordSchema>;
@@ -62,6 +68,7 @@ export function newContext(
   intent: SmartSearchIntentCore,
   previous: SearchContextRecord | null,
   now: number,
+  scope = '',
 ): SearchContextRecord {
   // В контексте нет вопроса-уточнения и «неразобранных» слов: они относятся
   // к одной фразе, а не к поиску
@@ -78,7 +85,17 @@ export function newContext(
     intent: clean,
     updatedAt: now,
     turns: sameSearch ? previous.turns + 1 : 1,
+    scope,
   };
+}
+
+/**
+ * Продолжает ли фраза поиск из этой записи по месту: только в той же
+ * категории. «NCP165», набранное в «Запчастях», не уточняет «рейку» из
+ * «Дома и ремонта» — открытая категория важнее прошлого поиска.
+ */
+export function sameScope(record: SearchContextRecord, scope: string | undefined): boolean {
+  return (record.scope ?? '') === (scope ?? '');
 }
 
 /** Минимум клиента Redis, который нужен хранилищу. */

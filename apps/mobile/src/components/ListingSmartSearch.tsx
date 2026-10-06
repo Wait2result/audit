@@ -39,7 +39,7 @@ export interface ListingSmartSearchOptions {
   /** Открытая категория — подсказка для коротких фраз («до миллиона») */
   category: string | null;
   /** Понятый запрос объявлений: фильтры уже разложены, осталось показать выдачу */
-  onListings: (target: SmartListingTarget) => void;
+  onListings: (target: SmartListingTarget, text: string) => void;
   /** Умный поиск не сработал: обычный поиск по словам фразы */
   onFallback: (text: string) => void;
 }
@@ -64,7 +64,7 @@ export function useListingSmartSearch({
 
       const listing = listingPartOf(next.response);
       if (listing) {
-        onListings(applySmartListing(listing, text, next.response.requestId, category));
+        onListings(applySmartListing(listing, text, next.response.requestId, category), text);
         return;
       }
       if (smartSearchOutcome(next.response).kind === 'fallback') onFallback(text);

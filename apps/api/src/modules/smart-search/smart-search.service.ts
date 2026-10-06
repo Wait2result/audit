@@ -26,6 +26,7 @@ import {
   CONTEXT_STORE,
   contextKey,
   newContext,
+  sameScope,
   type ContextStore,
   type SearchContextRecord,
 } from './context/context-store.js';
@@ -124,10 +125,17 @@ interface Planned {
 export function isFollowUp(text: string): boolean {
   const value = norm(text);
   if (!value) return false;
+  // Код кузова, двигателя или номер детали — сам предмет поиска, а не уточнение:
+  // «NCP165» после «смесителя» не ищется среди смесителей
+  if (CODE_LIKE.test(text)) return false;
   if (FOLLOW_UP_START.test(value)) return true;
   if (NEW_SEARCH_WORDS.test(value)) return false;
   return value.split(' ').length <= 3;
 }
+
+/** «NCP165», «NCP 165», «1NZ», «45510-52010», «90915-YZZD1». */
+const CODE_LIKE =
+  /(^|[^\p{L}\d])(?:[a-z]{2,4}\s?\d{2,3}[a-z]?|\d[a-z]{2,3}|\d{3,}[-–][a-z\d]+|[a-z\d]+[-–]\d{3,})(?=$|[^\p{L}\d])/iu;
 
 const FOLLOW_UP_START =
   /^(а|и|ещ[её]|только|без|с|со|до|от|в|во|на|по|за|подешевле|дешевле|дороже|лучше|тоже|также)( |$)/u;
@@ -246,7 +254,11 @@ export class SmartSearchService {
       return this.failure(requestId, sessionId, text, 'SMART_SEARCH_DISABLED');
 
     const key = contextKey(sessionId, userId);
-    const loaded = request.reset ? null : await this.loadContext(key);
+    // Прошлый поиск продолжается только в той же открытой категории: история,
+    // прошлое намерение и прошлая категория не выбирают, где искать сейчас
+    const scope = request.context?.listingCategory ?? '';
+    const stored = request.reset ? null : await this.loadContext(key);
+    const loaded = stored && sameScope(stored, scope) ? stored : null;
     if (request.reset) await this.contexts.clear(key).catch(() => undefined);
 
     const cities = await this.cities.listActive();
@@ -349,7 +361,7 @@ export class SmartSearchService {
       ...(request.context?.latitude !== undefined ? { latitude: request.context.latitude } : {}),
       ...(request.context?.longitude !== undefined ? { longitude: request.context.longitude } : {}),
       ...(request.context?.listingCategory
-        ? { listingCategory: request.context.listingCategory }
+        ? { listingCategory: request.context.listingCategory, scopeLocked: !request.choice }
         : {}),
     };
 
@@ -378,7 +390,13 @@ export class SmartSearchService {
       if (main.domain && first.status !== 'unsupported') {
         await this.saveContext(
           key,
-          newContext(main.domain, withResolvedCategory(main, first), plan.previous, now.getTime()),
+          newContext(
+            main.domain,
+            withResolvedCategory(main, first),
+            plan.previous,
+            now.getTime(),
+            scope,
+          ),
         );
       }
 

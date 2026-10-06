@@ -14,7 +14,7 @@ import { matchEntries, matchPhrases, type DictionaryHit, type PhraseHit } from '
 import { norm, sameStem } from './normalize.js';
 import { normalizeSearchText } from './normalize.js';
 import { extractNumericConditions, type NumericValue } from './numbers.js';
-import { extractPartNumbers, scanParts } from './parts-scan.js';
+import { extractPartNumbers, joinBodyCodes, scanParts } from './parts-scan.js';
 import { isPartsCategory } from '../../constants/parts/equipment-types.js';
 import { dualCategories, partAliasStemKey } from '../parts.js';
 import { consume, leftover, tokenize, type SearchToken } from './tokenize.js';
@@ -851,7 +851,16 @@ function buildCore(analysis: Analysis, text: string): SmartSearchIntentCore {
     };
   }
 
-  const rest = leftover(tokens).filter((word) => !FILLER_WORDS.has(word) && !/^\d+$/.test(word));
+  // Одиночное число — обычно часть уже разобранного условия; но число сразу после
+  // марки («iPhone 18», «Honor 400») — модель, которой нет в справочнике: оно
+  // остаётся словом поиска, иначе выдача стала бы «все Apple»
+  const rest = tokens
+    .filter(
+      (token, index) =>
+        !token.consumed && (!/^\d+$/.test(token.text) || tokens[index - 1]?.by === 'subject'),
+    )
+    .map((token) => token.text)
+    .filter((word) => !FILLER_WORDS.has(word));
   const query = rest.join(' ').trim();
   core.query = query ? query.slice(0, 120) : null;
   core.unresolved =
@@ -905,8 +914,9 @@ export function parseSearchIntent(
   source: string,
   options: LocalParseOptions = {},
 ): LocalParseResult {
-  // Номера деталей — раньше всего: пока дефисы на месте, «90915-YZZD1» — один номер
-  const extracted = extractPartNumbers(source);
+  // Номера деталей — раньше всего: пока дефисы на месте, «90915-YZZD1» — один номер.
+  // Код кузова с пробелом («NCP 165») — одно слово, иначе «165» потерялось бы
+  const extracted = extractPartNumbers(joinBodyCodes(source));
   const text = extracted.text;
   const normalized = normalizeSearchText(text);
   const pieces =

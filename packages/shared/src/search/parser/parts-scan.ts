@@ -177,9 +177,95 @@ export function scanParts(tokens: readonly SearchToken[]): PartsScan {
 //  Номера деталей: до нормализации, пока дефисы на месте
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Слово-признак перед номером: «OEM 12345», «артикул XXXXX», «номер детали 5555». */
+/**
+ * Слово-признак перед номером: «OEM 12345», «артикул XXXXX», «номер детали
+ * 5555», «номер замены …», «кросс …». Как ни назови номер — номер запчасти,
+ * номер производителя, каталожный, оригинальный, номер замены — поиск один:
+ * по всем номерам слоя запчасти (основным и заменам, которые указал продавец).
+ * Связи между номерами разбор не придумывает.
+ */
 const NUMBER_MARKER =
-  /(?:^|[\s,;])(?:oem|оем|артикул|арт\.?|part\s*number|partnumber|p\/n|pn|каталожный\s+номер|кат\.?\s*номер|номер\s+детали|номер)\s*[:№#]?\s*([A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9\-–./]{2,})/giu;
+  /(?:^|[\s,;])(?:oem|оем|артикул|арт\.?|part\s*number|partnumber|p\/n|pn|cross(?:[-\s]?number)?|кросс(?:[-\s]?номер)?|заменитель|номера?\s+замен\p{L}*|каталожный\s+номер|кат\.?\s*номер|оригинальный\s+номер|номер\s+(?:детали|запчасти|производителя)|номер)\s*[:№#]?\s*([A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9\-–./]{2,})/giu;
+
+/**
+ * Код кузова, набранный с пробелом: «NCP 165» → «NCP165». Склеиваются три
+ * латинские буквы и 2–3 цифры, если буквы набраны заглавными или это
+ * известное начало кода кузова. Марки и слова техники («BMW 320», «RAM 16»,
+ * «Air 13») не склеиваются.
+ */
+const BODY_CODE_SPACED = /(^|[^A-Za-z0-9])([A-Za-z]{3})\s+(\d{2,3}[A-Za-z]?)(?![A-Za-z0-9-])/g;
+const BODY_CODE_PREFIXES = new Set([
+  'ncp',
+  'nze',
+  'zze',
+  'azt',
+  'grx',
+  'acv',
+  'zre',
+  'ksp',
+  'scp',
+  'nhp',
+  'gse',
+  'mcv',
+  'sxa',
+  'aca',
+  'zvw',
+  'nsp',
+  'kdj',
+  'kun',
+  'grj',
+  'uzj',
+  'gdj',
+  'trj',
+  'nlp',
+  'ncp',
+  'azr',
+  'zrr',
+  'ant',
+  'cbe',
+]);
+const NOT_BODY_CODE = new Set([
+  'bmw',
+  'kia',
+  'gaz',
+  'vaz',
+  'uaz',
+  'zil',
+  'byd',
+  'jac',
+  'faw',
+  'gac',
+  'man',
+  'daf',
+  'ram',
+  'ssd',
+  'hdd',
+  'usb',
+  'air',
+  'pro',
+  'max',
+  'mac',
+  'gen',
+  'rtx',
+  'gtx',
+  'cpu',
+  'gpu',
+  'top',
+  'new',
+  'old',
+]);
+
+export function joinBodyCodes(text: string): string {
+  return text.replace(
+    BODY_CODE_SPACED,
+    (match, before: string, letters: string, digits: string) => {
+      const lower = letters.toLowerCase();
+      if (NOT_BODY_CODE.has(lower)) return match;
+      const typedAsCode = letters === letters.toUpperCase() || BODY_CODE_PREFIXES.has(lower);
+      return typedAsCode ? `${before}${letters}${digits}` : match;
+    },
+  );
+}
 
 export interface ExtractedCodes {
   numbers: string[];

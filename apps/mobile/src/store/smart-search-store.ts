@@ -7,7 +7,9 @@ import { create } from 'zustand';
  * Сессия — номер разговора с поиском: с ним «до миллиона» и «а автомат?»
  * уточняют прошлый запрос, а не начинают новый. У глобального поиска и у
  * объявлений сессии свои: уточнение в объявлениях не должно продолжать
- * вчерашний вопрос про кино.
+ * вчерашний вопрос про кино. Сессия помнит категорию, в которой начата: в
+ * другой категории поиск начинается заново («NCP165» в «Запчастях» не
+ * продолжает «рейку» из «Дома и ремонта»).
  *
  * Не сохраняется на устройство: контекст на сервере живёт 20 минут, и
  * продолжать после перезапуска приложения нечего.
@@ -40,6 +42,11 @@ export interface ListingUnderstanding {
   needsConfirmation: boolean;
   /** Человек нажал «Подходит» — вопрос больше не показывается */
   confirmed: boolean;
+  /**
+   * Слова похожи на другую категорию, а поиск остался в открытой («Конь» в
+   * «Запчастях»): «Возможно, вы ищете …» — переход только по нажатию
+   */
+  elsewhere: { slug: string; name: string } | null;
 }
 
 /**
@@ -75,13 +82,19 @@ export interface SmartDialogTurn {
   failure?: string;
 }
 
+/** Сессия умного поиска и категория, в которой она начата ('' — без категории). */
+export interface SmartSearchSession {
+  id: string;
+  scope: string;
+}
+
 interface SmartSearchState {
-  sessions: Partial<Record<SmartSearchChannel, string>>;
+  sessions: Partial<Record<SmartSearchChannel, SmartSearchSession>>;
   listing: ListingUnderstanding | null;
   handoff: SmartSearchHandoff | null;
   dialog: SmartDialogTurn[];
 
-  setSession: (channel: SmartSearchChannel, sessionId: string | null) => void;
+  setSession: (channel: SmartSearchChannel, sessionId: string | null, scope?: string) => void;
   setListing: (listing: ListingUnderstanding | null) => void;
   setHandoff: (handoff: SmartSearchHandoff | null) => void;
   pushTurn: (turn: SmartDialogTurn) => void;
@@ -100,10 +113,10 @@ export const useSmartSearchStore = create<SmartSearchState>((set) => ({
   handoff: null,
   dialog: [],
 
-  setSession: (channel, sessionId) =>
+  setSession: (channel, sessionId, scope = '') =>
     set((state) => {
       const sessions = { ...state.sessions };
-      if (sessionId) sessions[channel] = sessionId;
+      if (sessionId) sessions[channel] = { id: sessionId, scope };
       else delete sessions[channel];
       return { sessions };
     }),
