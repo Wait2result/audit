@@ -126,6 +126,7 @@ export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   'transport-special-parts': PART_FACTS,
   'transport-water-parts': PART_FACTS,
   'electronics-phone-parts': PART_FACTS,
+  'electronics-tablet-parts': PART_FACTS,
   'electronics-laptop-parts': PART_FACTS,
   'electronics-tv-parts': PART_FACTS,
   'home-appliance-parts': PART_FACTS,

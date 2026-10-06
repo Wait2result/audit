@@ -1,6 +1,12 @@
 import { APPLIANCE_PARTS, CLIMATE_PARTS, OTHER_EQUIPMENT_PARTS } from './taxonomy-appliances.js';
 import { CAR_PARTS } from './taxonomy-cars.js';
-import { COMPUTER_PARTS, LAPTOP_PARTS, PHONE_PARTS, TV_PARTS } from './taxonomy-devices.js';
+import {
+  COMPUTER_PARTS,
+  LAPTOP_PARTS,
+  PHONE_PARTS,
+  TABLET_PARTS,
+  TV_PARTS,
+} from './taxonomy-devices.js';
 import { MOTO_PARTS, SPECIAL_PARTS, TRUCK_PARTS, WATER_PARTS } from './taxonomy-vehicles.js';
 import type { PartGroupSeed } from './taxonomy.js';
 
@@ -20,6 +26,7 @@ export const PartsEquipmentType = {
   SPECIAL_EQUIPMENT: 'special_equipment',
   WATER_TRANSPORT: 'water_transport',
   PHONE: 'phone',
+  TABLET: 'tablet',
   LAPTOP: 'laptop',
   COMPUTER: 'computer',
   TV: 'tv',
@@ -303,6 +310,34 @@ export const PARTS_EQUIPMENT: readonly PartsEquipment[] = [
       'айфона',
       'iphone',
       'андроид',
+    ],
+    compat: { year: false, chassis: false, engine: false, modification: true },
+  },
+  {
+    // Планшет — как телефон: те же группы деталей (дисплей, аккумулятор,
+    // разъём…), свои справочники брендов и моделей
+    code: PartsEquipmentType.TABLET,
+    label: 'Планшет',
+    slug: 'electronics-tablet-parts',
+    section: 'electronics',
+    name: 'Запчасти для планшетов',
+    itemLabel: 'Запчасть',
+    key: 'tablet',
+    brandKind: 'tablet_brand',
+    modelKind: 'tablet_model',
+    brandLabel: 'Бренд планшета',
+    machineSlug: 'electronics-tablets',
+    groups: TABLET_PARTS,
+    words: [
+      'планшет',
+      'планшета',
+      'планшеты',
+      'планшету',
+      'планшетов',
+      'айпад',
+      'айпада',
+      'ipad',
+      'таблет',
     ],
     compat: { year: false, chassis: false, engine: false, modification: true },
   },

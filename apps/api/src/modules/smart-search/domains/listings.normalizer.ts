@@ -674,9 +674,18 @@ export function enrichFromText(
     (has('brand') || has('model')) &&
     brandModelHits(catalogue, brandRaw, modelRawValue, null).length === 0 &&
     (brandRaw === null || !brandKnown(catalogue, brandRaw));
-  if ((!has('brand') && !has('model')) || unknownPair) {
+  // Названа только марка, а во фразе есть и модель её написанием («ксиоми 15»,
+  // «редми ноут 15 про»): модель ищется по всей фразе, но только этой марки
+  const brandOnly = has('brand') && !has('model') && !unknownPair;
+  if ((!has('brand') && !has('model')) || unknownPair || brandOnly) {
     const found = modelInText(catalogue, text);
-    if (found) {
+    const sameBrand =
+      !brandOnly ||
+      (found?.brand !== null &&
+        found?.brand !== undefined &&
+        brandRaw !== null &&
+        brandModelHits(catalogue, brandRaw, found.label, null).length > 0);
+    if (found && sameBrand) {
       filters.model = found.label;
       if (found.brand) filters.brand = found.brand;
       else delete filters.brand;
@@ -694,6 +703,13 @@ export function enrichFromText(
         delete filters.category;
       }
     }
+  }
+
+  // Модель названа без марки, а марка во фразе есть («айфон 15 про»): без неё
+  // «15 про» — и iPhone 15 Pro, и Redmi Note 15 Pro, и модель не нашлась бы
+  if (has('model') && !has('brand')) {
+    const named = brandInText(catalogue, words(text));
+    if (named) filters.brand = named.label;
   }
 
   // «16 ГБ оперативки» модель кладёт в память накопителя — это ОЗУ
@@ -848,8 +864,14 @@ export function modelInText(
   catalogue: ListingCatalogue,
   text: string,
 ): { label: string; brand: string | null } | null {
+  // До четырёх слов: «айфон 17 про макс» — одна модель, а не «айфон 17» и «17 про»
+  const list = words(text);
+  const candidates = [...list];
+  for (let size = 2; size <= 4; size += 1)
+    for (let index = 0; index + size <= list.length; index += 1)
+      candidates.push(list.slice(index, index + size).join(' '));
   const wanted = new Set(
-    phrases(text).filter((phrase) => phrase.length >= 4 && !/^[\d ]+$/.test(phrase)),
+    candidates.filter((phrase) => phrase.length >= 4 && !/^[\d ]+$/.test(phrase)),
   );
   if (wanted.size === 0) return null;
   const kinds = new Set<string>();
@@ -857,13 +879,24 @@ export function modelInText(
     const field = modelAttribute(attributesFor(catalogue, category));
     if (field?.dictionary) kinds.add(field.dictionary);
   }
-  const hits = new Map<string, DictionaryRecord>();
+  // Совпадение длиннее важнее: «айфон 17 про макс» — iPhone 17 Pro Max, хотя
+  // «айфон 17» и «айфон 17 про» тоже есть в справочнике
+  const found = new Map<string, { entry: DictionaryRecord; size: number }>();
   for (const kind of kinds) {
     for (const entry of catalogue.dictionaryEntries(kind)) {
-      if (formsOf(entry).some((form) => wanted.has(form)))
-        hits.set(`${entry.parentValue}/${entry.value}`, entry);
+      const size = Math.max(
+        0,
+        ...formsOf(entry)
+          .filter((form) => wanted.has(form))
+          .map((form) => form.split(' ').length),
+      );
+      if (size > 0) found.set(`${entry.parentValue}/${entry.value}`, { entry, size });
     }
   }
+  const longest = Math.max(0, ...[...found.values()].map((item) => item.size));
+  const hits = new Map(
+    [...found].filter(([, item]) => item.size === longest).map(([key, item]) => [key, item.entry]),
+  );
   const labels = new Set([...hits.values()].map((entry) => norm(entry.label)));
   if (labels.size !== 1) return null;
   const parents = new Set([...hits.values()].map((entry) => entry.parentValue));
@@ -1433,12 +1466,22 @@ export function normalizeListings(
             return fieldKeys.every((key) => keys.has(key));
           })
         : [];
+    // Модель нашлась ровно в одной категории («Xiaomi 15» — только у телефонов):
+    // марка, которая есть и у планшетов, и у телевизоров, вопроса не требует
+    const modeled = hits.filter((hit) => hit.models.length > 0);
     const hinted =
       byFields.length === 1
         ? byFields
-        : hits.length > 1
-          ? hintedByWord(catalogue, byFields.length > 1 ? byFields : hits, brandCandidate, modelRaw)
-          : hits;
+        : modeled.length === 1
+          ? modeled
+          : hits.length > 1
+            ? hintedByWord(
+                catalogue,
+                byFields.length > 1 ? byFields : hits,
+                brandCandidate,
+                modelRaw,
+              )
+            : hits;
     if (hinted.length === 1) {
       category = hinted[0]!.category;
     } else if (hits.length > 1) {

@@ -875,6 +875,7 @@ const FLAT_TREE: readonly SeedListingCategory[] = [
       },
       partsLeaf('computer'),
       partsLeaf('phone'),
+      partsLeaf('tablet'),
       partsLeaf('laptop'),
       partsLeaf('tv'),
       {

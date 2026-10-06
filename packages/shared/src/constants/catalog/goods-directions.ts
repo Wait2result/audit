@@ -748,6 +748,118 @@ car_charger | Автомобильные зарядки | зарядка в пр
     attributes: ['brandName', 'condition'],
   },
 
+  // ══ Планшеты ════════════════════════════════════════════════════════════
+  {
+    slug: 'electronics-tablet-accessories',
+    name: 'Аксессуары',
+    itemLabel: 'Аксессуар',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_accessories',
+    compat: MODEL_ONLY,
+    words: ['аксессуары для планшета'],
+    types: types(`
+stand | Подставки и держатели | подставка для планшета; держатель для планшета
+memory_card | Карты памяти | карта памяти для планшета
+other | Другое | сумка для планшета; рюкзак для планшета
+`),
+    attributes: ['brandName', 'condition'],
+  },
+  {
+    slug: 'electronics-tablet-cases',
+    name: 'Чехлы',
+    itemLabel: 'Чехол',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_cases',
+    compat: MODEL_ONLY,
+    words: ['чехлы для планшета', 'чехол на планшет', 'чехол на айпад'],
+    types: types(`
+book_case | Чехол-книжка | чехол книжка на планшет; обложка для планшета; smart cover
+back_case | Чехол-накладка | чехол; чехлы; накладка на планшет; бампер на планшет
+keyboard_case | Чехол с клавиатурой | чехол с клавиатурой
+kids_case | Детский чехол | детский чехол на планшет; противоударный чехол на планшет
+`),
+    attributes: ['brandName', 'condition'],
+  },
+  {
+    slug: 'electronics-tablet-glass',
+    name: 'Защитные стёкла',
+    itemLabel: 'Защитное стекло',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_glass',
+    compat: MODEL_ONLY,
+    words: ['стекло на планшет', 'стекло на айпад'],
+    types: types(`
+tempered_glass | Защитное стекло | защитное стекло на планшет
+film | Защитная плёнка | пленка на планшет; paperlike; пленка для рисования
+privacy_glass | Стекло-антишпион | антишпион на планшет; стекло антишпион для планшета
+`),
+    attributes: ['condition'],
+  },
+  {
+    slug: 'electronics-tablet-chargers',
+    name: 'Зарядки',
+    itemLabel: 'Зарядка',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_chargers',
+    compat: MODEL_ONLY,
+    words: ['зарядка для планшета', 'зарядка для айпада'],
+    types: types(`
+charger | Сетевые зарядки | блок питания для планшета; зарядное для планшета
+powerbank | Пауэрбанки | пауэрбанк для планшета
+wireless | Беспроводные зарядки | беспроводная зарядка для планшета
+dock | Док-станции | док станция для планшета; подставка с зарядкой для планшета
+`),
+    attributes: ['brandName', 'condition'],
+  },
+  {
+    slug: 'electronics-tablet-cables',
+    name: 'Кабели',
+    itemLabel: 'Кабель',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_cables',
+    compat: MODEL_ONLY,
+    words: ['кабель для планшета'],
+    types: types(`
+usb_c | Кабели USB-C | кабель usb c для планшета
+lightning | Кабели Lightning | кабель lightning для айпада
+adapter | Переходники | переходник для планшета; хаб для планшета; usb хаб для айпада
+`),
+    attributes: ['condition'],
+  },
+  {
+    slug: 'electronics-tablet-input',
+    name: 'Клавиатуры и стилусы',
+    itemLabel: 'Клавиатура или стилус',
+    equipment: 'tablet',
+    typeKey: 'goodsType',
+    key: 'tablet_input',
+    compat: MODEL_ONLY,
+    // «стилус» само по себе — и деталь телефона (S Pen): слово направления — с уточнением
+    words: ['стилусы для планшета', 'клавиатура для планшета', 'клавиатуры и стилусы'],
+    types: types(`
+stylus | Стилусы | стилус для планшета; apple pencil; эпл пенсил; перо для планшета
+keyboard | Клавиатуры | клавиатура для планшета; magic keyboard; клавиатура для айпада
+mouse | Мыши и тачпады | мышь для планшета; мышка для айпада; тачпад для планшета
+tips | Наконечники для стилуса | наконечник для стилуса; наконечники apple pencil
+`),
+    attributes: ['brandName', 'condition'],
+  },
+  {
+    slug: 'electronics-tablet-other',
+    name: 'Другое',
+    itemLabel: 'Товар для планшета',
+    equipment: 'tablet',
+    key: 'tablet_other',
+    types: [],
+    compat: MODEL_ONLY,
+    attributes: ['brandName', 'condition'],
+  },
+
   // ══ Ноутбуки ════════════════════════════════════════════════════════════
   {
     slug: 'electronics-laptop-accessories',

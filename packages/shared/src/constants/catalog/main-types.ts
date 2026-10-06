@@ -105,6 +105,14 @@ export const MAIN_TYPES: readonly MainType[] = [
     directions: ['electronics-phones', ...partsOf('phone'), ...goodsOf('phone')],
   },
   {
+    slug: 'tablets',
+    name: 'Планшеты',
+    section: 'electronics',
+    equipment: 'tablet',
+    machine: 'electronics-tablets',
+    directions: ['electronics-tablets', ...partsOf('tablet'), ...goodsOf('tablet')],
+  },
+  {
     slug: 'laptops',
     name: 'Ноутбуки',
     section: 'electronics',

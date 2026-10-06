@@ -31,6 +31,11 @@ const of = (brand: string, labels: readonly string[]): PhoneModelSeed[] =>
 const galaxyNames = (text: string): string[] => names(text).map((model) => `Galaxy ${model}`);
 
 export const PHONE_MODELS: readonly PhoneModelSeed[] = [
+  // Сентябрь 2026: iPhone 18 Pro и Pro Max. Обычный iPhone 18 ещё не вышел
+  // (ожидается весной 2027) — добавится строкой, когда появится в продаже
+  apple('iPhone 18 Pro Max'),
+  apple('iPhone 18 Pro'),
+  apple('iPhone 17e'),
   apple('iPhone 17 Pro Max'),
   apple('iPhone 17 Pro'),
   apple('iPhone Air'),
@@ -82,6 +87,8 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
   apple('iPhone 3GS', false),
   apple('iPhone 3G', false),
   ...of('samsung', [
+    'Galaxy S26 Ultra',
+    'Galaxy S26',
     'Galaxy S25 Ultra',
     'Galaxy S25',
     'Galaxy S24 Ultra',
@@ -105,7 +112,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'Galaxy M34',
     'Galaxy Note 20',
     ...galaxyNames(`
-      S25 Edge | S25 FE | S25 Plus | S24 FE | S24 Plus | S23 FE | S23 Plus | S22 Plus | S21 Ultra | S21 Plus | S21 FE | S20 Ultra | S20 Plus | S20 FE | S20 | S10 Plus | S10e | S10 Lite | S10 | S9 Plus | S9 | S8 Plus | S8 Active | S8 | S7 edge | S7 | S6 edge Plus | S6 edge | S6 | S5 Mini | S5 | S4 Mini | S4 | S3 |
+      S26 Plus | S26 FE | Z Fold 8 Ultra | Z Fold 8 | Z Flip 8 | S25 Edge | S25 FE | S25 Plus | S24 FE | S24 Plus | S23 FE | S23 Plus | S22 Plus | S21 Ultra | S21 Plus | S21 FE | S20 Ultra | S20 Plus | S20 FE | S20 | S10 Plus | S10e | S10 Lite | S10 | S9 Plus | S9 | S8 Plus | S8 Active | S8 | S7 edge | S7 | S6 edge Plus | S6 edge | S6 | S5 Mini | S5 | S4 Mini | S4 | S3 |
       Note 20 Ultra | Note 10 Plus | Note 10 Lite | Note 10 | Note 9 | Note 8 | Note 5 | Note 4 | Note 3 | Note 2 | Note FE |
       Z Fold 7 | Z Flip 7 FE | Z Flip 7 | Z Fold 4 | Z Flip 4 | Z Fold 3 | Z Flip 3 | Z Fold 2 | Z Fold | Z Flip |
       A56 | A53 | A52s | A52 | A51 | A50 | A36 | A33 | A32 | A31 | A30s | A30 | A26 | A24 | A23 | A22 | A21s | A20 | A16 | A13 | A12 | A11 | A10 | A06 | A05s | A05 | A04s | A04 | A03 | A02s | A02 | A01 | A73 | A72 | A71 | A70 | A80 | A90 |
@@ -123,7 +130,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'Mi 11',
     'Mi 10',
     ...names(
-      `Xiaomi 15 Ultra | Xiaomi 15 | Xiaomi 14T Pro | Xiaomi 14T | Xiaomi 13T Pro | Xiaomi 13 Ultra | Xiaomi 13 Pro | Xiaomi 13 Lite | Xiaomi 12T Pro | Xiaomi 12T | Xiaomi 12 Pro | Xiaomi 12 Lite | Xiaomi 12X | Xiaomi 11T Pro | Xiaomi 11 Lite 5G NE | Xiaomi Civi | Xiaomi Mix Fold | Xiaomi Mix Flip |
+      `Xiaomi 17 Pro Max | Xiaomi 17 Pro | Xiaomi 17 | Xiaomi 15 Ultra | Xiaomi 15 | Xiaomi 14T Pro | Xiaomi 14T | Xiaomi 13T Pro | Xiaomi 13 Ultra | Xiaomi 13 Pro | Xiaomi 13 Lite | Xiaomi 12T Pro | Xiaomi 12T | Xiaomi 12 Pro | Xiaomi 12 Lite | Xiaomi 12X | Xiaomi 11T Pro | Xiaomi 11 Lite 5G NE | Xiaomi Civi | Xiaomi Mix Fold | Xiaomi Mix Flip |
        Mi 11 Ultra | Mi 11 Lite | Mi 10T Pro | Mi 10T | Mi 10T Lite | Mi 10 Pro | Mi 10 Lite | Mi 9T Pro | Mi 9T | Mi 9 SE | Mi 9 Lite | Mi 9 | Mi 8 Lite | Mi 8 | Mi A1 | Mi A2 | Mi A3 | Mi Mix 2 | Mi Mix 3 | Mi Note 10 | Mi Max 3 | Mi 6 | Mi 5`,
     ),
   ]),
@@ -138,7 +145,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'Redmi 12',
     'Redmi 10',
     ...names(
-      `Redmi Note 14 Pro Plus | Redmi Note 9 Pro Max | Redmi Note 7S | Redmi Note 7 Pro | Redmi Note 5A Prime | Redmi Note 5A | Redmi Note 5 Pro | Redmi Note 3 Pro | Redmi Note 3 | Redmi Note 2 | Redmi Note 4X | Redmi Note Prime | Redmi Note | Redmi Note 14 Pro | Redmi Note 14 | Redmi Note 13 Pro Plus | Redmi Note 12 Pro Plus | Redmi Note 12S | Redmi Note 11 Pro | Redmi Note 11S | Redmi Note 10 Pro | Redmi Note 10S | Redmi Note 9 Pro | Redmi Note 9S | Redmi Note 9 | Redmi Note 8 Pro | Redmi Note 8T | Redmi Note 8 | Redmi Note 7 | Redmi Note 6 Pro | Redmi Note 5 | Redmi Note 4 |
+      `Redmi Note 15 Pro Plus | Redmi Note 15 Pro | Redmi Note 15 | Redmi Note 14 Pro Plus | Redmi Note 9 Pro Max | Redmi Note 7S | Redmi Note 7 Pro | Redmi Note 5A Prime | Redmi Note 5A | Redmi Note 5 Pro | Redmi Note 3 Pro | Redmi Note 3 | Redmi Note 2 | Redmi Note 4X | Redmi Note Prime | Redmi Note | Redmi Note 14 Pro | Redmi Note 14 | Redmi Note 13 Pro Plus | Redmi Note 12 Pro Plus | Redmi Note 12S | Redmi Note 11 Pro | Redmi Note 11S | Redmi Note 10 Pro | Redmi Note 10S | Redmi Note 9 Pro | Redmi Note 9S | Redmi Note 9 | Redmi Note 8 Pro | Redmi Note 8T | Redmi Note 8 | Redmi Note 7 | Redmi Note 6 Pro | Redmi Note 5 | Redmi Note 4 |
        Redmi 14C | Redmi 13 | Redmi 12C | Redmi 10C | Redmi 10A | Redmi 9T | Redmi 9C | Redmi 9A | Redmi 9 | Redmi 8A | Redmi 8 | Redmi 7A | Redmi 7 | Redmi 6A | Redmi 6 | Redmi 5 Plus | Redmi 5A | Redmi 4X | Redmi A1 | Redmi A2 | Redmi A3 | Redmi Go | Redmi K70 | Redmi K60 | Redmi K50 | Redmi K40`,
     ),
   ]),
@@ -174,7 +181,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'X8b',
     'X7b',
     ...names(
-      `Magic 7 Pro | Magic 6 Lite | Magic 5 Pro | Magic 4 Pro | Magic V2 | Magic V3 | 200 Pro | 100 | 70 | 50 | 30 | 20 | 10 | 10 Lite | 20 Lite | 50 Lite | 70 Lite | 90 Lite | X9a | X8a | X7a | X6 | X5 | 9X | 8X | 8A | 9A | 10X Lite`,
+      `Magic 8 Pro | 400 Pro | 400 | Magic 7 Pro | Magic 6 Lite | Magic 5 Pro | Magic 4 Pro | Magic V2 | Magic V3 | 200 Pro | 100 | 70 | 50 | 30 | 20 | 10 | 10 Lite | 20 Lite | 50 Lite | 70 Lite | 90 Lite | X9a | X8a | X7a | X6 | X5 | 9X | 8X | 8A | 9A | 10X Lite`,
     ),
   ]),
   ...of('realme', [
@@ -214,7 +221,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'Nord 3',
     'Nord CE 4',
     ...names(
-      `13 | 13R | 10 Pro | 10T | 10R | 9 Pro | 9 | 9R | 8 Pro | 8T | 8 | 7 Pro | 7T Pro | 7T | 7 | 6T | 6 | 5T | 5 | 3T | 3 | X | 2 | Nord | Nord 2 | Nord 2T | Nord CE | Nord CE 2 | Nord CE 3 | Nord CE 3 Lite | Nord N10 | Nord N20 | Nord N30 | Open`,
+      `15 | 13 | 13R | 10 Pro | 10T | 10R | 9 Pro | 9 | 9R | 8 Pro | 8T | 8 | 7 Pro | 7T Pro | 7T | 7 | 6T | 6 | 5T | 5 | 3T | 3 | X | 2 | Nord | Nord 2 | Nord 2T | Nord CE | Nord CE 2 | Nord CE 3 | Nord CE 3 Lite | Nord N10 | Nord N20 | Nord N30 | Open`,
     ),
   ]),
   ...of('google', [
@@ -225,7 +232,7 @@ export const PHONE_MODELS: readonly PhoneModelSeed[] = [
     'Pixel 7',
     'Pixel 6a',
     ...names(
-      `Pixel 10 Pro XL | Pixel 10 Pro | Pixel 10 | Pixel 9 Pro XL | Pixel 9 Pro Fold | Pixel 9a | Pixel 8a | Pixel 7 Pro | Pixel 7a | Pixel 6 Pro | Pixel 6 | Pixel 5a | Pixel 5 | Pixel 4a | Pixel 4 XL | Pixel 4 | Pixel 3a XL | Pixel 3a | Pixel 3 XL | Pixel 3 | Pixel 2 XL | Pixel 2 | Pixel XL | Pixel | Pixel Fold`,
+      `Pixel 10a | Pixel 10 Pro XL | Pixel 10 Pro | Pixel 10 | Pixel 9 Pro XL | Pixel 9 Pro Fold | Pixel 9a | Pixel 8a | Pixel 7 Pro | Pixel 7a | Pixel 6 Pro | Pixel 6 | Pixel 5a | Pixel 5 | Pixel 4a | Pixel 4 XL | Pixel 4 | Pixel 3a XL | Pixel 3a | Pixel 3 XL | Pixel 3 | Pixel 2 XL | Pixel 2 | Pixel XL | Pixel | Pixel Fold`,
     ),
   ]),
   ...of('tecno', [

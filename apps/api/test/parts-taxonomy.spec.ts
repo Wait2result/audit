@@ -36,7 +36,7 @@ const GROUP_AMBIGUOUS: ReadonlySet<string> = new Set([
 ]);
 
 describe('Реестр типов техники', () => {
-  it('двенадцать типов техники из требований', () => {
+  it('тринадцать типов техники: двенадцать из требований и планшеты (аудит, п. 33)', () => {
     expect(PARTS_EQUIPMENT.map((item) => item.code).sort()).toEqual(
       [
         'climate_equipment',
@@ -48,6 +48,7 @@ describe('Реестр типов техники', () => {
         'passenger_car',
         'phone',
         'special_equipment',
+        'tablet',
         'truck',
         'tv',
         'water_transport',

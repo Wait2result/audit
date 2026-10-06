@@ -119,6 +119,77 @@ function withAutoAlias(label: string, manual: readonly string[] = []): string[] 
   return auto && !manual.includes(auto) ? [...manual, auto] : [...manual];
 }
 
+/**
+ * Как модель называют в жизни — короче, чем в каталоге (аудит, п. 32):
+ *   • без названия серии: «Galaxy Z Fold 8» — «Z Fold 8», «зет фолд 8»;
+ *   • с маркой, если модель записана без неё: «Honor 400» — «хонор 400».
+ * Только сочетания с цифрой: «Galaxy» или «Pro» сами по себе моделью не становятся.
+ */
+const SERIES_PREFIXES = ['Galaxy '];
+
+/**
+ * Синонимы марки, которые на деле — названия продуктов («айфон» у Apple,
+ * «галакси» у Samsung): написанием марки в начале модели они не служат —
+ * иначе «Apple Watch» получил бы написание «айфон watch».
+ */
+const PRODUCT_WORDS: ReadonlySet<string> = new Set([
+  'айфон',
+  'iphone',
+  'макбук',
+  'macbook',
+  'айпад',
+  'ipad',
+  'галакси',
+  'galaxy',
+  'пиксель',
+  'pixel',
+  'плейстейшен',
+  'playstation',
+]);
+
+/** Латинская буква серии и её кириллический двойник на клавиатуре. */
+const CYRILLIC_TWIN: Readonly<Record<string, string>> = { s: 'с', a: 'а', m: 'м' };
+
+function spokenAliases(brand: string, label: string): string[] {
+  const result: string[] = [];
+  for (const prefix of SERIES_PREFIXES) {
+    if (!label.startsWith(prefix)) continue;
+    const short = label.slice(prefix.length);
+    if (!/\d/.test(short) || short.split(' ').length < 2) continue;
+    result.push(short.toLowerCase());
+    const russian = russianModelAlias(short);
+    if (russian) result.push(russian);
+  }
+  if (/^\d/.test(label)) {
+    result.push(`${brand} ${label}`.toLowerCase());
+    const brandRu = BRAND_ALIASES[brand]?.[0];
+    if (brandRu) result.push(`${brandRu} ${label}`.toLowerCase());
+  }
+  // Марка в начале названия — всеми её написаниями: «Xiaomi 15» — «ксиоми 15», «шаоми 15»
+  const [head, ...tail] = label.split(' ');
+  if (head && tail.length > 0 && head.toLowerCase() === brand) {
+    const rest = tail.join(' ');
+    const restForms = [rest.toLowerCase(), russianModelAlias(rest)].filter((form): form is string =>
+      Boolean(form),
+    );
+    for (const alias of BRAND_ALIASES[brand] ?? []) {
+      if (alias.length < 4 || alias.includes(' ') || PRODUCT_WORDS.has(alias)) continue;
+      for (const form of restForms) result.push(`${alias} ${form}`);
+    }
+  }
+  // «Note» говорят и «нот», и «ноут»: «редми ноут 15 про»
+  const russianFull = russianModelAlias(label);
+  for (const form of [...result, ...(russianFull ? [russianFull] : [])]) {
+    if (/(^| )нот( |$)/.test(form)) result.push(form.replace(/(^| )нот( |$)/, '$1ноут$2'));
+  }
+  // Буква серии кириллицей — так часто и набирают: «с26 ультра», «а55»
+  for (const form of [...result]) {
+    const cyrillic = form.replace(/^([sam])(?=\d)/, (letter) => CYRILLIC_TWIN[letter] ?? letter);
+    if (cyrillic !== form) result.push(cyrillic);
+  }
+  return result;
+}
+
 function modelEntries(models: Readonly<Record<string, readonly string[]>>): DictionaryEntrySeed[] {
   const entries: DictionaryEntrySeed[] = [];
   for (const [brand, labels] of Object.entries(models)) {
@@ -131,7 +202,12 @@ function modelEntries(models: Readonly<Record<string, readonly string[]>>): Dict
         value,
         label,
         parent: brand,
-        aliases: withAutoAlias(label, MODEL_ALIASES[value]),
+        aliases: [
+          ...new Set([
+            ...withAutoAlias(label, MODEL_ALIASES[value]),
+            ...spokenAliases(brand, label),
+          ]),
+        ],
       });
     }
   }
@@ -162,7 +238,12 @@ export const DICTIONARY_SEEDS: readonly DictionarySeed[] = [
       value: modelValue(model.label),
       label: model.label,
       parent: model.brand,
-      aliases: withAutoAlias(model.label, MODEL_ALIASES[modelValue(model.label)]),
+      aliases: [
+        ...new Set([
+          ...withAutoAlias(model.label, MODEL_ALIASES[modelValue(model.label)]),
+          ...spokenAliases(model.brand, model.label),
+        ]),
+      ],
       ...(model.faceId !== undefined ? { meta: { faceId: model.faceId } } : {}),
     })),
   },

@@ -15,13 +15,13 @@ export const TABLET_MODELS: Readonly<Record<string, readonly string[]>> = {
     `iPad | iPad 2 | iPad Air | iPad mini | iPad Pro 9.7 | iPad Pro 10.5 | iPad Pro 11 | iPad Pro 12.9 | iPad Pro 13 | iPad Air 11 | iPad Air 13`,
   ),
   samsung: names(
-    `Galaxy Tab S10 Ultra | Galaxy Tab S10 Plus | Galaxy Tab S10 FE | Galaxy Tab S9 Ultra | Galaxy Tab S9 Plus | Galaxy Tab S9 FE Plus | Galaxy Tab S9 FE | Galaxy Tab S9 | Galaxy Tab S8 Ultra | Galaxy Tab S8 Plus | Galaxy Tab S8 | Galaxy Tab S7 FE | Galaxy Tab S7 Plus | Galaxy Tab S7 | Galaxy Tab S6 Lite | Galaxy Tab S6 | Galaxy Tab S5e | Galaxy Tab S4 | Galaxy Tab S3 | Galaxy Tab S2 | Galaxy Tab S | Galaxy Tab A9 Plus | Galaxy Tab A9 | Galaxy Tab A8 | Galaxy Tab A7 Lite | Galaxy Tab A7 | Galaxy Tab A | Galaxy Tab Active | Galaxy Tab E | Galaxy Tab 4 | Galaxy Tab 3 | Galaxy Tab 2 | Galaxy Note 10.1`,
+    `Galaxy Tab S11 Ultra | Galaxy Tab S11 | Galaxy Tab S10 Ultra | Galaxy Tab S10 | Galaxy Tab S10 Plus | Galaxy Tab S10 FE | Galaxy Tab S9 Ultra | Galaxy Tab S9 Plus | Galaxy Tab S9 FE Plus | Galaxy Tab S9 FE | Galaxy Tab S9 | Galaxy Tab S8 Ultra | Galaxy Tab S8 Plus | Galaxy Tab S8 | Galaxy Tab S7 FE | Galaxy Tab S7 Plus | Galaxy Tab S7 | Galaxy Tab S6 Lite | Galaxy Tab S6 | Galaxy Tab S5e | Galaxy Tab S4 | Galaxy Tab S3 | Galaxy Tab S2 | Galaxy Tab S | Galaxy Tab A9 Plus | Galaxy Tab A9 | Galaxy Tab A8 | Galaxy Tab A7 Lite | Galaxy Tab A7 | Galaxy Tab A | Galaxy Tab Active | Galaxy Tab E | Galaxy Tab 4 | Galaxy Tab 3 | Galaxy Tab 2 | Galaxy Note 10.1`,
   ),
   huawei: names(
     `MatePad Pro 13.2 | MatePad Pro 12.6 | MatePad Pro 11 | MatePad Pro 10.8 | MatePad 11.5 | MatePad 11 | MatePad Air | MatePad SE | MatePad T10s | MatePad T10 | MatePad | MediaPad M6 | MediaPad M5 Lite | MediaPad M5 | MediaPad M3 | MediaPad T5 | MediaPad T3 | MediaPad T1 | MediaPad`,
   ),
   xiaomi: names(
-    `Xiaomi Pad 7 Pro | Xiaomi Pad 7 | Xiaomi Pad 6S Pro | Xiaomi Pad 6 Max | Xiaomi Pad 6 Pro | Xiaomi Pad 6 | Xiaomi Pad 5 Pro | Xiaomi Pad 5 | Mi Pad 4 Plus | Mi Pad 4 | Mi Pad 3 | Mi Pad 2 | Mi Pad`,
+    `Xiaomi Pad 8 Pro | Xiaomi Pad 8 | Xiaomi Pad 7 Pro | Xiaomi Pad 7 | Xiaomi Pad 6S Pro | Xiaomi Pad 6 Max | Xiaomi Pad 6 Pro | Xiaomi Pad 6 | Xiaomi Pad 5 Pro | Xiaomi Pad 5 | Mi Pad 4 Plus | Mi Pad 4 | Mi Pad 3 | Mi Pad 2 | Mi Pad`,
   ),
   redmi: names(`Redmi Pad Pro | Redmi Pad SE | Redmi Pad`),
   honor: names(`Pad X9 | Pad X8 Pro | Pad X8 | Pad 9 | Pad 8 | Pad V8 Pro | MagicPad 2`),
