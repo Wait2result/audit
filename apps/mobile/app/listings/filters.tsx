@@ -7,6 +7,7 @@ import {
   rentPeriodChoices,
   cardFactKeys,
   groupFilterFields,
+  fieldsForValues,
   isAttributeVisible,
   plural,
   type ListingAttribute,
@@ -119,10 +120,20 @@ export default function ListingFiltersScreen() {
   const groups = useMemo(
     () =>
       groupFilterFields(
-        fields.filter((field) => isAttributeVisible(field, attributes)),
+        // «Купить» — без условий аренды; сделка не выбрана — видно всё
+        fieldsForValues(
+          fields.filter((field) =>
+            isAttributeVisible(
+              field,
+              attributes,
+              transactionType ? { transactionType } : undefined,
+            ),
+          ),
+          attributes,
+        ),
         new Set(categorySlug ? cardFactKeys(categorySlug) : []),
       ),
-    [fields, attributes, categorySlug],
+    [fields, attributes, categorySlug, transactionType],
   );
   // Сделки, которые бывают в выбранной категории (или во всех её подкатегориях)
   const transactions = useMemo(() => transactionsOf(roots, categorySlug), [roots, categorySlug]);

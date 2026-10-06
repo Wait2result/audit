@@ -365,3 +365,18 @@ export function manufacturerFitsEquipment(
 ): boolean {
   return !equipment || equipment.length === 0 || equipment.includes(code);
 }
+
+/**
+ * Подходит ли производитель к оригинальности детали. Оригинал — деталь
+ * производителя самой техники (Toyota, Samsung…): список — марки техники.
+ * Аналог — деталь стороннего производителя (KYB, Denso, Bosch…): список —
+ * производители запчастей. Оригинальность не выбрана — подходят все.
+ * Производитель, которого нет в реестре кода (добавлен из панели), не
+ * скрывается: о нём ничего не известно.
+ */
+export function manufacturerFitsOriginality(value: string, originality: unknown): boolean {
+  if (originality !== 'original' && originality !== 'analog') return true;
+  const maker = partManufacturerByValue(value);
+  if (!maker) return true;
+  return originality === 'original' ? maker.machineBrand === true : maker.machineBrand !== true;
+}

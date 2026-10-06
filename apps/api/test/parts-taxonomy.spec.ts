@@ -258,7 +258,7 @@ describe('Справочники и привязки', () => {
     expect(condition.options?.map((o) => o.value)).toEqual(['new', 'used', 'restored']);
     expect(condition.options?.map((o) => o.label)).toEqual(['Новая', 'Б/У', 'Восстановленная']);
     expect(originality.options?.map((o) => o.value)).toEqual(['original', 'analog']);
-    expect(originality.label).toBe('Тип детали');
+    expect(originality.label).toBe('Оригинальность');
     expect(ATTRIBUTE_DEFINITIONS.partManufacturer?.type).toBe('brand');
     // У «Восстановленной» — подсказка про описание, а не обязательное поле
     expect(condition.options?.find((o) => o.value === 'restored')?.hint).toMatch(/описании/);

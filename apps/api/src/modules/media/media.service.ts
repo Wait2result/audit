@@ -291,6 +291,31 @@ export class MediaService {
    * Вызывается другими модулями в момент создания объекта. С этого момента
    * файл перестаёт быть «ничьим» и не будет удалён уборкой.
    */
+  /**
+   * Можно ли привязать файлы: только свои и только обработанные — иначе к
+   * своему объявлению можно было бы прицепить чужую фотографию. Подача
+   * объявления проверяет это ДО записи: иначе при сбое фото объявление уже
+   * опубликовано без них, а повторная отправка создаёт второе.
+   */
+  async assertAttachable(mediaIds: readonly string[], userId: string): Promise<void> {
+    if (mediaIds.length === 0) return;
+    const owned = await this.prisma.media.findMany({
+      where: {
+        id: { in: [...mediaIds] },
+        uploadedById: userId,
+        moderationStatus: 'approved',
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (owned.length !== new Set(mediaIds).size) {
+      throw AppException.badRequest(
+        'Часть фотографий не загрузилась до конца. Удалите их и добавьте заново',
+        ErrorCode.FILE_UPLOAD_FAILED,
+      );
+    }
+  }
+
   async attach(params: {
     mediaIds: string[];
     ownerType: string;
@@ -299,24 +324,7 @@ export class MediaService {
   }): Promise<void> {
     if (params.mediaIds.length === 0) return;
 
-    // Привязать можно только свои и только обработанные файлы — иначе
-    // к своему объявлению можно было бы прицепить чужую фотографию.
-    const owned = await this.prisma.media.findMany({
-      where: {
-        id: { in: params.mediaIds },
-        uploadedById: params.userId,
-        moderationStatus: 'approved',
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-
-    if (owned.length !== params.mediaIds.length) {
-      throw AppException.badRequest(
-        'Часть файлов не найдена или ещё не обработана',
-        ErrorCode.FILE_UPLOAD_FAILED,
-      );
-    }
+    await this.assertAttachable(params.mediaIds, params.userId);
 
     await this.prisma.media.updateMany({
       where: { id: { in: params.mediaIds } },

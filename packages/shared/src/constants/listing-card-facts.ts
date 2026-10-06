@@ -92,9 +92,10 @@ export type CardFactSpec =
 const MODEL: CardFactSpec = ['brand', 'modelName'];
 const BRAND_MODEL: CardFactSpec = ['brand', 'model'];
 const LOOSE_MODEL: CardFactSpec = ['brandName', 'modelName'];
-// Деталь, производитель и «Б/У оригинал» — состояние и тип одной строкой
+// Производитель и «Новый аналог» — состояние и тип одной строкой; следом
+// сервер ставит номер и коротко «Подходит к». Сама деталь — в заголовке
+// и на странице объявления: в карточке место нужнее номеру и совместимости
 const PART_FACTS: readonly CardFactSpec[] = [
-  'partItem',
   'partManufacturer',
   { keys: ['partCondition', 'partOriginality'], format: 'partState' },
 ];

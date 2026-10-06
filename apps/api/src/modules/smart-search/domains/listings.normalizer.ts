@@ -1909,7 +1909,7 @@ export function normalizeListings(
     query.text = raw.search as string;
     conditions.push({
       field: 'partNumber',
-      label: 'Номер детали',
+      label: 'Номер запчасти / артикул',
       value: partsOutcome.numberSearch,
       display: partsOutcome.numberSearch,
     });

@@ -44,9 +44,13 @@ export const PART_LAYER_SELECT = {
       modification: true,
     },
     orderBy: { sortOrder: 'asc' },
-    take: 3,
+    // Карточке нужна одна строка; сколько их всего — счётчик _count.compatibility
+    // (его добавляет каждая выборка сама: у неё бывают и свои счётчики)
+    take: 1,
   },
   partNumbers: {
+    // В карточке — основной номер, а не номер замены
+    where: { kind: { not: 'replacement' } },
     select: { kind: true, number: true },
     orderBy: { sortOrder: 'asc' },
     take: 1,
@@ -271,23 +275,43 @@ export function compatibilityText(row: StoredCompatibility): string {
   return [row.brandLabel, row.modelLabel, row.chassis, years].filter(Boolean).join(' ');
 }
 
+/** Предел длины совместимости в карточке: дальше — на странице объявления. */
+const CARD_COMPAT_MAX = 32;
+
 /**
- * Часть строки под заголовком карточки запчасти: совместимость («Toyota
- * Succeed NCP165», с «+2», если подходит и другим) и первый номер. Подробности
- * — на странице объявления, карточка не анкета.
+ * Совместимость для карточки — коротко: «Succeed NCP165 2015–2020». Марка
+ * не пишется, если есть модель (её и так узнают по модели); слишком длинное
+ * обрезается — полный список на странице объявления.
+ */
+export function compactCompatibility(row: StoredCompatibility): string {
+  const years =
+    row.yearFrom && row.yearTo && row.yearFrom !== row.yearTo
+      ? `${row.yearFrom}–${row.yearTo}`
+      : (row.yearFrom ?? row.yearTo)
+        ? String(row.yearFrom ?? row.yearTo)
+        : null;
+  const text = [row.modelLabel ?? row.brandLabel, row.chassis, years].filter(Boolean).join(' ');
+  return text.length > CARD_COMPAT_MAX ? `${text.slice(0, CARD_COMPAT_MAX - 1).trimEnd()}…` : text;
+}
+
+/**
+ * Часть строки под заголовком карточки запчасти: основной номер («333388»,
+ * без «OEM» — номер узнают и так) и коротко, к чему подходит («Succeed
+ * NCP165 2015–2020 +2»). Производитель, оригинальность и состояние идут
+ * перед ними из характеристик. Подробности — на странице объявления.
  */
 export function partCardFacts(
   compatibility: readonly StoredCompatibility[],
   numbers: readonly StoredPartNumber[],
+  /** Сколько всего строк совместимости: в выборке карточки — только первая */
+  compatibilityTotal: number = compatibility.length,
 ): { compatibility: string | null; number: string | null } {
   const first = compatibility[0];
-  const rest = compatibility.length > 1 ? ` +${compatibility.length - 1}` : '';
-  const text = first ? compatibilityText(first) : '';
-  const number = numbers[0];
+  const rest = compatibilityTotal > 1 ? ` +${compatibilityTotal - 1}` : '';
+  const text = first ? compactCompatibility(first) : '';
+  const number = numbers.find((item) => item.kind !== 'replacement') ?? null;
   return {
-    compatibility: text ? `Подходит: ${text}${rest}` : null,
-    number: number
-      ? `${PART_NUMBER_KIND_LABELS[(number.kind as PartNumberKind) in PART_NUMBER_KIND_LABELS ? (number.kind as PartNumberKind) : 'oem']} ${number.number}`
-      : null,
+    compatibility: text ? `${text}${rest}` : null,
+    number: number ? number.number : null,
   };
 }

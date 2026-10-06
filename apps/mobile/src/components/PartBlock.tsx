@@ -1,5 +1,5 @@
 import {
-  PART_NUMBER_KIND_LABELS,
+  partNumberLabel,
   attributeValueLabel,
   type ListingAttribute,
   type ListingCompatibilityDto,
@@ -107,7 +107,7 @@ export function PartBlock({
             ))}
             {numbers.map((number, index) => (
               <View key={`number-${index}`} style={styles.row}>
-                <Text style={styles.label}>{PART_NUMBER_KIND_LABELS[number.kind]}</Text>
+                <Text style={styles.label}>{partNumberLabel(number.kind)}</Text>
                 {/* Номер выделяется и копируется: его вставляют в каталог или поиск */}
                 <Text style={styles.value} selectable>
                   {number.value}

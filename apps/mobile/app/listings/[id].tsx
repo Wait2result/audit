@@ -3,6 +3,7 @@ import {
   LISTING_CONDITION_LABELS,
   attributeValueLabel,
   catalogLayer,
+  isAttributeVisible,
   isPartsCategory,
   cardFacts,
   formatListingAge,
@@ -98,9 +99,17 @@ export default function ListingScreen() {
   const isPart = isPartsCategory(listing.categorySlug);
   // «Подходит к» — и у запчастей, и у направлений с совместимостью (коврики, магнитолы)
   const hasLayer = catalogLayer(listing.categorySlug) !== null;
-  const attributes = isPart
-    ? categoryAttributes.filter((attribute) => !PART_BLOCK_KEYS.has(attribute.key))
-    : categoryAttributes;
+  // Условия аренды («можно с животными») у продажи не показываются, даже если
+  // остались в старом объявлении
+  const attributes = (
+    isPart
+      ? categoryAttributes.filter((attribute) => !PART_BLOCK_KEYS.has(attribute.key))
+      : categoryAttributes
+  ).filter((attribute) =>
+    isAttributeVisible(attribute, listing.attributes, {
+      transactionType: listing.transactionType,
+    }),
+  );
   // Главное о вещи — одной строкой под названием; полный набор ниже, после описания
   const keyFacts = cardFacts(listing.attributesSummary, listing.title, 4);
 

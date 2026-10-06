@@ -1,6 +1,9 @@
 import {
-  PART_NUMBER_KINDS,
-  PART_NUMBER_KIND_LABELS,
+  PART_NUMBER_HINT,
+  PART_NUMBER_LABEL,
+  PART_REPLACEMENTS_HINT,
+  PART_REPLACEMENTS_LABEL,
+  mainPartNumberKind,
   partNumberKey,
   catalogLayer,
   type CatalogLayer,
@@ -15,7 +18,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useDictionary } from '../api/queries';
 import { radius, spacing, typography, useThemeColors } from '../theme';
 import { Icon } from './Icon';
-import { Field, OptionChips, createStyles as createFieldStyles } from './ListingFormFields';
+import { Field, createStyles as createFieldStyles } from './ListingFormFields';
 import { SearchableSelect } from './SearchableSelect';
 
 /**
@@ -122,12 +125,23 @@ export function partLayerError(value: PartLayerValue): string | null {
   return null;
 }
 
-/** Состояние редактора → тело запроса `part`. */
-export function partLayerToInput(value: PartLayerValue): ListingPartInput {
+/**
+ * Состояние редактора → тело запроса `part`. Вид основного номера человек не
+ * выбирает — он следует из оригинальности детали: у оригинала это номер
+ * производителя машины (OEM), у аналога — номер производителя детали.
+ */
+export function partLayerToInput(value: PartLayerValue, originality?: unknown): ListingPartInput {
+  const main = mainPartNumberKind(originality);
   return {
     numbers: value.numbers
       .filter((number) => number.value.trim() !== '')
-      .map((number) => ({ kind: number.kind, value: number.value.trim() })),
+      .map((number) => ({
+        kind:
+          number.kind === 'replacement' || number.kind === 'catalog' || originality === undefined
+            ? number.kind
+            : main,
+        value: number.value.trim(),
+      })),
     compatibility: value.compatibility
       .filter((row) => !rowIsEmpty(row))
       .map((row) => {
@@ -204,11 +218,6 @@ export function PartLayerEditor({
     onDismissSuggestion?.();
   };
 
-  const setNumber = (index: number, patch: Partial<PartNumberRow>) =>
-    onChange({
-      ...value,
-      numbers: value.numbers.map((row, i) => (i === index ? { ...row, ...patch } : row)),
-    });
   const setRow = (index: number, patch: Partial<CompatibilityRow>) =>
     onChange({
       ...value,
@@ -221,52 +230,29 @@ export function PartLayerEditor({
     <View style={styles.wrap}>
       {layer.numbers && (
         <>
-          {/* ── Номера ─────────────────────────────────────────────────── */}
-          <Text style={styles.title}>Номера детали</Text>
+          {/* ── Номер запчасти / артикул ─────────────────────────────── */}
+          <Text style={styles.title}>{PART_NUMBER_LABEL}</Text>
+          <Text style={styles.hint}>{PART_NUMBER_HINT}. Например, 45510-52010 или 333388.</Text>
+          <NumberList
+            rows={value.numbers}
+            replacement={false}
+            onChange={(numbers) => onChange({ ...value, numbers })}
+            addLabel="Добавить ещё номер"
+            placeholder="Например, 45510-52010"
+          />
+
+          {/* ── Номера замен ─────────────────────────────────────────── */}
+          <Text style={[styles.title, styles.titleGap]}>{PART_REPLACEMENTS_LABEL}</Text>
           <Text style={styles.hint}>
-            По номеру деталь находят без названия. Можно указать несколько: оригинальный,
-            каталожный, артикул.
+            {PART_REPLACEMENTS_HINT}. Укажите, только если знаете их точно.
           </Text>
-          {value.numbers.map((row, index) => (
-            <View key={`number-${index}`} style={styles.card}>
-              <View style={styles.cardHead}>
-                <Text style={styles.cardTitle}>Номер {index + 1}</Text>
-                <RemoveButton
-                  label={`Убрать номер ${index + 1}`}
-                  onPress={() =>
-                    onChange({ ...value, numbers: value.numbers.filter((_, i) => i !== index) })
-                  }
-                />
-              </View>
-              <OptionChips
-                options={PART_NUMBER_KINDS.map((kind) => ({
-                  value: kind,
-                  label: PART_NUMBER_KIND_LABELS[kind],
-                }))}
-                selected={[row.kind]}
-                onToggle={(next) => setNumber(index, { kind: next as PartNumberKind })}
-              />
-              <TextInput
-                value={row.value}
-                onChangeText={(text) => setNumber(index, { value: text })}
-                placeholder="Например, 90915-YZZD1"
-                placeholderTextColor={colors.textFaint}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={60}
-                accessibilityLabel={`Номер детали ${index + 1}`}
-                style={styles.input}
-              />
-            </View>
-          ))}
-          {value.numbers.length < MAX_NUMBERS && (
-            <AddButton
-              label="Добавить номер"
-              onPress={() =>
-                onChange({ ...value, numbers: [...value.numbers, { kind: 'oem', value: '' }] })
-              }
-            />
-          )}
+          <NumberList
+            rows={value.numbers}
+            replacement
+            onChange={(numbers) => onChange({ ...value, numbers })}
+            addLabel="Добавить номер замены"
+            placeholder="Например, 45510-52011"
+          />
         </>
       )}
 
@@ -416,7 +402,7 @@ function CompatibilityRowFields({
       )}
 
       {flags.chassis && (
-        <Field label="Кузов">
+        <Field label="Номер кузова">
           <TextInput
             value={row.chassis}
             onChangeText={(text) => onChange({ chassis: text })}
@@ -431,7 +417,7 @@ function CompatibilityRowFields({
         </Field>
       )}
       {flags.engine && (
-        <Field label="Двигатель">
+        <Field label="Номер двигателя">
           <TextInput
             value={row.engine}
             onChangeText={(text) => onChange({ engine: text })}
@@ -489,6 +475,65 @@ function CompatibilityRowFields({
         </View>
       )}
     </View>
+  );
+}
+
+/**
+ * Список номеров одного рода: основные («Номер запчасти / артикул») или
+ * номера замен. Оба рода живут в одном массиве слоя; здесь показаны и
+ * правятся только свои строки, порядок остальных не меняется.
+ */
+function NumberList({
+  rows,
+  replacement,
+  onChange,
+  addLabel,
+  placeholder,
+}: {
+  rows: PartNumberRow[];
+  replacement: boolean;
+  onChange: (rows: PartNumberRow[]) => void;
+  addLabel: string;
+  placeholder: string;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const own = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => (row.kind === 'replacement') === replacement);
+  const title = replacement ? 'Номер замены' : 'Номер';
+  return (
+    <>
+      {own.map(({ row, index }, position) => (
+        <View key={`${replacement ? 'replacement' : 'number'}-${index}`} style={styles.numberRow}>
+          <TextInput
+            value={row.value}
+            onChangeText={(text) =>
+              onChange(rows.map((item, i) => (i === index ? { ...item, value: text } : item)))
+            }
+            placeholder={placeholder}
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={60}
+            accessibilityLabel={`${title} ${position + 1}`}
+            style={[styles.input, styles.numberInput]}
+          />
+          <RemoveButton
+            label={`Убрать: ${title.toLowerCase()} ${position + 1}`}
+            onPress={() => onChange(rows.filter((_, i) => i !== index))}
+          />
+        </View>
+      ))}
+      {rows.length < MAX_NUMBERS && (
+        <AddButton
+          label={own.length === 0 ? (replacement ? addLabel : 'Указать номер') : addLabel}
+          onPress={() =>
+            onChange([...rows, { kind: replacement ? 'replacement' : 'article', value: '' }])
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -565,6 +610,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => {
     years: { flexDirection: 'row', gap: spacing.md },
     year: { flex: 1 },
     input: fieldStyles.input,
+    numberRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    numberInput: { flex: 1 },
     add: {
       flexDirection: 'row',
       alignItems: 'center',

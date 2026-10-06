@@ -1,4 +1,5 @@
-import type { AttributeDefinition } from './listing-attributes.js';
+import type { AttributeDefinition, ListingAttribute } from './listing-attributes.js';
+import { manufacturerFitsOriginality } from './parts/manufacturers.js';
 
 /**
  * Записать значение характеристики вместе с зависимыми от неё полями.
@@ -21,6 +22,16 @@ export function withAttributeValue(
   if (value === undefined || value === null || value === '') delete next[key];
   else next[key] = value;
 
+  // Сменилась оригинальность — производитель другого списка больше не подходит
+  // («Оригинал» — производители техники, «Аналог» — производители запчастей)
+  if (
+    key === 'partOriginality' &&
+    typeof next.partManufacturer === 'string' &&
+    !manufacturerFitsOriginality(next.partManufacturer, value)
+  ) {
+    delete next.partManufacturer;
+  }
+
   if (values[key] !== value) {
     // Зависимые поля, включая цепочки длиннее двух звеньев
     const queue = [key];
@@ -32,4 +43,40 @@ export function withAttributeValue(
     }
   }
   return next;
+}
+
+/**
+ * Поля формы с вариантами под уже выбранное: у «Производителя детали» — только
+ * производители, подходящие к оригинальности («Оригинал» — Toyota, «Аналог» —
+ * KYB). Остальные поля — как есть.
+ */
+export function fieldsForValues<T extends ListingAttribute>(
+  fields: readonly T[],
+  values: Readonly<Record<string, unknown>>,
+): T[] {
+  const originality = values.partOriginality;
+  if (originality !== 'original' && originality !== 'analog') return [...fields];
+  return fields.map((field) =>
+    field.key === 'partManufacturer' && field.options
+      ? {
+          ...field,
+          options: field.options.filter((option) =>
+            manufacturerFitsOriginality(option.value, originality),
+          ),
+        }
+      : field,
+  );
+}
+
+/** Почему сбросился производитель — подпись для формы; null — не сбрасывался. */
+export function partMakerReset(
+  before: Readonly<Record<string, unknown>>,
+  after: Readonly<Record<string, unknown>>,
+): string | null {
+  if (typeof before.partManufacturer !== 'string' || after.partManufacturer !== undefined)
+    return null;
+  if (before.partOriginality === after.partOriginality) return null;
+  return after.partOriginality === 'original'
+    ? 'Производитель сброшен: у оригинальной детали это производитель техники (Toyota, Samsung…)'
+    : 'Производитель сброшен: у аналога это производитель запчастей (KYB, Denso, Bosch…)';
 }

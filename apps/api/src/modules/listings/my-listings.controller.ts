@@ -1,9 +1,21 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   archiveListingSchema,
   createListingSchema,
   draftListingSchema,
+  ErrorCode,
   myListingsQuerySchema,
   setListingPhotosSchema,
   updateMyListingSchema,
@@ -17,10 +29,22 @@ import {
 } from '@dagestan/shared';
 
 import { CurrentUser, RateLimit } from '../../common/decorators/index.js';
+import { AppException } from '../../common/errors/app.exception.js';
+import { RedisService } from '../../infra/redis/redis.service.js';
 import type { RequestUser } from '../../common/types/request-user.js';
 import { ApiZodBody } from '../../common/zod/zod-openapi.js';
 import { zodBody } from '../../common/zod/zod-validation.pipe.js';
 import { ListingsLifecycleService } from './listings-lifecycle.service.js';
+
+/** Сколько помнится ключ повтора подачи: сутки — дольше форму не держат открытой. */
+const REPEAT_TTL_SECONDS = 24 * 60 * 60;
+
+/** Ключ повтора подачи в Redis; null — клиент ключ не прислал (старое приложение). */
+function repeatKey(userId: string, raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value || !/^[A-Za-z0-9_-]{8,100}$/.test(value)) return null;
+  return `listings:create:${userId}:${value}`;
+}
 
 /**
  * Мои объявления (Этап 7, часть 2).
@@ -33,7 +57,10 @@ import { ListingsLifecycleService } from './listings-lifecycle.service.js';
 @ApiBearerAuth()
 @Controller('my/listings')
 export class MyListingsController {
-  constructor(private readonly lifecycle: ListingsLifecycleService) {}
+  constructor(
+    private readonly lifecycle: ListingsLifecycleService,
+    private readonly redis: RedisService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Мои объявления: активные, черновики, архив' })
@@ -65,16 +92,48 @@ export class MyListingsController {
   @RateLimit({ limit: 20, windowSeconds: 60 * 60 })
   @ApiOperation({ summary: 'Разместить объявление' })
   @ApiZodBody(createListingSchema)
-  create(
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      'Ключ повтора: та же форма, отправленная дважды (нет ответа, «сервер долго не отвечает»), ' +
+      'вернёт уже созданное объявление, а не второе',
+  })
+  async create(
     @CurrentUser() user: RequestUser,
     @Body() body: unknown,
     @Query('draft') draft?: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<MyListingDto> {
     // Черновик проверяется мягче: обязательных полей у него нет, кроме
     // города и категории. Полная проверка — при публикации
     const isDraft = draft === '1' || draft === 'true';
     if (isDraft) return this.lifecycle.createDraft(user.id, draftListingSchema.parse(body));
-    return this.lifecycle.create(user.id, createListingSchema.parse(body));
+    const dto = createListingSchema.parse(body);
+    const key = repeatKey(user.id, idempotencyKey);
+    if (!key) return this.lifecycle.create(user.id, dto);
+
+    // Повтор той же формы: объявление уже создано — его и вернуть
+    const done = await this.redis.client.get(key).catch(() => null);
+    if (done) return this.lifecycle.findOne(done, user.id);
+
+    // Два нажатия подряд: второе ждёт ответа первого, а не создаёт копию.
+    // Redis недоступен — подача всё равно работает, просто без защиты от повтора
+    const lock = `${key}:lock`;
+    const locked = await this.redis.client.set(lock, '1', 'EX', 60, 'NX').catch(() => 'OK');
+    if (!locked) {
+      throw AppException.conflict(
+        'Объявление уже публикуется — подождите несколько секунд',
+        ErrorCode.CONFLICT,
+      );
+    }
+    try {
+      const listing = await this.lifecycle.create(user.id, dto);
+      await this.redis.client.set(key, listing.id, 'EX', REPEAT_TTL_SECONDS).catch(() => null);
+      return listing;
+    } finally {
+      await this.redis.client.del(lock).catch(() => null);
+    }
   }
 
   @Post(':id/resubmit')

@@ -110,6 +110,7 @@ export const LISTING_SELECT = {
   seller: { select: { isVerified: true, ratingAverage: true, ratingCount: true } },
   // Слой запчасти: совместимость и номер для строки под заголовком
   ...PART_LAYER_SELECT,
+  _count: { select: { compatibility: true } },
 } satisfies Prisma.ListingSelect;
 
 export type ListingRow = Prisma.ListingGetPayload<{ select: typeof LISTING_SELECT }>;
@@ -495,6 +496,7 @@ export class ListingsService {
         // Слой запчасти целиком — на странице объявления нужны все строки
         compatibility: { orderBy: { sortOrder: 'asc' } },
         partNumbers: { orderBy: { sortOrder: 'asc' } },
+        _count: { select: { compatibility: true } },
         seller: {
           select: {
             id: true,
@@ -822,6 +824,7 @@ export class ListingsService {
       rentPeriod: ListingRow['rentPeriod'];
       compatibility?: readonly StoredCompatibility[];
       partNumbers?: readonly StoredPartNumber[];
+      _count?: { compatibility?: number };
     },
     catalogue: ListingCatalogue,
   ): string {
@@ -841,13 +844,14 @@ export class ListingsService {
         ? transactionCardLabel(row.transactionType, row.rentPeriod, category.slug)
         : null;
 
-    // У запчасти первым идёт то, ради чего её ищут: к чему подходит, и номер
+    // У запчасти: производитель, оригинальность и состояние (из характеристик),
+    // затем номер и коротко — к чему подходит. Полная совместимость — на странице
     const layer =
       category && catalogLayer(category.slug)
-        ? partCardFacts(row.compatibility ?? [], row.partNumbers ?? [])
+        ? partCardFacts(row.compatibility ?? [], row.partNumbers ?? [], row._count?.compatibility)
         : null;
 
-    return [layer?.compatibility, transaction, summary, layer?.number].filter(Boolean).join(' · ');
+    return [transaction, summary, layer?.number, layer?.compatibility].filter(Boolean).join(' · ');
   }
 
   toDto(

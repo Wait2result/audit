@@ -1,5 +1,6 @@
 import {
   PART_NUMBER_KIND_LABELS,
+  partNumberLabel,
   attributesSchemaFor,
   bindingsOf,
   describeCardFacts,
@@ -61,13 +62,18 @@ describe('Номера деталей', () => {
     expect(looksLikePartNumber(text)).toBe(expected);
   });
 
-  it('виды номера: OEM, каталожный, производителя, артикул', () => {
+  it('виды номера: OEM, каталожный, производителя, артикул и номер замены', () => {
     expect(Object.keys(PART_NUMBER_KIND_LABELS)).toEqual([
       'oem',
       'catalog',
       'manufacturer',
       'article',
+      'replacement',
     ]);
+    // Человек видит один «Номер запчасти / артикул» и отдельно «Номер замены»
+    expect(partNumberLabel('oem')).toBe('Номер запчасти / артикул');
+    expect(partNumberLabel('article')).toBe('Номер запчасти / артикул');
+    expect(partNumberLabel('replacement')).toBe('Номер замены');
   });
 });
 
@@ -231,10 +237,16 @@ describe('Ответ и карточка', () => {
     expect(compatibilityText(rows[1]!)).toBe('Toyota Probox');
   });
 
-  it('карточка: к чему подходит (и сколько ещё), первый номер', () => {
+  it('карточка: номер без «OEM» и коротко, к чему подходит (и сколько ещё)', () => {
     const facts = partCardFacts(rows, [{ kind: 'oem', number: '90915-YZZD1' }]);
-    expect(facts.compatibility).toBe('Подходит: Toyota Succeed NCP165 2015–2018 +1');
-    expect(facts.number).toBe('OEM 90915-YZZD1');
+    expect(facts.compatibility).toBe('Succeed NCP165 2015–2018 +1');
+    expect(facts.number).toBe('90915-YZZD1');
+    // В выборке карточки одна строка совместимости, всего их — из счётчика
+    expect(partCardFacts(rows.slice(0, 1), [], 7).compatibility).toBe(
+      'Succeed NCP165 2015–2018 +6',
+    );
+    // Номер замены в карточку не идёт
+    expect(partCardFacts([], [{ kind: 'replacement', number: '1' }]).number).toBeNull();
     expect(partCardFacts([], [])).toEqual({ compatibility: null, number: null });
   });
 
@@ -435,7 +447,7 @@ describe('Производитель, тип и состояние', () => {
     expect(lookup('part_manufacturer', 'romashka')).toBe(false);
   });
 
-  it('карточка: деталь, производитель и «Б/У оригинал» одной строкой', () => {
+  it('карточка: производитель и «Б/У оригинал»; деталь — в заголовке', () => {
     const values = {
       partGroup: 'steering',
       partItem: 'steering_rack',
@@ -444,9 +456,7 @@ describe('Производитель, тип и состояние', () => {
       partOriginality: 'original',
     };
     const labels = catalogue.labelsFor(attrs, values);
-    expect(describeCardFacts('transport-parts', attrs, values, labels)).toBe(
-      'Рулевая рейка · KYB · Б/У оригинал',
-    );
+    expect(describeCardFacts('transport-parts', attrs, values, labels)).toBe('KYB · Б/У оригинал');
     expect(
       describeCardFacts(
         'transport-parts',
@@ -454,10 +464,8 @@ describe('Производитель, тип и состояние', () => {
         { ...values, partCondition: 'new', partOriginality: 'analog' },
         labels,
       ),
-    ).toBe('Рулевая рейка · KYB · Новый аналог');
+    ).toBe('KYB · Новый аналог');
     const { partCondition: _drop, ...noCondition } = values;
-    expect(describeCardFacts('transport-parts', attrs, noCondition, labels)).toBe(
-      'Рулевая рейка · KYB · Оригинал',
-    );
+    expect(describeCardFacts('transport-parts', attrs, noCondition, labels)).toBe('KYB · Оригинал');
   });
 });

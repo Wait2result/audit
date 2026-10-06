@@ -1193,15 +1193,27 @@ function useMyListingMutation<TVariables, TResult = unknown>(
   });
 }
 
-/** Подача объявления. `draft` сохраняет черновик вместо публикации. */
+/**
+ * Подача объявления. `draft` сохраняет черновик вместо публикации.
+ * `repeatKey` — один на заполнение формы: повторная отправка (не дождались
+ * ответа, нажали ещё раз) вернёт уже созданное объявление, а не второе.
+ */
 export function useCreateListing() {
-  return useMyListingMutation<{ dto: CreateListingDto; draft?: boolean }, MyListingDto>(
-    ({ dto, draft }) =>
-      apiFetch<MyListingDto>(`/my/listings${draft ? '?draft=1' : ''}`, {
-        method: 'POST',
-        body: dto,
-      }),
+  return useMyListingMutation<
+    { dto: CreateListingDto; draft?: boolean; repeatKey?: string },
+    MyListingDto
+  >(({ dto, draft, repeatKey }) =>
+    apiFetch<MyListingDto>(`/my/listings${draft ? '?draft=1' : ''}`, {
+      method: 'POST',
+      body: dto,
+      ...(repeatKey ? { headers: { 'Idempotency-Key': repeatKey } } : {}),
+    }),
   );
+}
+
+/** Новый ключ повтора подачи: латиница и цифры, как ждёт сервер. */
+export function newRepeatKey(): string {
+  return `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function useUpdateMyListing() {

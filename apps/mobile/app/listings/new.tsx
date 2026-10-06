@@ -7,7 +7,9 @@ import {
   describeCardFacts,
   partLabels,
   partsEquipmentBySlug,
+  fieldsForValues,
   isAttributeVisible,
+  partMakerReset,
   ruMobileDigits,
   ruMobileError,
   type CreateListingDto,
@@ -19,7 +21,7 @@ import {
   withAttributeValue,
 } from '@dagestan/shared';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -32,7 +34,13 @@ import {
   View,
 } from 'react-native';
 
-import { useCities, useCreateListing, useListingCategories } from '../../src/api/queries';
+import {
+  newRepeatKey,
+  useCities,
+  useCreateListing,
+  useListingCategories,
+} from '../../src/api/queries';
+import { publishErrorText } from '../../src/utils/publish-error';
 import { Button } from '../../src/components/Button';
 import { CategoryPickerModal } from '../../src/components/CategoryPickerModal';
 import { Icon } from '../../src/components/Icon';
@@ -108,6 +116,12 @@ export default function NewListingScreen() {
   const categories = useListingCategories();
   const cities = useCities();
   const create = useCreateListing();
+  // Один ключ на заполнение формы: повторное нажатие или повтор после «сервер
+  // долго не отвечает» вернёт уже созданное объявление, а не второе
+  const repeatKey = useRef(newRepeatKey());
+  // Ошибка публикации — внутри окна предпросмотра: всплывающее сообщение под
+  // окном не видно, и казалось, что кнопка «ничего не делает»
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<ListingCategoryDto | null>(null);
@@ -192,7 +206,11 @@ export default function NewListingScreen() {
     if (label === dismissedCompat || hasCompatibilityRow(partLayer, row)) return null;
     return { label, row };
   }, [isParts, guess, category?.slug, dismissedCompat, partLayer]);
-  const visibleFields = fields.filter((field) => isAttributeVisible(field, values));
+  // Условия аренды («можно с животными») видны только у «Сдам»
+  const visibleFields = fieldsForValues(
+    fields.filter((field) => isAttributeVisible(field, values, deal)),
+    values,
+  );
   const requiredFields = visibleFields.filter((field) => field.required);
   const optionalFields = visibleFields.filter((field) => !field.required);
 
@@ -253,6 +271,10 @@ export default function NewListingScreen() {
   if (!location) missing.push('место');
   if (ruMobileError(phone)) missing.push('телефон');
   if (description.trim().length < 10) missing.push('описание');
+  // Без города публикация молча не происходила: кнопка не делала ничего
+  if (!cityId) missing.push('город в настройках приложения');
+  // Фото ещё загружается — без него объявление ушло бы без этой фотографии
+  if (uploading) missing.push('дождитесь загрузки фотографий');
   const ready = missing.length === 0;
 
   const openPreview = () => {
@@ -261,6 +283,7 @@ export default function NewListingScreen() {
       toast(`Осталось указать: ${missing.join('; ')}`);
       return;
     }
+    setPublishError(null);
     setPreviewOpen(true);
   };
 
@@ -278,7 +301,7 @@ export default function NewListingScreen() {
       priceUnit,
       isNegotiable: priceless ? false : isNegotiable,
       attributes: values,
-      ...(isParts ? { part: partLayerToInput(partLayer) } : {}),
+      ...(isParts ? { part: partLayerToInput(partLayer, values.partOriginality) } : {}),
       location,
       addressVisibility: visibility,
       contactPhone: `+7${phone}`,
@@ -287,15 +310,17 @@ export default function NewListingScreen() {
       photoIds: photos.map((photo) => photo.id),
     };
 
+    setPublishError(null);
     create.mutate(
-      { dto },
+      { dto, repeatKey: repeatKey.current },
       {
         onSuccess: (listing) => {
+          repeatKey.current = newRepeatKey();
           setPreviewOpen(false);
           toast('Объявление опубликовано');
           router.replace({ pathname: '/listings/[id]', params: { id: listing.id } });
         },
-        onError: (error: Error) => toast(error.message),
+        onError: (error: Error) => setPublishError(publishErrorText(error, category.attributes)),
       },
     );
   };
@@ -330,9 +355,14 @@ export default function NewListingScreen() {
     : price
       ? `${formatMoney(Number(price) * 100)}${priceSuffix}`
       : 'Цена договорная';
-  // Сменилась марка — модель прежней марки не остаётся
-  const setValue = (key: string, value: unknown) =>
-    setValues((current) => withAttributeValue(fields, current, key, value));
+  // Сменилась марка — модель прежней марки не остаётся; сменилась оригинальность —
+  // производитель другого списка сбрасывается, и форма говорит почему
+  const setValue = (key: string, value: unknown) => {
+    const next = withAttributeValue(fields, values, key, value);
+    const reset = partMakerReset(values, next);
+    if (reset) toast(reset);
+    setValues(next);
+  };
 
   return (
     <Screen
@@ -639,6 +669,12 @@ export default function NewListingScreen() {
             </Text>
           </ScrollView>
           <View style={styles.previewActions}>
+            {publishError && (
+              <View style={styles.publishError} accessibilityRole="alert">
+                <Icon name="flag" size={18} color={colors.danger} />
+                <Text style={styles.publishErrorText}>{publishError}</Text>
+              </View>
+            )}
             <Button label="Опубликовать" onPress={publish} loading={create.isPending} fullWidth />
             <Button
               label="Вернуться к правке"
@@ -774,6 +810,15 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     previewTitle: { ...typography.body, color: colors.text },
     previewMeta: { ...typography.caption, color: colors.textMuted },
     previewDescription: { ...typography.caption, color: colors.text, marginTop: spacing.xs },
+    publishError: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: colors.dangerSoft,
+    },
+    publishErrorText: { ...typography.body, color: colors.text, flex: 1 },
     previewActions: {
       gap: spacing.sm,
       paddingHorizontal: spacing.lg,

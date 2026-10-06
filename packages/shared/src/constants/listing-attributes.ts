@@ -78,7 +78,8 @@ export interface AttributeDefinition {
   /**
    * Поле показывается только при определённом значении другого поля:
    * «Face ID работает» — только у Apple. Скрытое поле не обязательно и не
-   * сохраняется.
+   * сохраняется. Ключ `transactionType` — сделка объявления, а не поле:
+   * «Можно с животными» есть только у аренды.
    */
   visibleWhen?: { key: string; values: readonly string[] };
   filter: ListingAttributeFilter;
@@ -165,6 +166,12 @@ function def(input: DefinitionInput): AttributeDefinition {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Каталог определений
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** `visibleWhen.key` для полей, зависящих от сделки объявления, а не от другого поля. */
+const DEAL_KEY = 'transactionType';
+
+/** Поле условий аренды: видно и сохраняется только у объявления «Сдам». */
+const RENT_ONLY = { key: 'transactionType', values: ['rent'] } as const;
 
 const DEFINITIONS: readonly AttributeDefinition[] = [
   // ── Общее ──────────────────────────────────────────────────────────────────
@@ -335,15 +342,21 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     showInCard: true,
     shortLabel: 'комн. в кв.',
   }),
-  // Условия аренды. Поля есть у всей категории, а осмысленны только при
-  // сдаче: форма не обязывает их заполнять, и при продаже их просто не трогают
-  def({ key: 'utilitiesIncluded', label: 'Коммунальные включены', type: 'boolean' }),
-  def({ key: 'petsAllowed', label: 'Можно с животными', type: 'boolean' }),
-  def({ key: 'childrenAllowed', label: 'Можно с детьми', type: 'boolean' }),
+  // Условия аренды: есть у всей категории, а показываются, проверяются и
+  // сохраняются только при сдаче — у продажи «можно с животными» не бывает
+  def({
+    key: 'utilitiesIncluded',
+    label: 'Коммунальные включены',
+    type: 'boolean',
+    visibleWhen: RENT_ONLY,
+  }),
+  def({ key: 'petsAllowed', label: 'Можно с животными', type: 'boolean', visibleWhen: RENT_ONLY }),
+  def({ key: 'childrenAllowed', label: 'Можно с детьми', type: 'boolean', visibleWhen: RENT_ONLY }),
+  // В доме и на улице сразу — обычное дело для частного дома: выбор не один
   def({
     key: 'bathroomLocation',
     label: 'Санузел',
-    type: 'enum',
+    type: 'multiEnum',
     options: [
       { value: 'inside', label: 'В доме' },
       { value: 'outside', label: 'На улице' },
@@ -760,7 +773,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
   }),
   def({
     key: 'partOriginality',
-    label: 'Тип детали',
+    label: 'Оригинальность',
     type: 'enum',
     options: [
       {
@@ -840,14 +853,14 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
   }),
   def({
     key: 'compatChassis',
-    label: 'Кузов',
+    label: 'Номер кузова',
     type: 'string',
     searchable: false,
     showInDetails: false,
   }),
   def({
     key: 'compatEngine',
-    label: 'Двигатель',
+    label: 'Номер двигателя',
     type: 'string',
     searchable: false,
     showInDetails: false,
@@ -861,7 +874,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
   }),
   def({
     key: 'partNumber',
-    label: 'OEM / артикул',
+    label: 'Номер запчасти / артикул',
     type: 'string',
     searchable: false,
     showInDetails: false,
@@ -2220,9 +2233,19 @@ export function mergeAttributeLists(
 export function isAttributeVisible(
   attribute: AttributeDefinition,
   values: Readonly<Record<string, unknown>>,
+  /**
+   * Сделка объявления — для полей, зависящих от неё (`visibleWhen.key ===
+   * 'transactionType'`). Не передана (фильтры без выбранной сделки) — такое
+   * поле видно: «можно с животными» ищут и без выбора «Снять»
+   */
+  deal?: { transactionType?: string | null },
 ): boolean {
   if (!attribute.visibleWhen) return true;
   const allowed = attribute.visibleWhen.values;
+  if (attribute.visibleWhen.key === DEAL_KEY) {
+    if (!deal) return true;
+    return deal.transactionType ? allowed.includes(deal.transactionType) : false;
+  }
   const parent = values[attribute.visibleWhen.key];
   const matches = (item: unknown): boolean =>
     (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') &&

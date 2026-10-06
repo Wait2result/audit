@@ -516,16 +516,18 @@ function schemaForAttribute(attribute: ListingAttribute): z.ZodType<unknown> {
 export function attributesSchemaFor(
   attributes: readonly ListingAttribute[],
   lookup?: DictionaryLookup,
+  /** Сделка объявления: условия аренды у продажи не сохраняются */
+  deal?: { transactionType?: string | null },
 ) {
   return z.record(z.string(), z.unknown()).transform((raw, ctx) => {
     const result: Record<string, AttributeValue> = {};
 
     for (const attribute of attributes) {
-      // Скрытое поле («Face ID» не у Apple) не проверяется и не сохраняется:
-      // форма его не показывала, значение — след прежнего выбора
-      // Совместимость и номер запчасти хранятся отдельным слоем, не атрибутами
+      // Скрытое поле («Face ID» не у Apple, «можно с животными» у продажи) не
+      // проверяется и не сохраняется: форма его не показывала, значение — след
+      // прежнего выбора. Совместимость и номер запчасти — отдельный слой
       if (FILTER_ONLY_ATTRIBUTES.has(attribute.key)) continue;
-      if (!isAttributeVisible(attribute, raw)) continue;
+      if (!isAttributeVisible(attribute, raw, deal)) continue;
 
       const value = raw[attribute.key];
 

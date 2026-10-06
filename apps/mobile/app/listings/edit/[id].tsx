@@ -2,7 +2,9 @@ import {
   storedToInput,
   DAGESTAN_DEFAULT_CENTER,
   LISTING_PRICE_UNIT_SUFFIX,
+  fieldsForValues,
   isAttributeVisible,
+  partMakerReset,
   ruMobileDigits,
   ruMobileError,
   type ListingAddressVisibility,
@@ -60,6 +62,7 @@ import { Screen } from '../../../src/components/Screen';
 import { TextField } from '../../../src/components/TextField';
 import { usePhotoEditor } from '../../../src/hooks/use-photo-editor';
 import { useToastStore } from '../../../src/store/toast-store';
+import { publishErrorText } from '../../../src/utils/publish-error';
 import { spacing, typography, useThemeColors } from '../../../src/theme';
 import {
   attributesOfCategory,
@@ -186,7 +189,9 @@ export default function EditListingScreen() {
       priceUnit,
       isNegotiable: priceless ? false : isNegotiable,
       attributes: values,
-      ...(isPartsLeaf(listing.categorySlug) ? { part: partLayerToInput(partLayer) } : {}),
+      ...(isPartsLeaf(listing.categorySlug)
+        ? { part: partLayerToInput(partLayer, values.partOriginality) }
+        : {}),
       // Место не стирается: без новой точки остаётся прежнее
       ...(location ? { location } : {}),
       addressVisibility: visibility,
@@ -206,11 +211,11 @@ export default function EditListingScreen() {
                 if (router.canGoBack()) router.back();
                 else router.replace('/my-listings');
               },
-              onError: (error: Error) => toast(error.message),
+              onError: (error: Error) => toast(publishErrorText(error, category?.attributes)),
             },
           );
         },
-        onError: (error: Error) => toast(error.message),
+        onError: (error: Error) => toast(publishErrorText(error, category?.attributes)),
       },
     );
   };
@@ -281,19 +286,23 @@ export default function EditListingScreen() {
           <DealPicker category={category} value={deal} onChange={setDeal} />
         )}
 
-        {fields
-          .filter((field) => isAttributeVisible(field, values))
-          .map((field) => (
-            <AttributeField
-              key={field.key}
-              field={field}
-              value={values[field.key]}
-              values={values}
-              onChange={(value) =>
-                setValues((current) => withAttributeValue(fields, current, field.key, value))
-              }
-            />
-          ))}
+        {fieldsForValues(
+          fields.filter((field) => isAttributeVisible(field, values, deal)),
+          values,
+        ).map((field) => (
+          <AttributeField
+            key={field.key}
+            field={field}
+            value={values[field.key]}
+            values={values}
+            onChange={(value) => {
+              const next = withAttributeValue(fields, values, field.key, value);
+              const reset = partMakerReset(values, next);
+              if (reset) toast(reset);
+              setValues(next);
+            }}
+          />
+        ))}
 
         {listing && isPartsLeaf(listing.categorySlug) && (
           <PartLayerEditor

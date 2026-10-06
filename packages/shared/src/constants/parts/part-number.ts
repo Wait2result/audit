@@ -5,16 +5,49 @@
  * кириллических двойников (русская «С» в «ТОYOTA» — частая опечатка).
  */
 
-/** Виды номера: оригинальный, каталожный, производителя детали, артикул продавца. */
-export const PART_NUMBER_KINDS = ['oem', 'catalog', 'manufacturer', 'article'] as const;
+/**
+ * Виды номера в базе: оригинальный (OEM), каталожный, производителя детали,
+ * артикул продавца и номер замены. Человеку различать первые четыре не нужно:
+ * для него это один «Номер запчасти / артикул» — то, что написано на детали,
+ * упаковке или в каталоге. Отдельно он видит только «Номера замен» — другие
+ * номера той же детали, которые указал сам продавец (связи между номерами
+ * поиск не придумывает).
+ */
+export const PART_NUMBER_KINDS = [
+  'oem',
+  'catalog',
+  'manufacturer',
+  'article',
+  'replacement',
+] as const;
 export type PartNumberKind = (typeof PART_NUMBER_KINDS)[number];
 
+/** Технические подписи видов — для панели и журналов, не для экранов приложения. */
 export const PART_NUMBER_KIND_LABELS: Readonly<Record<PartNumberKind, string>> = {
-  oem: 'OEM',
+  oem: 'Оригинальный номер (OEM)',
   catalog: 'Каталожный номер',
-  manufacturer: 'Номер производителя',
+  manufacturer: 'Номер производителя детали',
   article: 'Артикул',
+  replacement: 'Номер замены',
 };
+
+/** Основной термин для человека: один на все виды, кроме замены. */
+export const PART_NUMBER_LABEL = 'Номер запчасти / артикул';
+export const PART_NUMBER_HINT = 'Указывается на детали, упаковке или в каталоге производителя';
+export const PART_REPLACEMENTS_LABEL = 'Номера замен';
+export const PART_REPLACEMENTS_HINT = 'Другие номера, которыми обозначается эта же запчасть';
+
+/** Подпись номера на экране: «Номер замены» или общий «Номер запчасти / артикул». */
+export function partNumberLabel(kind: string): string {
+  return kind === 'replacement' ? 'Номер замены' : PART_NUMBER_LABEL;
+}
+
+/** Вид основного номера по оригинальности детали: у оригинала — OEM, у аналога — производителя. */
+export function mainPartNumberKind(originality: unknown): PartNumberKind {
+  if (originality === 'original') return 'oem';
+  if (originality === 'analog') return 'manufacturer';
+  return 'article';
+}
 
 /** Кириллические буквы, неотличимые на глаз от латинских. */
 const LOOKALIKES: Readonly<Record<string, string>> = {

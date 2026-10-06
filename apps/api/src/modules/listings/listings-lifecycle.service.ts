@@ -163,6 +163,9 @@ export class ListingsLifecycleService {
     const price = dto.price ?? null;
     const now = new Date();
 
+    // Фото проверяются до записи: объявление публикуется целиком или никак
+    await this.media.assertAttachable(dto.photoIds ?? [], userId);
+
     const listing = await this.prisma.$transaction(async (tx) => {
       const created = await tx.listing.create({
         data: {
@@ -717,7 +720,8 @@ export class ListingsLifecycleService {
       ? attributes
       : attributes.map((attribute) => ({ ...attribute, required: false }));
 
-    const parsed = attributesSchemaFor(schemaAttributes, catalogue.lookup).parse(raw);
+    // Условия аренды («можно с животными») у продажи не сохраняются
+    const parsed = attributesSchemaFor(schemaAttributes, catalogue.lookup, deal).parse(raw);
     return prepareAttributes(attributes, parsed, catalogue.labelsFor(attributes, parsed), [
       // Раздел, основной тип и направление — словами: «Транспорт Автомобили Запчасти»
       ...catalogue.pathOf(category).map((item) => item.name),
@@ -845,9 +849,9 @@ export class ListingsLifecycleService {
     }
 
     this.resolveDeal(category, catalogue, listing, true);
-    attributesSchemaFor(catalogue.attributesOf(category.id), catalogue.lookup).parse(
-      this.listings.allAttributes(listing),
-    );
+    attributesSchemaFor(catalogue.attributesOf(category.id), catalogue.lookup, {
+      transactionType: listing.transactionType,
+    }).parse(this.listings.allAttributes(listing));
   }
 
   /**
@@ -1002,8 +1006,8 @@ const MY_LISTING_SELECT = {
   district: { select: { name: true } },
   city: { select: { name: true, latitude: true, longitude: true } },
   seller: { select: { isVerified: true, ratingAverage: true, ratingCount: true } },
-  _count: { select: { favorites: true } },
   ...PART_LAYER_SELECT,
+  _count: { select: { favorites: true, compatibility: true } },
 } satisfies Prisma.ListingSelect;
 
 /**
