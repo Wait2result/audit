@@ -69,6 +69,8 @@ export function partsBindings(equipment: PartsEquipment): CategoryAttributeBindi
     { key: 'partManufacturer', dictionary: PART_MANUFACTURER_KIND },
     { key: 'partOriginality' },
     { key: 'partCondition' },
+    // Снята с автомобиля — только у транспорта: у телефона и стиралки донора не пишут
+    ...(equipment.section === 'transport' ? [{ key: 'donorVehicle' }] : []),
     { key: 'partSaleUnit' },
     { key: 'partAvailability' },
     { key: 'quantity' },

@@ -398,6 +398,7 @@ const APPLIANCE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'brand', dictionary: DictionaryKind.APPLIANCE_BRAND },
   'modelName',
   { key: 'condition', required: true },
+  'dimensions',
   'warranty',
 ];
 
@@ -438,6 +439,7 @@ const KIDS_GOODS_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'kidsGoodsType', required: true },
   'kidsAge',
   { key: 'condition', required: true },
+  'dimensions',
   'brandName',
 ];
 
@@ -458,6 +460,7 @@ const JEWELRY_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
 const FURNITURE_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'furnitureType', required: true },
   { key: 'condition', required: true },
+  'dimensions',
   'color',
 ];
 
@@ -490,6 +493,7 @@ const DOORS_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [
   { key: 'doorsType', required: true },
   'material',
   { key: 'condition', required: true },
+  'dimensions',
 ];
 
 const SPORT_ATTRIBUTES: readonly (string | CategoryAttributeBinding)[] = [

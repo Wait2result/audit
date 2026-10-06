@@ -122,9 +122,16 @@ export function ListingCard({
           {titleFirst ? priceText : titleText}
 
           {facts.length > 0 && (
-            <Text style={styles.facts} numberOfLines={isList ? 1 : 2}>
-              {facts.join(' · ')}
-            </Text>
+            // Каждое значение — целиком: перенос между значениями, а не посреди
+            // «45510-52230» или «Succeed NCP160/NCP165»
+            <View style={styles.factsRow}>
+              {facts.map((fact, index) => (
+                <Text key={`${index}-${fact}`} style={styles.facts} numberOfLines={3}>
+                  {fact}
+                  {index < facts.length - 1 ? ' · ' : ''}
+                </Text>
+              ))}
+            </View>
           )}
 
           <View style={styles.meta}>
@@ -241,7 +248,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, placeholderBg: 
     // Высота по тексту: пустой зазор под однострочным названием выглядел дырой
     title: { ...typography.body, color: colors.text, fontSize: 14, lineHeight: 18 },
     titleFirst: { ...typography.subheading, color: colors.text, fontSize: 16, lineHeight: 20 },
-    facts: { ...typography.caption, color: colors.textMuted, lineHeight: 16 },
+    factsRow: { flexDirection: 'row', flexWrap: 'wrap' },
+    facts: { ...typography.caption, color: colors.textMuted, lineHeight: 16, maxWidth: '100%' },
 
     // Вторичное: место и «когда», мельче и бледнее цены с названием
     meta: { marginTop: spacing.xs, gap: 1 },

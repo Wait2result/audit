@@ -239,12 +239,12 @@ describe('Ответ и карточка', () => {
 
   it('карточка: номер без «OEM» и коротко, к чему подходит (и сколько ещё)', () => {
     const facts = partCardFacts(rows, [{ kind: 'oem', number: '90915-YZZD1' }]);
-    expect(facts.compatibility).toBe('Succeed NCP165 2015–2018 +1');
+    // Две модели — обе, коротко; одна строка — с годами
+    expect(facts.compatibility).toBe('Succeed NCP165, Probox');
+    expect(partCardFacts(rows.slice(0, 1), []).compatibility).toBe('Succeed NCP165 2015–2018');
     expect(facts.number).toBe('90915-YZZD1');
     // В выборке карточки одна строка совместимости, всего их — из счётчика
-    expect(partCardFacts(rows.slice(0, 1), [], 7).compatibility).toBe(
-      'Succeed NCP165 2015–2018 +6',
-    );
+    expect(partCardFacts(rows.slice(0, 1), [], 7).compatibility).toBe('Succeed NCP165 +6');
     // Номер замены в карточку не идёт
     expect(partCardFacts([], [{ kind: 'replacement', number: '1' }]).number).toBeNull();
     expect(partCardFacts([], [])).toEqual({ compatibility: null, number: null });

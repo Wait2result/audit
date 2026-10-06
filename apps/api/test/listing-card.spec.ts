@@ -218,9 +218,10 @@ describe('describeCardFacts: приоритеты категорий', () => {
     values: Record<string, unknown>,
     labels: Record<string, string> = {},
     limit = 4,
-  ) => describeCardFacts(slug, attrs(slug), values, labels, limit);
+    title = '',
+  ) => describeCardFacts(slug, attrs(slug), values, labels, limit, title);
 
-  it('квартира: площадь, комнаты, этаж — без отопления, ремонта и материала стен', () => {
+  it('квартира: комнаты, площадь, этаж — без отопления, ремонта и материала стен', () => {
     const text = facts('realty-flats', {
       areaTotal: 600,
       rooms: 2,
@@ -231,10 +232,10 @@ describe('describeCardFacts: приоритеты категорий', () => {
       balcony: true,
       lift: true,
     });
-    expect(text).toBe('60 м² · 2 комн. · 8/12 эт.');
+    expect(text).toBe('2 комн. · 60 м² · 8/12 эт.');
   });
 
-  it('автомобиль: марка с моделью одним словом, год, пробег — без VIN', () => {
+  it('автомобиль: год, пробег — марка и модель в заголовке, без VIN и цвета', () => {
     const text = facts(
       'transport-cars',
       {
@@ -246,19 +247,33 @@ describe('describeCardFacts: приоритеты категорий', () => {
         color: 'white',
       },
       { toyota: 'Toyota', camry: 'Camry' },
+      4,
+      'Toyota Camry 2019',
     );
     // «80 000» с неразрывным пробелом: число не должно переноситься
-    expect(text?.split(String.fromCharCode(160)).join(' ')).toBe('Toyota Camry · 2019 · 80 000 км');
+    expect(text?.split(String.fromCharCode(160)).join(' ')).toBe('2019 · 80 000 км');
     expect(text).not.toContain('XTA');
   });
 
-  it('телефон: модель, память, состояние', () => {
+  it('телефон: память и состояние — модель в заголовке', () => {
     const text = facts(
       'electronics-phones',
       { brand: 'apple', model: 'iphone_15', memory: '256', condition: 'used' },
       { apple: 'Apple', iphone_15: 'iPhone 15' },
+      4,
+      'iPhone 15',
     );
-    expect(text?.startsWith('Apple iPhone 15 · ')).toBe(true);
+    expect(text).toBe('256 ГБ · Б/у');
+    // Без модели в заголовке — марка и модель нужны
+    expect(
+      facts(
+        'electronics-phones',
+        { brand: 'apple', model: 'iphone_15', memory: '256' },
+        { apple: 'Apple', iphone_15: 'iPhone 15' },
+        4,
+        'Телефон в хорошем состоянии',
+      ),
+    ).toBe('Apple iPhone 15 · 256 ГБ');
   });
 
   it('число характеристик ограничено: три на главной, четыре в поиске', () => {
@@ -362,7 +377,9 @@ describe('фильтры: приоритеты категории поднима
   });
 
   it('ключи составных характеристик раскрываются по одному', () => {
-    expect(cardFactKeys('transport-cars')).toEqual(expect.arrayContaining(['brand', 'model']));
+    expect(cardFactKeys('electronics-laptops')).toEqual(
+      expect.arrayContaining(['storageSize', 'storage']),
+    );
     expect(cardFactKeys('no-such-category')).toEqual([]);
   });
 });

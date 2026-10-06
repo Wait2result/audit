@@ -298,6 +298,18 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     ],
   }),
   def({ key: 'balcony', label: 'Балкон или лоджия', type: 'boolean' }),
+  /**
+   * Габариты вещи — по ним выбирают мебель, технику для ниши, двери: «250 × 160»
+   * или «200 × 240 × 60», в сантиметрах. Текстом: у дивана два размера, у
+   * шкафа три, и отдельные поля под каждое заставили бы заполнять лишнее
+   */
+  def({
+    key: 'dimensions',
+    label: 'Размеры, см',
+    type: 'string',
+    searchable: false,
+    filterable: false,
+  }),
   def({ key: 'lift', label: 'Лифт', type: 'boolean' }),
   def({ key: 'furniture', label: 'С мебелью', type: 'boolean' }),
   def({ key: 'parking', label: 'Парковка', type: 'boolean' }),
@@ -517,9 +529,10 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     label: 'Привод',
     type: 'enum',
     options: [
-      { value: 'front', label: 'Передний' },
-      { value: 'rear', label: 'Задний' },
-      { value: 'full', label: 'Полный' },
+      // В карточке — со словом «привод»: «Полный» без него непонятно, о чём
+      { value: 'front', label: 'Передний', cardLabel: 'Передний привод' },
+      { value: 'rear', label: 'Задний', cardLabel: 'Задний привод' },
+      { value: 'full', label: 'Полный', cardLabel: 'Полный привод' },
     ],
   }),
   def({
@@ -798,6 +811,20 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
       { value: 'in_stock', label: 'В наличии' },
       { value: 'on_order', label: 'Под заказ' },
     ],
+  }),
+  /**
+   * Автомобиль, с которого снята б/у деталь. Это НЕ применяемость: «снята с
+   * Succeed NCP165» не значит «подходит только к Succeed NCP165» — к чему
+   * подходит, говорит слой «Подходит к». В поиск по словам не идёт, чтобы
+   * донор не выдавался за совместимость
+   */
+  def({
+    key: 'donorVehicle',
+    label: 'Снята с автомобиля',
+    type: 'string',
+    searchable: false,
+    filterable: false,
+    visibleWhen: { key: 'partCondition', values: ['used', 'restored'] },
   }),
   def({
     key: 'partSaleUnit',
@@ -2267,6 +2294,9 @@ export function jsonAttributes(attributes: readonly ListingAttribute[]): Listing
 //  Подписи
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Единицы, которые пишутся слитно с числом: «15,6″», «92%», «7J». */
+const TIGHT_UNITS: ReadonlySet<string> = new Set(['″', '%', 'J']);
+
 /**
  * Человеческое название значения: «auto» → «Автомат», 68000 → «68 000 км».
  * Для полей со справочником (марка, модель) подпись знает только сервер —
@@ -2298,14 +2328,20 @@ export function attributeValueLabel(
 
   if (attribute.type === 'number' && typeof value === 'number') {
     const real = attribute.scale ? value / attribute.scale : value;
+    // Дюймы, проценты и «J» пишутся слитно: «15,6″», «92%», а не «15,6 ″»
+    const unit = attribute.unit
+      ? TIGHT_UNITS.has(attribute.unit)
+        ? attribute.unit
+        : ` ${attribute.unit}`
+      : '';
     if (!Number.isInteger(real)) {
       const formatted = real.toFixed(1).replace('.', ',');
-      return attribute.unit ? `${formatted} ${attribute.unit}` : formatted;
+      return `${formatted}${unit}`;
     }
     // Разделитель тысяч — только у величин с единицей измерения: «68 000 км»
     // читается, а год «2 021» выглядит опечаткой
     const formatted = attribute.unit ? real.toLocaleString('ru-RU') : String(real);
-    return attribute.unit ? `${formatted} ${attribute.unit}` : formatted;
+    return `${formatted}${unit}`;
   }
 
   return text;

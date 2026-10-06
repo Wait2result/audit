@@ -30,6 +30,9 @@ import type { DictionaryRecord, ListingCatalogue } from './listing-categories.se
  * номер. У объявлений, которые не запчасти, связей нет — выборка пустая и
  * ничего не стоит.
  */
+/** Сколько строк «Подходит к» читает карточка: остальное — числом «+N». */
+const CARD_COMPAT_ROWS = 8;
+
 export const PART_LAYER_SELECT = {
   compatibility: {
     select: {
@@ -44,9 +47,10 @@ export const PART_LAYER_SELECT = {
       modification: true,
     },
     orderBy: { sortOrder: 'asc' },
-    // Карточке нужна одна строка; сколько их всего — счётчик _count.compatibility
+    // Карточке хватает первых строк — их собирают по моделям («Succeed
+    // NCP160/NCP165, Probox»); сколько их всего — счётчик _count.compatibility
     // (его добавляет каждая выборка сама: у неё бывают и свои счётчики)
-    take: 1,
+    take: CARD_COMPAT_ROWS,
   },
   partNumbers: {
     // В карточке — основной номер, а не номер замены
@@ -275,43 +279,87 @@ export function compatibilityText(row: StoredCompatibility): string {
   return [row.brandLabel, row.modelLabel, row.chassis, years].filter(Boolean).join(' ');
 }
 
-/** Предел длины совместимости в карточке: дальше — на странице объявления. */
-const CARD_COMPAT_MAX = 32;
+/** Предел длины применяемости в карточке: дальше — на странице объявления. */
+const CARD_COMPAT_MAX = 36;
 
-/**
- * Совместимость для карточки — коротко: «Succeed NCP165 2015–2020». Марка
- * не пишется, если есть модель (её и так узнают по модели); слишком длинное
- * обрезается — полный список на странице объявления.
- */
+/** «2015–2020», «2015» или ничего. */
+function yearsOf(row: StoredCompatibility): string | null {
+  if (row.yearFrom && row.yearTo && row.yearFrom !== row.yearTo)
+    return `${row.yearFrom}–${row.yearTo}`;
+  const year = row.yearFrom ?? row.yearTo;
+  return year ? String(year) : null;
+}
+
+/** Одна строка «Подходит к» коротко: «Succeed NCP165 2015–2020». Марка — только без модели. */
 export function compactCompatibility(row: StoredCompatibility): string {
-  const years =
-    row.yearFrom && row.yearTo && row.yearFrom !== row.yearTo
-      ? `${row.yearFrom}–${row.yearTo}`
-      : (row.yearFrom ?? row.yearTo)
-        ? String(row.yearFrom ?? row.yearTo)
-        : null;
-  const text = [row.modelLabel ?? row.brandLabel, row.chassis, years].filter(Boolean).join(' ');
+  const text = [row.modelLabel ?? row.brandLabel, row.chassis, yearsOf(row)]
+    .filter(Boolean)
+    .join(' ');
   return text.length > CARD_COMPAT_MAX ? `${text.slice(0, CARD_COMPAT_MAX - 1).trimEnd()}…` : text;
 }
 
 /**
- * Часть строки под заголовком карточки запчасти: основной номер («333388»,
- * без «OEM» — номер узнают и так) и коротко, к чему подходит («Succeed
- * NCP165 2015–2020 +2»). Производитель, оригинальность и состояние идут
- * перед ними из характеристик. Подробности — на странице объявления.
+ * Применяемость для карточки — коротко и без выдумки: строки одной модели
+ * собираются вместе («Succeed NCP160/NCP165»), показываются одна-две модели,
+ * остальное — реальным числом скрытых строк («+3»). Одна строка — с годами.
+ * Строк нет — пусто: применяемость не угадывается ни по заголовку, ни по
+ * автомобилю-донору.
+ */
+export function compactApplicability(
+  rows: readonly StoredCompatibility[],
+  total: number = rows.length,
+): string | null {
+  if (rows.length === 0) return null;
+  if (rows.length === 1 && total <= 1) return compactCompatibility(rows[0]!);
+
+  const groups: { name: string; chassis: string[]; rows: number }[] = [];
+  for (const row of rows) {
+    const name = row.modelLabel ?? row.brandLabel ?? row.chassis ?? '';
+    if (!name) continue;
+    let group = groups.find((item) => item.name === name);
+    if (!group) {
+      group = { name, chassis: [], rows: 0 };
+      groups.push(group);
+    }
+    group.rows += 1;
+    if (row.chassis && row.chassis !== name && !group.chassis.includes(row.chassis))
+      group.chassis.push(row.chassis);
+  }
+  if (groups.length === 0) return null;
+
+  const label = (group: (typeof groups)[number]) =>
+    group.chassis.length > 0 ? `${group.name} ${group.chassis.join('/')}` : group.name;
+  // Первая модель — с кузовами, вторая — одним названием («Probox»): карточка
+  // узкая, подробности — на странице объявления
+  const first = label(groups[0]!);
+  const second = groups[1];
+  const withSecond = second ? `${first}, ${second.name}` : first;
+  const shown =
+    second && withSecond.length <= CARD_COMPAT_MAX ? [groups[0]!, second] : [groups[0]!];
+  const covered = shown.reduce((sum, group) => sum + group.rows, 0);
+  const hidden = Math.max(0, total - covered);
+  const text = shown.length > 1 ? withSecond : first;
+  const short =
+    text.length > CARD_COMPAT_MAX ? `${text.slice(0, CARD_COMPAT_MAX - 1).trimEnd()}…` : text;
+  return hidden > 0 ? `${short} +${hidden}` : short;
+}
+
+/**
+ * Часть строки под заголовком карточки запчасти: основной номер («45510-52230»,
+ * без «OEM» — номер узнают и так) и применяемость («Succeed NCP160/NCP165,
+ * Probox +3»). Производитель, оригинальность и состояние идут
+ * перед ними из характеристик, автомобиль-донор — после и отдельно.
  */
 export function partCardFacts(
   compatibility: readonly StoredCompatibility[],
   numbers: readonly StoredPartNumber[],
-  /** Сколько всего строк совместимости: в выборке карточки — только первая */
+  /** Сколько всего строк совместимости: в выборке карточки — только первые */
   compatibilityTotal: number = compatibility.length,
 ): { compatibility: string | null; number: string | null } {
-  const first = compatibility[0];
-  const rest = compatibilityTotal > 1 ? ` +${compatibilityTotal - 1}` : '';
-  const text = first ? compactCompatibility(first) : '';
+  const applicability = compactApplicability(compatibility, compatibilityTotal);
   const number = numbers.find((item) => item.kind !== 'replacement') ?? null;
   return {
-    compatibility: text ? `${text}${rest}` : null,
+    compatibility: applicability,
     number: number ? number.number : null,
   };
 }

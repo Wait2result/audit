@@ -10,6 +10,7 @@ import {
   describeAttributes,
   describeCardFacts,
   distanceKm,
+  donorFact,
   isPromoted,
   rentPeriodUnit,
   transactionCardLabel,
@@ -826,6 +827,8 @@ export class ListingsService {
       compatibility?: readonly StoredCompatibility[];
       partNumbers?: readonly StoredPartNumber[];
       _count?: { compatibility?: number };
+      /** Заголовок: марка и модель из него в строке не повторяются */
+      title?: string;
     },
     catalogue: ListingCatalogue,
   ): string {
@@ -836,7 +839,8 @@ export class ListingsService {
     // Приоритеты категории (CARD_FACTS): самое нужное для сравнения, а не все
     // заполненные поля. Нет приоритетов — прежний набор по флагу «в карточке»
     const summary =
-      (category && describeCardFacts(category.slug, attributes, values, labels)) ??
+      (category &&
+        describeCardFacts(category.slug, attributes, values, labels, undefined, row.title)) ??
       describeAttributes(attributes, values, labels);
     // Подпись сделки — только там, где сделок несколько: «Продам диван»
     // в категории, где иначе и не бывает, — шум
@@ -852,7 +856,12 @@ export class ListingsService {
         ? partCardFacts(row.compatibility ?? [], row.partNumbers ?? [], row._count?.compatibility)
         : null;
 
-    return [transaction, summary, layer?.number, layer?.compatibility].filter(Boolean).join(' · ');
+    // Автомобиль-донор б/у детали — последним и отдельно: «Снята с» не значит «подходит к»
+    const donor = layer ? donorFact(values) : null;
+
+    return [transaction, summary, layer?.number, layer?.compatibility, donor]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   toDto(
