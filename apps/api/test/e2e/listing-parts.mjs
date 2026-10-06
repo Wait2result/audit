@@ -386,8 +386,8 @@ check(
   'состояние: Новая / Б/У / Восстановленная',
 );
 check(
-  fieldOf(carLeaf, 'partOriginality')?.label === 'Тип детали',
-  'поле «Тип детали»: Оригинал / Аналог',
+  fieldOf(carLeaf, 'partOriginality')?.label === 'Оригинальность',
+  'поле «Оригинальность»: Оригинал / Аналог',
 );
 check(Boolean(fieldOf(carLeaf, 'compatModification')), 'фильтр «Модификация» у автозапчастей');
 check(

@@ -7,6 +7,7 @@ import {
   describeCardFacts,
   partLabels,
   partsEquipmentBySlug,
+  carryAttributes,
   fieldsForValues,
   isAttributeVisible,
   partMakerReset,
@@ -222,16 +223,29 @@ export default function NewListingScreen() {
   /** Выбрать категорию: сделка по умолчанию, значения — только подходящие ей. */
   const applyCategory = (next: ListingCategoryDto, fromGuess: ListingTitleGuess | null) => {
     const keys = new Set(formFields(next.attributes).map((field) => field.key));
-    setCategory(next);
+    // Введённое не стирается целиком: остаётся всё, что подходит новой категории,
+    // а что не подходит — сбрасывается, и форма говорит, что именно (аудит, п. 39)
+    const carried = carryAttributes(
+      formFields(category?.attributes),
+      formFields(next.attributes),
+      values,
+    );
+    const lost = [...carried.dropped];
     // Номера и совместимость относятся к одному типу техники: у другого раздела начинаем заново
-    if (next.slug !== category?.slug) setPartLayer(emptyPartLayer());
-    setValues((current) => {
-      const kept = Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
-      const prefill = Object.fromEntries(
-        Object.entries(fromGuess?.attributes ?? {}).filter(([key]) => keys.has(key)),
-      );
-      return { ...kept, ...prefill };
-    });
+    if (next.slug !== category?.slug) {
+      const layer = partLayerToInput(partLayer);
+      if (layer.numbers.length > 0 || layer.compatibility.length > 0)
+        lost.push('номера и совместимость запчасти');
+      setPartLayer(emptyPartLayer());
+    }
+    setCategory(next);
+    const prefill = Object.fromEntries(
+      Object.entries(fromGuess?.attributes ?? {}).filter(([key]) => keys.has(key)),
+    );
+    setValues({ ...carried.kept, ...prefill });
+    if (category && lost.length > 0) {
+      toast(`Не подходят новой категории и сброшены: ${lost.join(', ').toLowerCase()}`);
+    }
     // Из заголовка заполнено необязательное поле (модель) — показываем его,
     // а не прячем подставленное под «Ещё характеристики»
     const optionalPrefill = formFields(next.attributes).some(

@@ -78,6 +78,16 @@ export function CategoryPickerModal({
             <Icon name="close" size={22} color={colors.text} />
           </Pressable>
         </View>
+        {/* Где человек сейчас: «Транспорт → Автомобили». Повтор имени не пишется */}
+        {path.length > 1 && (
+          <Text
+            style={styles.crumbs}
+            numberOfLines={2}
+            accessibilityLabel={`Путь: ${crumbs(path)}`}
+          >
+            {crumbs(path)}
+          </Text>
+        )}
 
         <ScrollView contentContainerStyle={styles.list}>
           {section === null
@@ -109,6 +119,12 @@ export function CategoryPickerModal({
       </View>
     </Modal>
   );
+}
+
+function crumbs(path: readonly ListingCategoryDto[]): string {
+  const names: string[] = [];
+  for (const node of path) if (names.at(-1) !== node.name) names.push(node.name);
+  return names.join(' → ');
 }
 
 function Row({
@@ -146,6 +162,12 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       marginBottom: spacing.md,
     },
     title: { ...typography.heading, color: colors.text, flex: 1 },
+    crumbs: {
+      ...typography.caption,
+      color: colors.textMuted,
+      paddingHorizontal: spacing.lg,
+      marginTop: spacing.xs,
+    },
     list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.sm },
     row: {
       flexDirection: 'row',

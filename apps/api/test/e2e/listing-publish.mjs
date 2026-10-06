@@ -297,11 +297,13 @@ check(wrongUnit.status === 400, 'посуточно с ценой за меся�
 // ── 6. Санузел ───────────────────────────────────────────────────────────
 console.log('\n6. Санузел дома');
 const houses = {};
-for (const [name, value] of [
-  ['в доме', ['inside']],
-  ['на улице', ['outside']],
-  ['в доме и на улице', ['inside', 'outside']],
-]) {
+/** @type {{ name: string; value: string[] }[]} */
+const BATHROOMS = [
+  { name: 'в доме', value: ['inside'] },
+  { name: 'на улице', value: ['outside'] },
+  { name: 'в доме и на улице', value: ['inside', 'outside'] },
+];
+for (const { name, value } of BATHROOMS) {
   const house = await post('realty-houses', {
     title: `Дом санузел ${name}`,
     deal: { transactionType: 'sale', priceUnit: 'total' },

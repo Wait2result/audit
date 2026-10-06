@@ -80,3 +80,38 @@ export function partMakerReset(
     ? 'Производитель сброшен: у оригинальной детали это производитель техники (Toyota, Samsung…)'
     : 'Производитель сброшен: у аналога это производитель запчастей (KYB, Denso, Bosch…)';
 }
+
+/**
+ * Что из введённого переносится в другую категорию (аудит, п. 39). Поле
+ * остаётся, если оно есть и в новой категории и значение ему подходит:
+ * вариант есть среди вариантов, справочник тот же («Марка» машины и «Бренд»
+ * телефона — разные справочники, Toyota телефону не подходит). Остальное
+ * сбрасывается, а его подписи возвращаются — форма говорит, что именно ушло.
+ */
+export function carryAttributes(
+  previous: readonly ListingAttribute[],
+  next: readonly ListingAttribute[],
+  values: Readonly<Record<string, unknown>>,
+): { kept: Record<string, unknown>; dropped: string[] } {
+  const kept: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined || value === null || value === '') continue;
+    const before = previous.find((field) => field.key === key);
+    const after = next.find((field) => field.key === key);
+    const fits =
+      after !== undefined &&
+      (before?.dictionary ?? null) === (after.dictionary ?? null) &&
+      fitsOptions(after, value);
+    if (fits) kept[key] = value;
+    else dropped.push(before?.label ?? after?.label ?? key);
+  }
+  return { kept, dropped };
+}
+
+function fitsOptions(field: ListingAttribute, value: unknown): boolean {
+  if (!field.options || field.options.length === 0 || field.dictionary) return true;
+  const allowed = new Set(field.options.map((option) => option.value));
+  const items = Array.isArray(value) ? value : [value];
+  return items.every((item) => allowed.has(String(item)));
+}

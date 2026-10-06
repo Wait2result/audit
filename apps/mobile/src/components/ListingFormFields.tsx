@@ -364,10 +364,15 @@ export function resolveUnit(category: DealCategory, value: DealValue): ListingPr
 
 /** Сделка по умолчанию для категории: одна возможная или умолчание категории. */
 export function defaultDeal(category: DealCategory): DealValue {
+  // Жильё и участки: «Продам» или «Сдам» человек выбирает сам, первым шагом —
+  // от этого зависят цена (₽, ₽/мес, ₽/сут) и поля (условия аренды)
+  const explicitChoice = category.slug.startsWith('realty-') && category.transactions.length > 1;
   const transactionType =
     category.transactions.length === 1
       ? (category.transactions[0] ?? null)
-      : (category.defaultTransaction ?? null);
+      : explicitChoice
+        ? null
+        : (category.defaultTransaction ?? null);
   const rentPeriod = transactionType === 'rent' ? (category.defaultRentPeriod ?? null) : null;
   return { transactionType, rentPeriod, priceUnit: null };
 }

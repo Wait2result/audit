@@ -4,6 +4,7 @@ import {
   LISTING_AUTO_SUSPEND_REPORTS,
   LISTING_REPORT_REASON_LABELS,
   canModeratorTransition,
+  isPromoted,
   type AdminListingsQuery,
   type CreateReportDto,
   type ListingAdminDto,
@@ -465,8 +466,10 @@ export class ListingsModerationService {
   }
 
   /**
-   * Продвижение. Оплаты нет: сроки ставит сотрудник вручную. «В топе до» пока
-   * не влияет на порядок выдачи — почему, см. docs/ADR/0008-объявления.md.
+   * Продвижение. Оплаты нет: сроки ставит сотрудник вручную. Действующее
+   * продвижение поднимает объявление внутри его ступени соответствия запросу
+   * в «Рекомендуемых» и отмечается в карточке (docs/ADR/0008-объявления.md).
+   * Не переданное поле не меняется: продлили «В топе до» — выделение остаётся.
    */
   async promote(
     listingId: string,
@@ -483,7 +486,8 @@ export class ListingsModerationService {
       throw AppException.notFound('Объявление не найдено', ErrorCode.LISTING_NOT_FOUND);
     }
 
-    const promotedUntil = dto.promotedUntil ?? null;
+    const promotedUntil =
+      dto.promotedUntil === undefined ? before.promotedUntil : dto.promotedUntil;
     // Момент старта ставим только при ВКЛЮЧЕНИИ продвижения. Продлили
     // действующее — отсчёт не начинается заново: иначе надбавка, которая
     // должна затухать, держалась бы на максимуме бесконечными продлениями
@@ -495,7 +499,7 @@ export class ListingsModerationService {
         promotedUntil,
         promotedAt:
           promotedUntil === null ? null : alreadyPromoted ? before.promotedAt : new Date(),
-        highlightedUntil: dto.highlightedUntil ?? null,
+        ...(dto.highlightedUntil !== undefined ? { highlightedUntil: dto.highlightedUntil } : {}),
       },
     });
 
@@ -563,6 +567,7 @@ export class ListingsModerationService {
       distanceKm: null,
       bumpedAt: row.bumpedAt.toISOString(),
       highlightedUntil: row.highlightedUntil?.toISOString() ?? null,
+      promoted: isPromoted(row),
       isFavorite: false,
       status: row.status,
       statusReason: row.statusReason,

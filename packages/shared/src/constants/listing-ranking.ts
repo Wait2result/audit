@@ -80,6 +80,13 @@ export interface ListingRankingConfig {
    * заплатили. Продвижение переставляет карточки внутри своей ступени.
    */
   relevanceTierStep: number;
+  /**
+   * Прибавка действующему продвижению — на весь оплаченный срок, а не только
+   * первые сутки: заполненные продвигаемые (с фото и ценой) идут первыми
+   * внутри своей ступени соответствия запросу. Меньше шага ступени вместе со
+   * всеми слагаемыми: более подходящее запросу оплаченное не обгоняет (аудит, п. 15).
+   */
+  promotedBonus: number;
 }
 
 export const LISTING_RANKING: ListingRankingConfig = {
@@ -103,6 +110,7 @@ export const LISTING_RANKING: ListingRankingConfig = {
     { untilHours: 24, multiplier: 1.4 },
   ],
   relevanceTierStep: 100,
+  promotedBonus: 50,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,12 +416,33 @@ export function scoreListing(
 
   return (
     relevanceTier(input.title, context.search, input.searchText) * config.relevanceTierStep +
+    (isPromoted(input, context.now) && promotionEligible(input) ? config.promotedBonus : 0) +
     promoted
   );
 }
 
 /**
- * Наибольшее, что могут дать все слагаемые вместе с максимальной надбавкой.
+ * Прибавка за продвижение — только заполненному объявлению: с фото и ценой.
+ * Пустое оплаченное объявление наверх не выходит (решение ADR-0008 остаётся):
+ * за деньги покупается место, а не право показать пустую карточку первой.
+ */
+export function promotionEligible(input: ListingRankInput): boolean {
+  return input.hasPhoto && input.price !== null;
+}
+
+/** Продвижение действует сейчас: срок задан и не вышел. */
+export function isPromoted(
+  input: Pick<ListingRankInput, 'promotedUntil'>,
+  now: Date = new Date(),
+): boolean {
+  return input.promotedUntil !== null && input.promotedUntil !== undefined
+    ? input.promotedUntil.getTime() > now.getTime()
+    : false;
+}
+
+/**
+ * Наибольшее, что могут дать все слагаемые вместе с прибавкой и надбавкой
+ * за продвижение.
  *
  * Нужно не для выдачи, а для проверки настройки: если это число догонит
  * `relevanceTierStep`, платное продвижение начнёт перебивать соответствие
@@ -428,5 +457,5 @@ export function maxComponentScore(config = LISTING_RANKING): number {
     1,
   );
 
-  return sum * maxMultiplier;
+  return config.promotedBonus + sum * maxMultiplier;
 }

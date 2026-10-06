@@ -1,5 +1,6 @@
 import {
   attributesSchemaFor,
+  carryAttributes,
   attributeValueLabel,
   bindingsOf,
   fieldsForValues,
@@ -138,5 +139,36 @@ describe('производитель детали зависит от ориги
     const after = withAttributeValue(fields, before, 'partOriginality', 'analog');
     expect(after.partManufacturer).toBe('kyb');
     expect(partMakerReset(before, after)).toBeNull();
+  });
+});
+
+describe('смена категории в форме: сбрасывается только неподходящее (п. 39)', () => {
+  it('квартира → дом: площадь остаётся, «этаж» и «лифт» сбрасываются и называются', () => {
+    const { kept, dropped } = carryAttributes(
+      attributesOf('realty-flats'),
+      attributesOf('realty-houses'),
+      { areaTotal: 54, floor: 3, lift: true },
+    );
+    expect(kept.areaTotal).toBe(54);
+    expect(kept.floor).toBeUndefined();
+    expect(dropped).toEqual(expect.arrayContaining(['Этаж', 'Лифт']));
+  });
+
+  it('автомобиль → телефон: марка Toyota не переносится в «Бренд» телефона', () => {
+    const { kept, dropped } = carryAttributes(
+      attributesOf('transport-cars'),
+      attributesOf('electronics-phones'),
+      { brand: 'toyota' },
+    );
+    expect(kept.brand).toBeUndefined();
+    expect(dropped.length).toBe(1);
+  });
+
+  it('вариант, которого нет у новой категории, сбрасывается', () => {
+    const flats = attributesOf('realty-flats');
+    const rooms = flats.find((field) => field.key === 'bathroom');
+    expect(rooms).toBeTruthy();
+    const { kept } = carryAttributes(flats, flats, { bathroom: 'nonexistent' });
+    expect(kept.bathroom).toBeUndefined();
   });
 });

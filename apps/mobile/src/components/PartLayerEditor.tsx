@@ -412,7 +412,7 @@ function CompatibilityRowFields({
             autoCorrect={false}
             maxLength={40}
             style={styles.input}
-            accessibilityLabel="Кузов"
+            accessibilityLabel="Номер кузова"
           />
         </Field>
       )}
@@ -427,7 +427,7 @@ function CompatibilityRowFields({
             autoCorrect={false}
             maxLength={60}
             style={styles.input}
-            accessibilityLabel="Двигатель"
+            accessibilityLabel="Номер двигателя"
           />
         </Field>
       )}

@@ -4,11 +4,13 @@ import {
   boundingBox,
   distanceKm,
   formatDistance,
+  isPromoted,
   freshnessScore,
   listingDistanceKm,
   listingRadiusLabel,
   locationScore,
   maxComponentScore,
+  promotionEligible,
   promotionMultiplier,
   qualityScore,
   relevanceTier,
@@ -392,5 +394,37 @@ describe('Порядок выдачи', () => {
     const first = sortByScore([row('b'), row('a')], { now: NOW });
     const second = sortByScore([row('a'), row('b')], { now: NOW });
     expect(first.map((item) => item.id)).toEqual(second.map((item) => item.id));
+  });
+});
+
+describe('Продвижение весь оплаченный срок (аудит, п. 15)', () => {
+  const context = { now: NOW, point: MAKHACHKALA };
+
+  it('продвигаемое заполненное объявление выше обычного и на пятый день недели', () => {
+    const paid = promoted(4 * 24, 3 * 24);
+    const fresh = listing({ viewsCount: 150, phoneViewsCount: 20 });
+    expect(scoreListing(paid, context)).toBeGreaterThan(scoreListing(fresh, context));
+  });
+
+  it('но не выше более подходящего запросу', () => {
+    const search = { ...context, search: 'iPhone 13' };
+    const paid = { ...promoted(1), title: 'Телефон в хорошем состоянии' };
+    const exact = listing({ title: 'iPhone 13 128 ГБ' });
+    expect(scoreListing(exact, search)).toBeGreaterThan(scoreListing(paid, search));
+  });
+
+  it('срок вышел — прибавки нет', () => {
+    const expired = listing({
+      promotedAt: new Date(NOW.getTime() - 8 * DAY),
+      promotedUntil: new Date(NOW.getTime() - DAY),
+    });
+    expect(isPromoted(expired, NOW)).toBe(false);
+    expect(scoreListing(expired, context)).toBeCloseTo(scoreListing(listing(), context), 5);
+  });
+
+  it('без фото или без цены прибавки нет', () => {
+    expect(promotionEligible(listing({ hasPhoto: false }))).toBe(false);
+    expect(promotionEligible(listing({ price: null }))).toBe(false);
+    expect(promotionEligible(listing())).toBe(true);
   });
 });

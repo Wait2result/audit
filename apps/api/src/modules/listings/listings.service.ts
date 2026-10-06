@@ -10,6 +10,7 @@ import {
   describeAttributes,
   describeCardFacts,
   distanceKm,
+  isPromoted,
   rentPeriodUnit,
   transactionCardLabel,
   type FavoriteListingAvailability,
@@ -890,6 +891,7 @@ export class ListingsService {
           : null,
       bumpedAt: row.bumpedAt.toISOString(),
       highlightedUntil: row.highlightedUntil?.toISOString() ?? null,
+      promoted: isPromoted(row),
       isFavorite,
       viewsCount: row.viewsCount,
     };

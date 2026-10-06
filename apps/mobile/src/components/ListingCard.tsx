@@ -110,12 +110,14 @@ export function ListingCard({
       <Pressable
         onPress={onOpen}
         accessibilityRole="button"
-        accessibilityLabel={`${listing.title}. ${price}. ${facts.join(', ')}`}
+        accessibilityLabel={`${listing.promoted ? 'Продвигается. ' : ''}${listing.title}. ${price}. ${facts.join(', ')}`}
         style={({ pressed }) => [isList && styles.pressableList, pressed && styles.pressed]}
       >
         {!textOnly && image}
 
         <View style={[styles.body, isList && styles.bodyList, textOnly && styles.bodyText]}>
+          {/* Продвигаемое объявление отмечено явно: почему оно выше — видно сразу */}
+          {listing.promoted && <Text style={styles.promoted}>Продвигается</Text>}
           {titleFirst ? titleText : priceText}
           {titleFirst ? priceText : titleText}
 
@@ -201,6 +203,7 @@ export function formatWhen(iso: string): string {
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>, placeholderBg: string) =>
   StyleSheet.create({
+    promoted: { ...typography.label, color: colors.primary },
     // Одна поверхность: рамка и фон — как у остальных карточек приложения.
     // Продвигаемые объявления выглядят ТОЧНО так же: платное влияет только на
     // место в выдаче
