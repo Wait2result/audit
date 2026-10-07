@@ -2296,6 +2296,8 @@ export function jsonAttributes(attributes: readonly ListingAttribute[]): Listing
 
 /** Единицы, которые пишутся слитно с числом: «15,6″», «92%», «7J». */
 const TIGHT_UNITS: ReadonlySet<string> = new Set(['″', '%', 'J']);
+/** Единицы, которые пишутся перед числом: «R17». */
+const PREFIX_UNITS: ReadonlySet<string> = new Set(['R']);
 
 /**
  * Человеческое название значения: «auto» → «Автомат», 68000 → «68 000 км».
@@ -2334,13 +2336,15 @@ export function attributeValueLabel(
         ? attribute.unit
         : ` ${attribute.unit}`
       : '';
-    if (!Number.isInteger(real)) {
-      const formatted = real.toFixed(1).replace('.', ',');
-      return `${formatted}${unit}`;
-    }
     // Разделитель тысяч — только у величин с единицей измерения: «68 000 км»
     // читается, а год «2 021» выглядит опечаткой
-    const formatted = attribute.unit ? real.toLocaleString('ru-RU') : String(real);
+    const formatted = !Number.isInteger(real)
+      ? real.toFixed(1).replace('.', ',')
+      : attribute.unit
+        ? real.toLocaleString('ru-RU')
+        : String(real);
+    // Диаметр — перед числом: «R12», а не «12 R» (варианты R13–R22 — свои подписи)
+    if (attribute.unit && PREFIX_UNITS.has(attribute.unit)) return `${attribute.unit}${formatted}`;
     return `${formatted}${unit}`;
   }
 
@@ -2395,6 +2399,14 @@ export function describeAttribute(
 
   const cardLabel = attribute.options?.find((option) => option.value === value)?.cardLabel;
   if (cardLabel) return cardLabel;
+
+  // «4+» — подпись фильтра («от четырёх»), а в объявлении число точное: «4 комн.»
+  const filterOnly =
+    typeof value === 'number' &&
+    attribute.options?.some(
+      (option) => option.label === `${option.value}+` && option.value === String(value),
+    );
+  if (filterOnly) return attribute.shortLabel ? `${value} ${attribute.shortLabel}` : String(value);
 
   const text = attributeValueLabel(attribute, value, dictionaryLabels);
   if (!text) return null;

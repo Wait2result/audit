@@ -218,7 +218,25 @@ describe('транспорт', () => {
       { toyota: 'Toyota', succeed: 'Succeed' },
     );
     clean(facts);
-    expect(facts).toEqual(['1,5 л', 'Бензин', 'Вариатор', 'Полный привод', '125 000 км']);
+    expect(facts).toEqual(['125 000 км', '1,5 л', 'Бензин', 'Вариатор', 'Полный привод']);
+  });
+
+  it('автомобиль без года в заголовке: год показан, пробег не вытесняется', () => {
+    const values = {
+      year: 2015,
+      engineVolume: 1.5,
+      fuel: 'petrol',
+      gearbox: 'variator',
+      drive: 'full',
+      mileage: 125_000,
+    };
+    expect(card('transport-cars', 'Toyota Succeed', values)).toEqual([
+      '2015',
+      '125 000 км',
+      '1,5 л',
+      'Бензин',
+      'Вариатор',
+    ]);
   });
 
   it('16. шины: размер как на боковине, сезон, количество, состояние', () => {
@@ -248,6 +266,12 @@ describe('транспорт', () => {
     });
     clean(facts);
     expect(facts).toEqual(['R17', '5x114.3', '7J', 'ET45', '4 шт']);
+  });
+
+  it('диаметр вне списка вариантов — тоже перед числом: «R12», а не «12 R»', () => {
+    expect(
+      card('transport-tires', 'Диски', { tireType: 'rims', diameter: 12, quantity: 4 }),
+    ).toEqual(['R12', '4 шт']);
   });
 });
 
@@ -326,6 +350,21 @@ describe('недвижимость, вещи, остальное', () => {
       '120 м²',
       '6 сот.',
       '2 этажа',
+    ]);
+  });
+
+  it('четыре комнаты — «4 комн.», а не «4+» из фильтра', () => {
+    expect(card('realty-houses', 'Дом', { areaTotal: 120, rooms: 4 })).toEqual([
+      '120 м²',
+      '4 комн.',
+    ]);
+    expect(card('realty-flats', 'Квартира', { rooms: 4, areaTotal: 90 })).toEqual([
+      '4 комн.',
+      '90 м²',
+    ]);
+    expect(card('realty-flats', 'Квартира', { rooms: 0, areaTotal: 25 })).toEqual([
+      'Студия',
+      '25 м²',
     ]);
   });
 

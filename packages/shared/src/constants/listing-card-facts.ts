@@ -145,7 +145,8 @@ const DIMENSIONS: CardFactSpec = { keys: ['dimensions'], format: 'dimensions' };
  */
 export const CARD_FACTS: Readonly<Record<string, readonly CardFactSpec[]>> = {
   // Транспорт: марка и модель — в заголовке, в карточке — то, чем машины различаются
-  'transport-cars': [BRAND_MODEL, 'year', 'engineVolume', 'fuel', 'gearbox', 'drive', 'mileage'],
+  // Пробег — сразу за годом: на плитке из четырёх он важнее топлива и привода
+  'transport-cars': [BRAND_MODEL, 'year', 'mileage', 'engineVolume', 'fuel', 'gearbox', 'drive'],
   'transport-moto': [BRAND_MODEL, 'motoType', 'year', 'engineCc', 'mileage', CONDITION],
   'transport-trucks': [BRAND_MODEL, 'truckType', 'year', 'loadCapacity', 'mileage', 'gearbox'],
   'transport-special': ['specialType', BRAND_MODEL, 'year', 'hours', CONDITION],
