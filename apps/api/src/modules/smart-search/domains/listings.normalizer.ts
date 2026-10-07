@@ -1382,6 +1382,18 @@ const NOT_CAR_CODE = new Set(['gtx', 'rtx', 'ram', 'ssd', 'hdd', 'usb', 'cpu', '
 
 const CAR_PARTS_SLUG = 'transport-parts';
 
+/** Марка справочника, названная во фразе словом или парой слов. */
+function brandNamedIn(entries: readonly DictionaryRecord[], text: string): DictionaryRecord | null {
+  const words = norm(text).split(/\s+/).filter(Boolean);
+  for (let i = 0; i < words.length; i += 1) {
+    const found =
+      (i + 1 < words.length ? findEntry(entries, `${words[i]} ${words[i + 1]}`) : null) ??
+      findEntry(entries, words[i]!);
+    if (found && found.value !== 'other') return found;
+  }
+  return null;
+}
+
 /** Открытая категория, из которой поиск не уходит; null — поиск по всем категориям. */
 function scopeOf(
   catalogue: ListingCatalogue,
@@ -1558,7 +1570,11 @@ export function normalizeListings(
   // «Honor 400» в «Запчастях» стал бы поиском по одному числу
   const lostWords: string[] = [];
   if (brandCandidate && brandField?.dictionary) {
-    brandEntry = findEntry(catalogue.dictionaryEntries(brandField.dictionary), brandCandidate);
+    const brands = catalogue.dictionaryEntries(brandField.dictionary);
+    brandEntry = findEntry(brands, brandCandidate);
+    // Разбор по всему каталогу мог принять слово за модель чужой техники, а в
+    // открытой категории это её марка: «Galaxy» в «Телефонах» — Samsung, не Ford
+    if (!brandEntry && scope) brandEntry = brandNamedIn(brands, context.text);
     if (!brandEntry) {
       ignored.push({
         field: 'brand',

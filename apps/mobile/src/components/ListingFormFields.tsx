@@ -3,7 +3,7 @@ import {
   PRICE_UNIT_LABELS,
   RENT_PERIOD_LABELS,
   allowedPriceUnits,
-  attributeValueLabel,
+  attributeInputLabel,
   defaultPriceUnit,
   operationLabels,
   pluralize,
@@ -564,6 +564,5 @@ export function AttributeValueText({
   );
   if (!hasValue(value)) return <>Не указано</>;
   if (field.type === 'boolean') return <>{value === true ? 'Да' : 'Нет'}</>;
-  const text = attributeValueLabel(field, value, labels);
-  return <>{field.type === 'number' && field.unit ? `${text} ${field.unit}` : text}</>;
+  return <>{attributeInputLabel(field, value, labels)}</>;
 }

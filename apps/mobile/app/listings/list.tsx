@@ -720,8 +720,13 @@ function valueLabel(
   value: unknown,
   dictionaryLabels: Readonly<Record<string, string>>,
 ): string {
+  // Выбранный вариант фильтра — его подписью: «4+» здесь значит «от четырёх»
+  const optionLabel = (item: unknown) =>
+    field.options?.find((option) => option.value === String(item))?.label ??
+    attributeValueLabel(field, item, dictionaryLabels);
+
   if (Array.isArray(value)) {
-    const labels = value.map((item) => attributeValueLabel(field, item, dictionaryLabels));
+    const labels = value.map(optionLabel);
     // Три значения в чипсе уже не читаются: «2, 3 и ещё 1»
     return labels.length > 2 ? `${field.label}: ${labels.length}` : labels.join(', ');
   }
@@ -740,7 +745,7 @@ function valueLabel(
   if (field.type === 'boolean') return field.label;
   // Текстовый фильтр без названия поля не читается: «cam» — что это?
   if (field.filter === 'text') return `${field.label}: ${String(value)}`;
-  return attributeValueLabel(field, value, dictionaryLabels);
+  return optionLabel(value);
 }
 
 /** «до 3 млн», «от 500 тыс», «1–3 млн» — короче, чем полная сумма в чипсе. */

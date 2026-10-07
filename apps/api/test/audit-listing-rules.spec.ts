@@ -1,6 +1,7 @@
 import {
   attributesSchemaFor,
   carryAttributes,
+  attributeInputLabel,
   attributeValueLabel,
   bindingsOf,
   fieldsForValues,
@@ -170,5 +171,48 @@ describe('смена категории в форме: сбрасывается 
     expect(rooms).toBeTruthy();
     const { kept } = carryAttributes(flats, flats, { bathroom: 'nonexistent' });
     expect(kept.bathroom).toBeUndefined();
+  });
+});
+
+describe('связка поле → хранение → фильтр → показ (аудит цепочки)', () => {
+  const field = (slug: string, key: string) => attributesOf(slug).find((item) => item.key === key)!;
+
+  it('мультивыбор числа с масштабом: размер обуви 43 хранится как 430 — фильтр ищет 430', () => {
+    const size = field('personal-shoes', 'shoeSize');
+    expect(attributesSchemaFor([size]).parse({ shoeSize: 43 }).shoeSize).toBe(430);
+    const sql = renderSql(attributeSql([size], { shoeSize: [42, 43] })[0]!);
+    expect(sql).toContain('IN (420,430)');
+  });
+
+  it('мультивыбор без масштаба не меняется: комнаты «4+» — от четырёх', () => {
+    const sql = renderSql(attributeSql([field('realty-flats', 'rooms')], { rooms: [2, 4] })[0]!);
+    expect(sql).toContain('IN (2)');
+    expect(sql).toContain('>= 4');
+  });
+
+  it('страница объявления: ровно 4 комнаты — «4», а не «4+» из фильтра', () => {
+    const rooms = field('realty-flats', 'rooms');
+    expect(attributeValueLabel(rooms, 4)).toBe('4');
+    expect(attributeValueLabel(rooms, 0)).toBe('Студия');
+  });
+
+  it('маркировка диска — с точкой, как в карточке (6.5J); дюймы — с запятой', () => {
+    const width = field('transport-tires', 'rimWidth');
+    const stored = attributesSchemaFor(attributesOf('transport-tires')).parse({
+      tireType: 'rims',
+      rimWidth: 6.5,
+    }).rimWidth;
+    expect(stored).toBe(65);
+    expect(attributeValueLabel(width, stored)).toBe('6.5J');
+    expect(attributeValueLabel(field('electronics-tv', 'screenSize'), 155)).toBe('15,5″');
+  });
+
+  it('свёрнутый шаг формы: значение ввода — с той же единицей, без двойной и без масштаба', () => {
+    expect(attributeInputLabel(field('transport-tires', 'diameter'), '17')).toBe('R17');
+    expect(attributeInputLabel(field('transport-tires', 'rimWidth'), '7')).toBe('7J');
+    expect(attributeInputLabel(field('electronics-laptops', 'screenSize'), '15.6')).toBe('15,6″');
+    expect(attributeInputLabel(field('realty-flats', 'areaTotal'), '54,5')).toBe('54,5 м²');
+    expect(attributeInputLabel(field('realty-flats', 'areaTotal'), 54.5)).toBe('54,5 м²');
+    expect(attributeInputLabel(field('transport-cars', 'mileage'), '125000')).toBe('125 000 км');
   });
 });

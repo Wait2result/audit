@@ -2300,6 +2300,20 @@ const TIGHT_UNITS: ReadonlySet<string> = new Set(['″', '%', 'J']);
 const PREFIX_UNITS: ReadonlySet<string> = new Set(['R']);
 
 /**
+ * Вариант, который называет сохранённое значение. «4+» у комнат — подпись
+ * фильтра («от четырёх»), а у объявления число точное: 4 — это «4», не «4+».
+ */
+function valueOption(
+  attribute: AttributeDefinition,
+  text: string,
+): ListingAttributeOption | undefined {
+  const option = attribute.options?.find((item) => item.value === text);
+  if (option && attribute.type === 'number' && option.label === `${option.value}+`)
+    return undefined;
+  return option;
+}
+
+/**
  * Человеческое название значения: «auto» → «Автомат», 68000 → «68 000 км».
  * Для полей со справочником (марка, модель) подпись знает только сервер —
  * он подставляет её через `dictionaryLabels`; без него показывается само
@@ -2318,10 +2332,8 @@ export function attributeValueLabel(
 
   const text = plainText(value);
 
-  if (attribute.options) {
-    const option = attribute.options.find((item) => item.value === text);
-    if (option) return option.label;
-  }
+  const option = valueOption(attribute, text);
+  if (option) return option.label;
 
   if ((attribute.type === 'brand' || attribute.type === 'model') && dictionaryLabels) {
     const label = dictionaryLabels[text];
@@ -2338,8 +2350,10 @@ export function attributeValueLabel(
       : '';
     // Разделитель тысяч — только у величин с единицей измерения: «68 000 км»
     // читается, а год «2 021» выглядит опечаткой
+    // Маркировка диска и шины — с точкой, как на самом диске: «6.5J», «R17.5»
+    const marking = attribute.unit === 'J' || PREFIX_UNITS.has(attribute.unit ?? '');
     const formatted = !Number.isInteger(real)
-      ? real.toFixed(1).replace('.', ',')
+      ? real.toFixed(1).replace('.', marking ? '.' : ',')
       : attribute.unit
         ? real.toLocaleString('ru-RU')
         : String(real);
@@ -2360,13 +2374,34 @@ function plainText(value: unknown): string {
 }
 
 /**
+ * Подпись значения из ФОРМЫ подачи: там число — строка в единицах ввода
+ * («54.5», «7», «17»), а `attributeValueLabel` ждёт хранимое (с масштабом).
+ * Так свёрнутый шаг пишет «54,5 м²», «7J», «R17» — как карточка и страница
+ * объявления, а не «R17 R» и «7 J».
+ */
+export function attributeInputLabel(
+  attribute: AttributeDefinition,
+  value: unknown,
+  dictionaryLabels?: Readonly<Record<string, string>>,
+): string {
+  if (attribute.type === 'number' && (typeof value === 'string' || typeof value === 'number')) {
+    const number = Number(String(value).replace(',', '.'));
+    if (String(value).trim() !== '' && Number.isFinite(number)) {
+      const stored = attribute.scale ? Math.round(number * attribute.scale) : number;
+      return attributeValueLabel(attribute, stored, dictionaryLabels);
+    }
+  }
+  return attributeValueLabel(attribute, value, dictionaryLabels);
+}
+
+/**
  * У значения есть собственное название вместо числа: 0 комнат — это
  * «Студия», и приписывать к ней «комн.» незачем. А вот «2» — это просто
  * число, и без «комн.» оно ничего не значит.
  */
 function hasOwnName(attribute: AttributeDefinition, value: unknown): boolean {
   const text = plainText(value);
-  const option = attribute.options?.find((item) => item.value === text);
+  const option = valueOption(attribute, text);
   return Boolean(option && option.label !== text);
 }
 
@@ -2399,14 +2434,6 @@ export function describeAttribute(
 
   const cardLabel = attribute.options?.find((option) => option.value === value)?.cardLabel;
   if (cardLabel) return cardLabel;
-
-  // «4+» — подпись фильтра («от четырёх»), а в объявлении число точное: «4 комн.»
-  const filterOnly =
-    typeof value === 'number' &&
-    attribute.options?.some(
-      (option) => option.label === `${option.value}+` && option.value === String(value),
-    );
-  if (filterOnly) return attribute.shortLabel ? `${value} ${attribute.shortLabel}` : String(value);
 
   const text = attributeValueLabel(attribute, value, dictionaryLabels);
   if (!text) return null;

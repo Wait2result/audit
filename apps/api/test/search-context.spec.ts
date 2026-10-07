@@ -251,3 +251,18 @@ describe('поиск словами находит код кузова в «По
     expect(renderSql(searchSql('диван')!)).not.toContain('listing_compatibility');
   });
 });
+
+describe('марка открытой категории сильнее модели чужой техники', () => {
+  it('«Galaxy» в «Телефонах» — Samsung, а не поиск «ford galaxy»', async () => {
+    const [answer] = await session([{ text: 'Galaxy', category: 'electronics-phones' }]);
+    const query = answer!.query;
+    expect(query?.category).toBe('electronics-phones');
+    expect(String(query?.attributes)).toContain('"brand":"samsung"');
+    expect(String(query?.search ?? '')).not.toContain('ford');
+  });
+
+  it('вне категории «Galaxy» по-прежнему решает общий разбор', async () => {
+    const [answer] = await session([{ text: 'Ford Galaxy', category: 'transport-cars' }]);
+    expect(String(answer!.query?.attributes)).toContain('"brand":"ford"');
+  });
+});

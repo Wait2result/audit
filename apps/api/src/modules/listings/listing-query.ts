@@ -78,8 +78,9 @@ function numericChoices(
   const result: { exact: number[]; atLeast?: number } = { exact: [] };
 
   for (const item of values) {
-    const numeric = Number(item);
-    if (!Number.isFinite(numeric)) continue;
+    // Вариант — в единицах формы, хранение — с масштабом: размер обуви 43 — это 430
+    const numeric = scaled(attribute, item);
+    if (numeric === undefined) continue;
     if (openEnded && String(item) === openEnded.value) {
       result.atLeast = numeric;
       continue;
