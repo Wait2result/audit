@@ -7,6 +7,7 @@ import {
   attributeValueLabel,
   plural,
   resolveCardLayout,
+  withAttributeValue,
   type ListingAttribute,
   type ListingCategoryDto,
 } from '@dagestan/shared';
@@ -247,8 +248,8 @@ export default function ListingsListScreen() {
     } else if (key === 'onlyWithPhoto') {
       delete next.onlyWithPhoto;
     } else {
-      const attributes = { ...(next.attributes ?? {}) };
-      delete attributes[key];
+      // Вместе с полем снимаются зависящие от него: без марки нет и модели
+      const attributes = withAttributeValue(fields, next.attributes ?? {}, key, undefined);
       next.attributes = Object.keys(attributes).length > 0 ? attributes : undefined;
     }
 

@@ -256,7 +256,7 @@ describe('Реальные ответы Qwen3: пропущенное модел
   it('L13 «участок ИЖС» — назначение земли из слова фразы', async () => {
     const h = harness();
     await ask('L13', h);
-    expect(attributesOf(h.calls.listings[0])).toMatchObject({ landPurpose: 'igs' });
+    expect(attributesOf(h.calls.listings[0])).toMatchObject({ landPurpose: ['igs'] });
   });
 
   it('L14 «машину автомат бензин до 1 млн» — выдуманная аренда убрана, категория по слову «машину»', async () => {
@@ -265,14 +265,14 @@ describe('Реальные ответы Qwen3: пропущенное модел
     const query = h.calls.listings[0];
     expect(query).toMatchObject({ category: 'transport-cars', priceTo: 100_000_000 });
     expect(query?.transactionType).toBeUndefined();
-    expect(attributesOf(query)).toMatchObject({ gearbox: 'auto', fuel: 'petrol' });
+    expect(attributesOf(query)).toMatchObject({ gearbox: ['auto'], fuel: ['petrol'] });
   });
 
   it('L18 «SSD 1 ТБ» — тип и объём накопителя из фразы', async () => {
     const h = harness();
     await ask('L18', h);
     expect(attributesOf(h.calls.listings[0])).toMatchObject({
-      storage: 'ssd',
+      storage: ['ssd'],
       storageSize: ['1024'],
     });
   });
@@ -280,7 +280,7 @@ describe('Реальные ответы Qwen3: пропущенное модел
   it('L19 «полный привод» — вариант «Полный» по началу слова', async () => {
     const h = harness();
     await ask('L19', h);
-    expect(attributesOf(h.calls.listings[0])).toMatchObject({ fuel: 'diesel', drive: 'full' });
+    expect(attributesOf(h.calls.listings[0])).toMatchObject({ fuel: ['diesel'], drive: ['full'] });
   });
 });
 
@@ -331,13 +331,13 @@ describe('Реальные ответы Qwen3: контекст', () => {
     expect(third?.transactionType).toBeUndefined();
     expect(third?.rentPeriod).toBeUndefined();
     expect(third?.priceTo).toBe(100_000_000);
-    expect(attributesOf(third)).toMatchObject({ gearbox: 'auto' });
+    expect(attributesOf(third)).toMatchObject({ gearbox: ['auto'] });
     expect(third?.search).toBeUndefined();
 
     await ask('X4', h, first.sessionId);
     expect(attributesOf(h.calls.listings.at(-1))).toMatchObject({
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
   });
 

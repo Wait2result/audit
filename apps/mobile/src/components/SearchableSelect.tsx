@@ -34,6 +34,18 @@ interface SearchableSelectProps {
   search?: boolean;
   /** Плотный вариант для фильтров: ниже поле и стрелка «›», как у перехода к списку */
   compact?: boolean;
+  /**
+   * Крестик в поле: снять выбор, не открывая список. Снимается только это
+   * поле — остальные фильтры остаются
+   */
+  onClear?: () => void;
+  /**
+   * Несколько значений сразу (модели одной марки): список не закрывается
+   * после выбора, отмеченные снимаются повторным нажатием. Тогда `value`
+   * не используется
+   */
+  values?: readonly string[];
+  onChangeValues?: (values: string[] | undefined) => void;
 }
 
 /**
@@ -53,16 +65,28 @@ export function SearchableSelect({
   clearLabel,
   search = true,
   compact = false,
+  onClear,
+  values,
+  onChangeValues,
 }: SearchableSelectProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
+  const multiple = onChangeValues !== undefined;
+  const chosen = multiple ? (values ?? []) : value === undefined ? [] : [value];
   const selected = options.find((option) => option.value === value);
+  const chosenLabels = chosen.map(
+    (item) => options.find((option) => option.value === item)?.label ?? item,
+  );
   // Своё значение, которого нет в справочнике — не теряем его, показываем
   // как есть, вместо того чтобы поле выглядело незаполненным
-  const displayLabel = selected?.label ?? (allowCustom ? value : undefined);
+  const displayLabel = multiple
+    ? chosenLabels.length > 0
+      ? chosenLabels.join(', ')
+      : undefined
+    : (selected?.label ?? (allowCustom ? value : undefined));
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -86,6 +110,19 @@ export function SearchableSelect({
   };
 
   const select = (next: string | undefined) => {
+    if (multiple) {
+      // Несколько значений: отметка ставится и снимается, окно остаётся открытым
+      if (next === undefined) {
+        onChangeValues(undefined);
+        close();
+        return;
+      }
+      const list = chosen.includes(next)
+        ? chosen.filter((item) => item !== next)
+        : [...chosen, next];
+      onChangeValues(list.length > 0 ? list : undefined);
+      return;
+    }
     onChange(next);
     close();
   };
@@ -94,24 +131,41 @@ export function SearchableSelect({
     <View style={styles.wrapper}>
       <Text style={styles.label}>{label}</Text>
 
-      <Pressable
-        onPress={() => setOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel={`${label}: ${displayLabel ?? placeholder}`}
-        style={[styles.field, compact && styles.fieldCompact, error && styles.fieldError]}
-      >
-        <Text
-          style={[styles.fieldText, !displayLabel && styles.fieldPlaceholder]}
-          numberOfLines={1}
+      <View style={[styles.field, compact && styles.fieldCompact, error && styles.fieldError]}>
+        <Pressable
+          onPress={() => setOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`${label}: ${displayLabel ?? placeholder}`}
+          style={styles.fieldOpen}
         >
-          {displayLabel ?? placeholder}
-        </Text>
-        <Icon
-          name={compact ? 'chevron-right' : 'chevron-down'}
-          size={16}
-          color={colors.textFaint}
-        />
-      </Pressable>
+          <Text
+            style={[styles.fieldText, !displayLabel && styles.fieldPlaceholder]}
+            numberOfLines={multiple ? 2 : 1}
+          >
+            {displayLabel ?? placeholder}
+          </Text>
+          {!(onClear && displayLabel) && (
+            <Icon
+              name={compact ? 'chevron-right' : 'chevron-down'}
+              size={16}
+              color={colors.textFaint}
+            />
+          )}
+        </Pressable>
+        {onClear && displayLabel ? (
+          // Крестик — сосед поля, а не его часть: снимает выбор, не открывая список
+          // (кнопка внутри кнопки — недопустимая разметка в вебе)
+          <Pressable
+            onPress={onClear}
+            accessibilityRole="button"
+            accessibilityLabel={`Очистить: ${label}`}
+            hitSlop={10}
+            style={styles.clear}
+          >
+            <Icon name="close" size={16} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
+      </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
 
@@ -124,14 +178,20 @@ export function SearchableSelect({
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{label}</Text>
-            <Pressable
-              onPress={close}
-              accessibilityRole="button"
-              accessibilityLabel="Закрыть"
-              hitSlop={12}
-            >
-              <Icon name="close" size={22} color={colors.text} />
-            </Pressable>
+            {multiple ? (
+              <Pressable onPress={close} accessibilityRole="button" hitSlop={12}>
+                <Text style={styles.done}>Готово</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={close}
+                accessibilityRole="button"
+                accessibilityLabel="Закрыть"
+                hitSlop={12}
+              >
+                <Icon name="close" size={22} color={colors.text} />
+              </Pressable>
+            )}
           </View>
 
           {search && (
@@ -161,7 +221,7 @@ export function SearchableSelect({
                     style={({ pressed }) => [styles.option, pressed && styles.pressed]}
                   >
                     <Text style={styles.optionText}>{clearLabel}</Text>
-                    {value === undefined && <Icon name="check" size={18} color={colors.primary} />}
+                    {chosen.length === 0 && <Icon name="check" size={18} color={colors.primary} />}
                   </Pressable>
                 )}
                 {showCustomOption && (
@@ -182,7 +242,9 @@ export function SearchableSelect({
                 style={({ pressed }) => [styles.option, pressed && styles.pressed]}
               >
                 <Text style={styles.optionText}>{item.label}</Text>
-                {item.value === value && <Icon name="check" size={18} color={colors.primary} />}
+                {chosen.includes(item.value) && (
+                  <Icon name="check" size={18} color={colors.primary} />
+                )}
               </Pressable>
             )}
             ListEmptyComponent={
@@ -215,6 +277,16 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     fieldCompact: { minHeight: 44, paddingHorizontal: spacing.md, gap: spacing.sm },
     fieldError: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
     fieldText: { ...typography.body, color: colors.text, flexShrink: 1 },
+    fieldOpen: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      alignSelf: 'stretch',
+      gap: spacing.sm,
+    },
+    clear: { marginLeft: spacing.sm, padding: spacing.xs },
+    done: { ...typography.body, color: colors.primary, fontWeight: '600' },
     fieldPlaceholder: { color: colors.textFaint },
     error: { ...typography.caption, color: colors.danger },
 

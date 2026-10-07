@@ -15,6 +15,7 @@ import {
   type ListingPriceUnit,
   type ListingRentPeriod,
   type ListingTransactionType,
+  visibleValues,
   withAttributeValue,
 } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -147,6 +148,10 @@ export default function ListingFiltersScreen() {
     () => priceUnitsOf(roots, categorySlug, transactionType, rentPeriod),
     [roots, categorySlug, transactionType, rentPeriod],
   );
+  // Аренда жилья: единица цены — это срок («посуточно» — ₽/сут, «надолго» —
+  // ₽/мес). Пока срок не выбран, цена не сравнивается: «до 30 000» в сутки
+  // и в месяц — разные выдачи, и молча выбрать одну из них нельзя
+  const needsPeriod = transactionType === 'rent' && periodChoices.length > 0 && !rentPeriod;
   // Без выбора: сутки — самая обычная единица аренды, а не первая в списке
   const activeUnit =
     priceUnit && priceUnits.includes(priceUnit)
@@ -196,22 +201,58 @@ export default function ListingFiltersScreen() {
     setShowExtra(false);
   };
 
-  // Сменилась марка — модель прежней марки больше не подходит
+  // Сменилась марка — модель прежней марки больше не подходит. Поля, которые
+  // при новом значении не показываются («ширина диска» у шин), снимаются тоже:
+  // невидимое условие сузило бы выдачу, а человек не понял бы почему
   const setAttribute = (key: string, value: unknown) => {
-    setAttributes((current) => withAttributeValue(fields, current, key, value));
+    setAttributes((current) =>
+      visibleValues(
+        fields,
+        withAttributeValue(fields, current, key, value),
+        transactionType ? { transactionType } : undefined,
+      ),
+    );
+  };
+
+  // Цена введена в единице прежней сделки или срока («до 3 000 ₽/сут»): у
+  // продажи или помесячной аренды то же число значит другое — оно снимается,
+  // а не переносится молча на новую шкалу
+  const clearPrice = () => {
+    setPriceFrom('');
+    setPriceTo('');
+    setPriceUnit(undefined);
+  };
+
+  /** Сменить срок аренды жилья: «посуточно» и «надолго» — разные единицы цены. */
+  const changePeriod = (next: ListingRentPeriod | undefined) => {
+    setRentPeriod(next);
+    clearPrice();
+  };
+
+  /**
+   * Сменить сделку. «Купить» снимает условия аренды («можно с животными»):
+   * у продажи их не бывает, и скрытый флажок оставил бы выдачу пустой.
+   */
+  const changeTransaction = (next: ListingTransactionType | undefined) => {
+    setTransactionType(next);
+    if (next !== 'rent') setRentPeriod(undefined);
+    clearPrice();
+    setAttributes((current) =>
+      visibleValues(fields, current, next ? { transactionType: next } : undefined),
+    );
   };
 
   // То, что человек выбрал на экране сейчас, ещё не сохранённое: по нему же
   // считается число на кнопке и оно же сохраняется по нажатию
   const filterDraft = useMemo<ExtraListingFilters>(
     () => ({
-      ...(priceFrom ? { priceFrom: Number(priceFrom) } : {}),
-      ...(priceTo ? { priceTo: Number(priceTo) } : {}),
+      ...(priceFrom && !needsPeriod ? { priceFrom: Number(priceFrom) } : {}),
+      ...(priceTo && !needsPeriod ? { priceTo: Number(priceTo) } : {}),
       ...(transactionType ? { transactionType } : {}),
       ...(transactionType === 'rent' && rentPeriod ? { rentPeriod } : {}),
       // Единица нужна серверу только вместе с ценой; без неё он сравнил бы
       // «в сутки» с «в месяц»
-      ...((priceFrom || priceTo) && activeUnit && priceUnits.length > 1
+      ...((priceFrom || priceTo) && !needsPeriod && activeUnit && priceUnits.length > 1
         ? { priceUnit: activeUnit }
         : {}),
       ...(onlyWithPhoto ? { onlyWithPhoto: true } : {}),
@@ -220,6 +261,7 @@ export default function ListingFiltersScreen() {
     [
       priceFrom,
       priceTo,
+      needsPeriod,
       transactionType,
       rentPeriod,
       activeUnit,
@@ -380,9 +422,7 @@ export default function ListingFiltersScreen() {
                 // «Снять» у жилья, «Арендовать» у техники и транспорта
                 label={operationLabels(categorySlug, value).search}
                 active={transactionType === value}
-                onPress={() =>
-                  setTransactionType((current) => (current === value ? undefined : value))
-                }
+                onPress={() => changeTransaction(transactionType === value ? undefined : value)}
               />
             ))}
           </View>
@@ -393,9 +433,7 @@ export default function ListingFiltersScreen() {
                   key={value}
                   label={RENT_PERIOD_LABELS[value]}
                   active={rentPeriod === value}
-                  onPress={() =>
-                    setRentPeriod((current) => (current === value ? undefined : value))
-                  }
+                  onPress={() => changePeriod(rentPeriod === value ? undefined : value)}
                 />
               ))}
             </View>
@@ -404,7 +442,13 @@ export default function ListingFiltersScreen() {
       )}
 
       <FilterSection title={`Цена, ${activeUnit ? PRICE_UNIT_LABELS[activeUnit] : '₽'}`}>
-        {priceUnits.length > 1 && (
+        {needsPeriod && (
+          <Text style={styles.hint}>
+            Выберите срок аренды: цена посуточно и помесячно — разные суммы
+          </Text>
+        )}
+        {/* У жилья срок выбран выше — второй переключатель «₽/сут · ₽/мес» не нужен */}
+        {priceUnits.length > 1 && !(transactionType === 'rent' && periodChoices.length > 0) && (
           <View style={styles.chips}>
             {priceUnits.map((unit) => (
               <FilterChip
@@ -620,6 +664,8 @@ function AttributeFilter({
           value={typeof value === 'string' ? value : undefined}
           options={attribute.options ?? []}
           onChange={(next) => onChange(next)}
+          onClear={() => onChange(undefined)}
+          clearLabel="Любая"
           placeholder="Любая"
         />
       </View>
@@ -700,7 +746,12 @@ function AttributeFilter({
   const options = attribute.options ?? [];
   if (options.length === 0) return null;
 
-  const selected = Array.isArray(value) ? (value as unknown[]).map(String) : [];
+  // Одно значение строкой (так кладёт умный поиск) — тоже выбор, а не «ничего»
+  const selected = Array.isArray(value)
+    ? (value as unknown[]).map(String)
+    : optionKey(value)
+      ? [optionKey(value)]
+      : [];
 
   return (
     <View style={styles.block}>
@@ -771,11 +822,17 @@ function ModelFilter({
 
   return (
     <View style={styles.block}>
+      {/* Несколько моделей одной марки — «Granta или Vesta»; крестик снимает
+          только модель, марка остаётся */}
       <SearchableSelect
         label={attribute.label}
-        value={typeof value === 'string' ? value : undefined}
+        value={undefined}
+        values={Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : []}
         options={models.data}
-        onChange={(next) => onChange(next)}
+        onChange={() => undefined}
+        onChangeValues={(next) => onChange(next && next.length === 1 ? next[0] : next)}
+        onClear={() => onChange(undefined)}
+        clearLabel="Любая"
         placeholder="Любая"
       />
     </View>

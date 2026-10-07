@@ -431,8 +431,8 @@ describe('Продолжение или новый поиск', () => {
     expect(attributesOf(last)).toMatchObject({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
   });
 });

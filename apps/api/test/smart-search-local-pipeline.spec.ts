@@ -187,9 +187,12 @@ describe('Объявления через словарь и справочник
   it('«суксид 4вд» — полный привод; «автомат бенз» — коробка и топливо', async () => {
     const h = local();
     await ask(h, 'суксид 4вд');
-    expect(attributesOf(h.calls.listings[0])).toMatchObject({ model: 'succeed', drive: 'full' });
+    expect(attributesOf(h.calls.listings[0])).toMatchObject({ model: 'succeed', drive: ['full'] });
     await ask(h, 'машина автомат бенз до миллиона');
-    expect(attributesOf(h.calls.listings[1])).toMatchObject({ gearbox: 'auto', fuel: 'petrol' });
+    expect(attributesOf(h.calls.listings[1])).toMatchObject({
+      gearbox: ['auto'],
+      fuel: ['petrol'],
+    });
     expect(h.calls.listings[1]).toMatchObject({ category: 'transport-cars', priceTo: 100_000_000 });
   });
 
@@ -402,8 +405,8 @@ describe('Контекст: продолжение и смена раздела'
     expect(attributesOf(last)).toMatchObject({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
   });
 

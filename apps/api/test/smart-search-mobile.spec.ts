@@ -88,8 +88,8 @@ describe('Объявления: фраза становится фильтрам
     expect(attributesOf(h.calls.listings[0])).toEqual({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
     const filters = screenFilters(response);
     // Копейки сервера → рубли экрана
@@ -97,8 +97,8 @@ describe('Объявления: фраза становится фильтрам
     expect(filters.attributes).toEqual({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
     expect(understoodSummary(listingPartOf(response)!.query!)).toBe(
       'Toyota Succeed · до 1,2 млн ₽ · автомат · бензин',
@@ -115,7 +115,7 @@ describe('Объявления: фраза становится фильтрам
     expect(filters).toMatchObject({
       category: 'transport-cars',
       priceTo: 1_000_000,
-      attributes: { brand: 'toyota', model: 'succeed', gearbox: 'auto' },
+      attributes: { brand: 'toyota', model: 'succeed', gearbox: ['auto'] },
     });
     expect(filters.search).toBeUndefined();
   });
@@ -316,7 +316,7 @@ describe('Контекст: следующая фраза уточняет пр�
     expect(screenFilters(third)).toMatchObject({
       category: 'transport-cars',
       priceTo: 1_000_000,
-      attributes: { brand: 'toyota', model: 'succeed', gearbox: 'auto' },
+      attributes: { brand: 'toyota', model: 'succeed', gearbox: ['auto'] },
     });
 
     // Города нет в приложении — уточнение «где искать», а прежние условия не теряются

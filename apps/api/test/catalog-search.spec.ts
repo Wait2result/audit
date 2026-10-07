@@ -52,7 +52,7 @@ describe('направления основных типов в умном по�
     [
       'зимняя резина на суксид',
       'transport-tires',
-      { ...SUCCEED, tireType: 'tires', season: 'winter' },
+      { ...SUCCEED, tireType: 'tires', season: ['winter'] },
     ],
     ['рейка на суксид', 'transport-parts', { ...SUCCEED, partItem: 'steering_rack' }],
     ['видеорегистратор', 'transport-car-electronics', { goodsType: 'dashcam' }],

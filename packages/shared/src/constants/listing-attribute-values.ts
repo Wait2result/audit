@@ -1,4 +1,8 @@
-import type { AttributeDefinition, ListingAttribute } from './listing-attributes.js';
+import {
+  isAttributeVisible,
+  type AttributeDefinition,
+  type ListingAttribute,
+} from './listing-attributes.js';
 import { manufacturerFitsOriginality } from './parts/manufacturers.js';
 
 /**
@@ -114,4 +118,23 @@ function fitsOptions(field: ListingAttribute, value: unknown): boolean {
   const allowed = new Set(field.options.map((option) => option.value));
   const items = Array.isArray(value) ? value : [value];
   return items.every((item) => allowed.has(String(item)));
+}
+
+/**
+ * Только условия по видимым полям: скрытое при текущих значениях (условия
+ * аренды у «Купить», ширина диска у шин) не уходит в запрос и не остаётся в
+ * фильтре — иначе невидимое условие сузило бы выдачу, а человек не понял бы
+ * почему. Ключи, которых нет среди полей, не трогаются.
+ */
+export function visibleValues(
+  fields: readonly AttributeDefinition[],
+  values: Readonly<Record<string, unknown>>,
+  deal?: { transactionType?: string | null },
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([key]) => {
+      const field = fields.find((item) => item.key === key);
+      return !field || isAttributeVisible(field, values, deal);
+    }),
+  );
 }

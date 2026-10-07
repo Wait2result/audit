@@ -71,8 +71,8 @@ const CASES: PhraseCase[] = [
       expect(attributesOf(calls.listings[0])).toEqual({
         brand: 'toyota',
         model: 'succeed',
-        gearbox: 'auto',
-        fuel: 'petrol',
+        gearbox: ['auto'],
+        fuel: ['petrol'],
       });
     },
   },

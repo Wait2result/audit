@@ -538,7 +538,16 @@ export function feedWhere(query: ListingListQuery, context: FeedContext): Prisma
   const search = query.search ? searchSql(query.search) : null;
   if (search) parts.push(search);
 
-  parts.push(...attributeSql(context.attributes, parseAttributeFilter(query.attributes)));
+  // Условия, которых при выбранной сделке не бывает («можно с животными» у
+  // «Купить»), на выдачу не влияют: иначе старый фильтр аренды обнулил бы продажу
+  const forDeal = query.transactionType
+    ? context.attributes.filter(
+        (attribute) =>
+          attribute.visibleWhen?.key !== 'transactionType' ||
+          attribute.visibleWhen.values.includes(query.transactionType as string),
+      )
+    : context.attributes;
+  parts.push(...attributeSql(forDeal, parseAttributeFilter(query.attributes)));
 
   return join(parts, ' AND ');
 }

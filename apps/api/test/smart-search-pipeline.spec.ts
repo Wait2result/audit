@@ -52,7 +52,7 @@ describe('Маршрутизация по разделам', () => {
     expect(attributesOf(query)).toMatchObject({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
+      gearbox: ['auto'],
     });
     expect(response.message).toBe('Нашлось 3 объявления');
   });
@@ -351,7 +351,7 @@ describe('Контекст: уточнения следующей фразой',
     expect(attributesOf(h.calls.listings[1])).toMatchObject({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
+      gearbox: ['auto'],
     });
     expect(h.calls.listings[1]).toMatchObject({ priceTo: 100_000_000 });
 
@@ -360,7 +360,7 @@ describe('Контекст: уточнения следующей фразой',
       latitude: KASPIYSK.latitude,
       priceTo: 100_000_000,
     });
-    expect(attributesOf(h.calls.listings[2])).toMatchObject({ gearbox: 'auto' });
+    expect(attributesOf(h.calls.listings[2])).toMatchObject({ gearbox: ['auto'] });
 
     const cheaper = await ask(h, 'А есть дешевле?', { sessionId });
     expect(cheaper.status).toBe('results');

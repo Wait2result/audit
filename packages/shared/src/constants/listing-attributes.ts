@@ -279,6 +279,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'renovation',
     label: 'Ремонт',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'none', label: 'Без отделки' },
       { value: 'cosmetic', label: 'Косметический' },
@@ -290,6 +291,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'buildingType',
     label: 'Тип дома',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'panel', label: 'Панельный' },
       { value: 'brick', label: 'Кирпичный' },
@@ -317,6 +319,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'bathroom',
     label: 'Санузел',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'combined', label: 'Совмещённый' },
       { value: 'separate', label: 'Раздельный' },
@@ -327,6 +330,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'heating',
     label: 'Отопление',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'central', label: 'Центральное' },
       { value: 'gas', label: 'Газовое' },
@@ -343,7 +347,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     type: 'number',
     min: 1,
     max: 20,
-    filter: 'select',
+    filter: 'multiselect',
     options: [
       { value: '1', label: '1' },
       { value: '2', label: '2' },
@@ -379,6 +383,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'road',
     label: 'Подъезд',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'asphalt', label: 'Асфальт' },
       { value: 'gravel', label: 'Грунт, щебень' },
@@ -427,6 +432,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'garageType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'garage', label: 'Гараж' },
       { value: 'box', label: 'Бокс' },
@@ -451,6 +457,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'wallMaterial',
     label: 'Материал стен',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'brick', label: 'Кирпич' },
       { value: 'block', label: 'Блок' },
@@ -465,6 +472,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'landPurpose',
     label: 'Назначение участка',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'igs', label: 'ИЖС' },
       { value: 'garden', label: 'Садоводство' },
@@ -478,6 +486,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'commercialType',
     label: 'Назначение помещения',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'office', label: 'Офис' },
       { value: 'retail', label: 'Торговое' },
@@ -504,6 +513,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'gearbox',
     label: 'Коробка передач',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'manual', label: 'Механика' },
       { value: 'auto', label: 'Автомат' },
@@ -516,6 +526,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'fuel',
     label: 'Двигатель',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'petrol', label: 'Бензин' },
       { value: 'diesel', label: 'Дизель' },
@@ -528,6 +539,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'drive',
     label: 'Привод',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       // В карточке — со словом «привод»: «Полный» без него непонятно, о чём
       { value: 'front', label: 'Передний', cardLabel: 'Передний привод' },
@@ -539,6 +551,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'bodyType',
     label: 'Кузов',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'sedan', label: 'Седан' },
       { value: 'hatchback', label: 'Хэтчбек' },
@@ -572,6 +585,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'owners',
     label: 'Владельцев по ПТС',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: '1', label: 'Один' },
       { value: '2', label: 'Два' },
@@ -602,6 +616,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'motoType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'sport', label: 'Спортивный' },
       { value: 'classic', label: 'Классический' },
@@ -627,6 +642,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'truckType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'tractor', label: 'Тягач' },
       { value: 'flatbed', label: 'Бортовой' },
@@ -655,6 +671,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'specialType',
     label: 'Тип техники',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'excavator', label: 'Экскаватор' },
       { value: 'loader', label: 'Погрузчик' },
@@ -682,6 +699,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'waterType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'motorboat', label: 'Моторная лодка' },
       { value: 'inflatable', label: 'Надувная лодка' },
@@ -707,6 +725,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'hullMaterial',
     label: 'Материал корпуса',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'aluminium', label: 'Алюминий' },
       { value: 'plastic', label: 'Пластик' },
@@ -768,6 +787,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'partCondition',
     label: 'Состояние',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'new', label: 'Новая', aliases: ['новый', 'новое', 'новые'] },
       {
@@ -830,6 +850,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'partSaleUnit',
     label: 'Продаётся',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'piece', label: 'Поштучно' },
       { value: 'pair', label: 'Парой' },
@@ -915,6 +936,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'childAge',
     label: 'Возраст ребёнка',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: '0_1', label: 'До 1 года' },
       { value: '0_4', label: '0–4 года' },
@@ -930,6 +952,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'childWeight',
     label: 'Вес ребёнка',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: '0_13', label: 'До 13 кг' },
       { value: '0_18', label: 'До 18 кг' },
@@ -970,6 +993,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'seatInstallation',
     label: 'Установка',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'forward', label: 'По ходу движения' },
       { value: 'rearward', label: 'Против хода' },
@@ -981,6 +1005,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'batteryVoltage',
     label: 'Напряжение',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: '6', label: '6 В' },
       { value: '12', label: '12 В' },
@@ -1019,6 +1044,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'batteryChemistry',
     label: 'Тип аккумулятора',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'lead_acid', label: 'Свинцово-кислотный' },
       { value: 'calcium', label: 'Кальциевый' },
@@ -1068,6 +1094,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'season',
     label: 'Сезон',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'summer', label: 'Летние' },
       { value: 'winter', label: 'Зимние' },
@@ -1196,6 +1223,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'rimMaterial',
     label: 'Тип диска',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'cast', label: 'Литой', aliases: ['литые', 'литьё', 'литье'] },
       { value: 'stamped', label: 'Штампованный', aliases: ['штамповка', 'штампы'] },
@@ -1218,6 +1246,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'employment',
     label: 'Занятость',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'full', label: 'Полная', cardLabel: 'Полная занятость' },
       { value: 'part', label: 'Частичная', cardLabel: 'Частичная занятость' },
@@ -1231,6 +1260,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'schedule',
     label: 'График',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'five_two', label: '5/2' },
       { value: 'two_two', label: '2/2' },
@@ -1255,6 +1285,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'registration',
     label: 'Оформление',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'labor_code', label: 'По трудовой книжке' },
       { value: 'contract', label: 'По договору' },
@@ -1275,6 +1306,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'serviceFormat',
     label: 'Как оказывается',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'visit', label: 'Выезд к заказчику' },
       { value: 'office', label: 'У себя' },
@@ -1286,6 +1318,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'performer',
     label: 'Кто оказывает',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'private', label: 'Частное лицо' },
       { value: 'specialist', label: 'Специалист' },
@@ -1524,6 +1557,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'sphere',
     label: 'Сфера',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'sales', label: 'Продажи, торговля' },
       { value: 'driver', label: 'Водители, логистика' },
@@ -1617,6 +1651,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'os',
     label: 'Система',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'windows', label: 'Windows' },
       { value: 'macos', label: 'macOS' },
@@ -1649,6 +1684,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'resolution',
     label: 'Разрешение',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'hd', label: 'HD' },
       { value: 'fullhd', label: 'Full HD' },
@@ -1662,6 +1698,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'photoType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'camera', label: 'Фотоаппарат' },
       { value: 'lens', label: 'Объектив' },
@@ -1677,6 +1714,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'consoleType',
     label: 'Приставка',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'ps5', label: 'PlayStation 5' },
       { value: 'ps4', label: 'PlayStation 4' },
@@ -1694,6 +1732,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'audioType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'headphones', label: 'Наушники' },
       { value: 'speakers', label: 'Колонки' },
@@ -1710,6 +1749,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'applianceType',
     label: 'Тип техники',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'fridge', label: 'Холодильник' },
       { value: 'washer', label: 'Стиральная машина' },
@@ -1729,6 +1769,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'accessoryType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     // Чехлы, защитные стёкла и зарядки — свои направления у телефонов
     // (переезд объявлений — CATEGORY_RELOCATIONS)
     options: [
@@ -1756,6 +1797,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'storage',
     label: 'Накопитель',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'hdd', label: 'HDD' },
       { value: 'ssd', label: 'SSD' },
@@ -1799,6 +1841,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'gender',
     label: 'Кому',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'male', label: 'Мужское' },
       { value: 'female', label: 'Женское' },
@@ -1811,6 +1854,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'clothesType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'outerwear', label: 'Верхняя одежда' },
       { value: 'dresses', label: 'Платья, юбки' },
@@ -1843,6 +1887,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'kidsGoodsType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'stroller', label: 'Коляска' },
       { value: 'car_seat', label: 'Автокресло' },
@@ -1859,6 +1904,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'jewelryType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'ring', label: 'Кольцо' },
       { value: 'earrings', label: 'Серьги' },
@@ -1873,6 +1919,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'jewelryMaterial',
     label: 'Материал',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'gold', label: 'Золото' },
       { value: 'silver', label: 'Серебро' },
@@ -1885,6 +1932,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'furnitureType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'sofa', label: 'Диван, кресло' },
       { value: 'bed', label: 'Кровать, матрас' },
@@ -1903,6 +1951,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'lightType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'chandelier', label: 'Люстра' },
       { value: 'lamp', label: 'Настольная лампа' },
@@ -1918,6 +1967,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'materialType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'lumber', label: 'Пиломатериалы' },
       { value: 'brick_block', label: 'Кирпич, блоки' },
@@ -1937,6 +1987,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'toolType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'power', label: 'Электроинструмент' },
       { value: 'hand', label: 'Ручной' },
@@ -1952,6 +2003,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'plumbingType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'bath', label: 'Ванна' },
       { value: 'shower', label: 'Душевая' },
@@ -1969,6 +2021,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'doorsType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'entrance_door', label: 'Входная дверь' },
       { value: 'interior_door', label: 'Межкомнатная дверь' },
@@ -1983,6 +2036,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'material',
     label: 'Материал',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'wood', label: 'Дерево' },
       { value: 'metal', label: 'Металл' },
@@ -1997,6 +2051,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'sportType',
     label: 'Вид спорта',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'fitness', label: 'Фитнес, тренажёры' },
       { value: 'martial', label: 'Единоборства' },
@@ -2013,6 +2068,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'bikeType',
     label: 'Тип',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'mountain', label: 'Горный' },
       { value: 'road', label: 'Шоссейный' },
@@ -2040,6 +2096,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'instrumentType',
     label: 'Инструмент',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'guitar', label: 'Гитара' },
       { value: 'piano', label: 'Пианино, синтезатор' },
@@ -2056,6 +2113,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'gamesType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'board', label: 'Настольные игры' },
       { value: 'puzzles', label: 'Пазлы, головоломки' },
@@ -2070,6 +2128,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'businessSphere',
     label: 'Сфера',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'retail', label: 'Торговля' },
       { value: 'food', label: 'Общепит' },
@@ -2105,6 +2164,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'premises',
     label: 'Помещение',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'own', label: 'В собственности' },
       { value: 'rent', label: 'В аренде' },
@@ -2115,6 +2175,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'equipmentType',
     label: 'Что это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'trade', label: 'Торговое' },
       { value: 'food', label: 'Для общепита' },
@@ -2160,6 +2221,7 @@ const DEFINITIONS: readonly AttributeDefinition[] = [
     key: 'livestockKind',
     label: 'Кто это',
     type: 'enum',
+    filter: 'multiselect',
     options: [
       { value: 'cattle', label: 'Коровы, быки' },
       { value: 'sheep', label: 'Овцы, бараны' },

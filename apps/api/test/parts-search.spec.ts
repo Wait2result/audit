@@ -109,14 +109,17 @@ const RESOLVED: [string, Expected][] = [
   ['цепь на мото', { category: 'transport-moto-parts', attrs: { partItem: 'moto_chain' } }],
   [
     'пластик на скутер',
-    { category: 'transport-moto-parts', attrs: { motoType: 'scooter', partItem: 'moto_plastic' } },
+    {
+      category: 'transport-moto-parts',
+      attrs: { motoType: ['scooter'], partItem: 'moto_plastic' },
+    },
   ],
   // спецтехника
   [
     'гидронасос на экскаватор',
     {
       category: 'transport-special-parts',
-      attrs: { specialType: 'excavator', partItem: 'hydraulic_pump' },
+      attrs: { specialType: ['excavator'], partItem: 'hydraulic_pump' },
     },
   ],
   ['зубья ковша', { category: 'transport-special-parts', attrs: { partItem: 'bucket_teeth' } }],
@@ -255,9 +258,9 @@ describe('производитель, тип и состояние в умном
     ['рейка ncp165 kyb', { ...RACK, compatChassis: 'NCP165', partManufacturer: 'kyb' }],
     [
       'б/у оригинал рейка ncp165',
-      { ...RACK, compatChassis: 'NCP165', partCondition: 'used', partOriginality: 'original' },
+      { ...RACK, compatChassis: 'NCP165', partCondition: ['used'], partOriginality: 'original' },
     ],
-    ['новая denso', { partCondition: 'new', partManufacturer: 'denso' }],
+    ['новая denso', { partCondition: ['new'], partManufacturer: 'denso' }],
     ['рейка probox ncp160', { ...RACK, compatModel: 'probox', compatChassis: 'NCP160' }],
     [
       'оригинальная рейка succeed',
@@ -277,7 +280,7 @@ describe('производитель, тип и состояние в умном
       'колодки Bosch на NCP165',
       { partItem: 'brake_pads', compatChassis: 'NCP165', partManufacturer: 'bosch' },
     ],
-    ['новая рейка суксид', { ...RACK, compatModel: 'succeed', partCondition: 'new' }],
+    ['новая рейка суксид', { ...RACK, compatModel: 'succeed', partCondition: ['new'] }],
     [
       'рейка Succeed 2015',
       { ...RACK, compatModel: 'succeed', compatYear: { from: 2015, to: 2015 } },
@@ -285,15 +288,15 @@ describe('производитель, тип и состояние в умном
     ['рейка Probox 2018', { ...RACK, compatModel: 'probox', compatYear: { from: 2018, to: 2018 } }],
     [
       'новая оригинальная рейка Succeed',
-      { ...RACK, partCondition: 'new', partOriginality: 'original' },
+      { ...RACK, partCondition: ['new'], partOriginality: 'original' },
     ],
-    ['новая KYB рейка', { ...RACK, partCondition: 'new', partManufacturer: 'kyb' }],
+    ['новая KYB рейка', { ...RACK, partCondition: ['new'], partManufacturer: 'kyb' }],
     ['рейка NCP165', { ...RACK, compatChassis: 'NCP165' }],
-    ['контрактная рейка суксид', { ...RACK, partCondition: 'used', partOriginality: 'original' }],
+    ['контрактная рейка суксид', { ...RACK, partCondition: ['used'], partOriginality: 'original' }],
     ['Denso 123456', { partNumber: '123456', partManufacturer: 'denso' }],
     [
       'восстановленная оригинальная рейка суксид',
-      { ...RACK, partCondition: 'restored', partOriginality: 'original' },
+      { ...RACK, partCondition: ['restored'], partOriginality: 'original' },
     ],
   ])('«%s»', async (text, attrs) => {
     const r = await ask(text);

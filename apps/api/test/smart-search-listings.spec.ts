@@ -61,8 +61,8 @@ describe('Объявления: «Toyota Succeed до 1.2 млн, автомат
     expect(attrs(outcome)).toMatchObject({
       brand: 'toyota',
       model: 'succeed',
-      gearbox: 'auto',
-      fuel: 'petrol',
+      gearbox: ['auto'],
+      fuel: ['petrol'],
     });
     expect(query.conditions.map((item) => item.field)).toEqual(
       expect.arrayContaining(['category', 'brand', 'model', 'price', 'gearbox', 'fuel']),
