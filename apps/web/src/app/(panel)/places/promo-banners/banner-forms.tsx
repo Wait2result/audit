@@ -1,7 +1,13 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import type { PromoBannerAdminDto, PromoPlacement } from '@dagestan/shared';
+import {
+  PROMO_RUBRICS,
+  PROMO_SCREENS,
+  type PromoActionType,
+  type PromoBannerAdminDto,
+  type PromoPlacement,
+} from '@dagestan/shared';
 
 import {
   createPromoBanner,
@@ -10,6 +16,7 @@ import {
   updatePromoBanner,
   type BannerActionState,
 } from './actions';
+import type { PlacementKind } from './placements';
 
 const inputClass =
   'w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-ink-100 outline-none transition focus:border-brand-500';
@@ -38,28 +45,122 @@ export interface PlaceOption {
   cityName: string;
 }
 
-/** Список заведений отсортирован по городу — искать глазами проще, чем по алфавиту вперемешку. */
-function PlaceSelect({
-  places,
-  defaultValue,
-}: {
-  places: PlaceOption[];
-  defaultValue?: string | null;
-}) {
+const ACTION_LABELS: Record<PromoActionType, string> = {
+  none: 'Ничего — карточка информационная',
+  place: 'Заведение',
+  rubric: 'Рубрика главной',
+  screen: 'Экран приложения',
+  url: 'Внешняя ссылка',
+};
+
+/**
+ * Что открывает нажатие на карточку. Поле значения зависит от выбора:
+ * заведение — списком (по городу: искать глазами проще), рубрика и экран —
+ * из закрытых списков приложения, ссылка — только https.
+ */
+function ActionFields({ places, banner }: { places: PlaceOption[]; banner?: PromoBannerAdminDto }) {
+  const [type, setType] = useState<PromoActionType>(banner?.actionType ?? 'none');
+  const value = banner?.actionType === type ? (banner.actionValue ?? '') : '';
+
   return (
-    <Field
-      label="Заведение"
-      hint="Нажатие на баннер откроет его карточку. Не выбрано — баннер просто информационный"
-    >
-      <select name="targetPlaceId" defaultValue={defaultValue ?? ''} className={inputClass}>
-        <option value="">— без заведения —</option>
-        {places.map((place) => (
-          <option key={place.id} value={place.id}>
-            {place.cityName} · {place.name}
-          </option>
-        ))}
-      </select>
-    </Field>
+    <>
+      <Field label="Нажатие открывает">
+        <select
+          name="actionType"
+          value={type}
+          onChange={(event) => setType(event.target.value as PromoActionType)}
+          className={inputClass}
+        >
+          {(Object.keys(ACTION_LABELS) as PromoActionType[]).map((option) => (
+            <option key={option} value={option}>
+              {ACTION_LABELS[option]}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      {type === 'place' && (
+        <Field label="Заведение" hint="Откроется карточка заведения">
+          <select name="actionValue" required defaultValue={value} className={inputClass}>
+            <option value="">— выберите —</option>
+            {places.map((place) => (
+              <option key={place.id} value={place.id}>
+                {place.cityName} · {place.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {type === 'rubric' && (
+        <Field label="Рубрика">
+          <select name="actionValue" required defaultValue={value} className={inputClass}>
+            {Object.entries(PROMO_RUBRICS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {type === 'screen' && (
+        <Field label="Экран">
+          <select name="actionValue" required defaultValue={value} className={inputClass}>
+            {PROMO_SCREENS.map((screen) => (
+              <option key={screen.value} value={screen.value}>
+                {screen.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {type === 'url' && (
+        <Field label="Ссылка" hint="Только https://. Откроется в браузере телефона">
+          <input
+            name="actionValue"
+            type="url"
+            required
+            pattern="https://.*"
+            defaultValue={value}
+            placeholder="https://burgerhouse.ru"
+            className={inputClass}
+          />
+        </Field>
+      )}
+    </>
+  );
+}
+
+/**
+ * Дата и время для поля формы — по Москве (Дагестан живёт по московскому
+ * времени), а не по поясу сервера панели.
+ */
+function toMoscowInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const moscow = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
+  return moscow.toISOString().slice(0, 16);
+}
+
+/** Срок показа: пустое поле — без ограничения с этой стороны. */
+function ScheduleFields({ banner }: { banner?: PromoBannerAdminDto }) {
+  return (
+    <>
+      <Field label="Показывать с" hint="По московскому времени. Пусто — сразу">
+        <input
+          type="datetime-local"
+          name="startsAt"
+          defaultValue={toMoscowInput(banner?.startsAt)}
+          className={inputClass}
+        />
+      </Field>
+      <Field label="Показывать до" hint="По московскому времени. Пусто — без срока">
+        <input
+          type="datetime-local"
+          name="endsAt"
+          defaultValue={toMoscowInput(banner?.endsAt)}
+          className={inputClass}
+        />
+      </Field>
+    </>
   );
 }
 
@@ -69,12 +170,42 @@ function PlaceSelect({
  * Форма свёрнута, пока не нажали «Добавить»: раскрытая форма на пустом
  * месте карусели выглядела бы тяжелее самих баннеров.
  */
+/**
+ * Заголовок карточки. У карусели он виден в приложении; у плитки надпись
+ * задаёт приложение, а заголовок — подпись для себя: что за фото и чьё.
+ */
+function TitleField({ kind, defaultValue }: { kind: PlacementKind; defaultValue?: string }) {
+  return (
+    <Field
+      label={kind === 'tile' ? 'Подпись для панели' : 'Заголовок'}
+      {...(kind === 'tile'
+        ? { hint: 'Видна только здесь. Надпись на плитке задаёт приложение' }
+        : {})}
+    >
+      <input
+        name="title"
+        required
+        maxLength={120}
+        defaultValue={defaultValue}
+        placeholder={
+          kind === 'tile' ? 'Суши «Токио» — реклама на октябрь' : 'Настоящий вкус Дагестана'
+        }
+        className={inputClass}
+      />
+    </Field>
+  );
+}
+
 export function CreatePromoBannerForm({
   placement,
   places,
+  kind,
+  imageHint,
 }: {
   placement: PromoPlacement;
   places: PlaceOption[];
+  kind: PlacementKind;
+  imageHint: string;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState<BannerActionState, FormData>(
@@ -89,7 +220,7 @@ export function CreatePromoBannerForm({
         onClick={() => setOpen(true)}
         className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-brand-400"
       >
-        Добавить баннер
+        {kind === 'tile' ? 'Добавить фото' : 'Добавить баннер'}
       </button>
     );
   }
@@ -99,34 +230,33 @@ export function CreatePromoBannerForm({
       <input type="hidden" name="placement" value={placement} />
 
       <div className="md:col-span-2">
-        <Field label="Заголовок">
-          <input
-            name="title"
-            required
-            maxLength={120}
-            placeholder="Настоящий вкус Дагестана"
-            className={inputClass}
-          />
-        </Field>
+        <TitleField kind={kind} />
       </div>
 
-      <div className="md:col-span-2">
-        <Field label="Подзаголовок" hint="Необязательно">
-          <input
-            name="subtitle"
-            maxLength={200}
-            placeholder="Хинкал, чуду и курзе — с доставкой домой"
-            className={inputClass}
-          />
-        </Field>
-      </div>
+      {kind === 'carousel' && (
+        <>
+          <div className="md:col-span-2">
+            <Field label="Подзаголовок" hint="Необязательно">
+              <input
+                name="subtitle"
+                maxLength={200}
+                placeholder="Хинкал, чуду и курзе — с доставкой домой"
+                className={inputClass}
+              />
+            </Field>
+          </div>
 
-      <PlaceSelect places={places} />
+          <ActionFields places={places} />
+        </>
+      )}
 
-      <Field label="Картинка" hint="Во весь баннер, горизонтальная. PNG, JPEG или WebP">
+      <ScheduleFields />
+
+      <Field label="Картинка" hint={imageHint}>
         <input
           type="file"
           name="image"
+          required={kind === 'tile'}
           accept="image/png,image/jpeg,image/webp"
           className="block w-full text-sm text-ink-400 file:mr-3 file:rounded-md file:border-0 file:bg-ink-800 file:px-3 file:py-1.5 file:text-sm file:text-ink-200"
         />
@@ -157,9 +287,13 @@ export function CreatePromoBannerForm({
 export function EditPromoBannerForm({
   banner,
   places,
+  kind,
+  imageHint,
 }: {
   banner: PromoBannerAdminDto;
   places: PlaceOption[];
+  kind: PlacementKind;
+  imageHint: string;
 }) {
   const [state, formAction, pending] = useActionState<BannerActionState, FormData>(
     updatePromoBanner,
@@ -170,28 +304,29 @@ export function EditPromoBannerForm({
     <form action={formAction} className="grid gap-3 md:grid-cols-2">
       <input type="hidden" name="id" value={banner.id} />
 
-      <Field label="Заголовок">
-        <input
-          name="title"
-          required
-          maxLength={120}
-          defaultValue={banner.title}
-          className={inputClass}
-        />
-      </Field>
+      <TitleField kind={kind} defaultValue={banner.title} />
 
-      <Field label="Подзаголовок">
-        <input
-          name="subtitle"
-          maxLength={200}
-          defaultValue={banner.subtitle ?? ''}
-          className={inputClass}
-        />
-      </Field>
+      {kind === 'carousel' && (
+        <>
+          <Field label="Подзаголовок">
+            <input
+              name="subtitle"
+              maxLength={200}
+              defaultValue={banner.subtitle ?? ''}
+              className={inputClass}
+            />
+          </Field>
 
-      <PlaceSelect places={places} defaultValue={banner.targetPlaceId} />
+          <ActionFields places={places} banner={banner} />
+        </>
+      )}
 
-      <Field label="Заменить картинку" hint="Пустое поле — картинка останется прежней">
+      <ScheduleFields banner={banner} />
+
+      <Field
+        label="Заменить картинку"
+        hint={`Пустое поле — картинка останется прежней. ${imageHint}`}
+      >
         <input
           type="file"
           name="image"

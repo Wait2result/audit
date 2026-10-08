@@ -102,9 +102,13 @@ function main() {
     // Куда приложение ходит за данными
     env.EXPO_PUBLIC_API_URL = `${publicUrl}/api/v1`;
 
-    // Подпись манифеста без серверов Expo: с ней Expo Go на телефоне
-    // зависает на «Opening project…», а без неё открывается сразу
-    if (!expoArgs.includes('--offline')) expoArgs.push('--offline');
+    // Без --offline: с Expo SDK 57 Expo Go на iPhone открывает только приложение,
+    // подписанное аккаунтом Expo (тем же, что вошёл в Expo Go), — а подпись
+    // требует связи с серверами Expo, чтобы получить и обновить сертификат
+    // разработки (он живёт ~30 дней). Нет связи — Expo CLI берёт сертификат из
+    // кеша. Прежнее зависание «Opening project…» было из-за IPv6 у Node, его
+    // снимают флаги IPV4_NODE_FLAGS выше. Нужны `npx expo login` на компьютере
+    // и extra.eas.projectId в app.json (docs/ADR/0009-туннель-разработки.md)
     // Порт фиксирован: именно на него смотрит прокси сервера
     if (!expoArgs.includes('--port') && !expoArgs.includes('-p')) {
       expoArgs.push('--port', String(METRO_PORT));

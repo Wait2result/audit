@@ -424,10 +424,27 @@ model PlaceCategory {
   @@map("place_categories")
 }
 
-/// Где показывается промо-баннер: на главной странице или на витрине доставки.
+/// Где показывается промо-баннер: карусель главной, карусель витрины доставки
+/// или фото плитки главной (tile_*): «Объявления», «Заказать», «Сейчас в кино»,
+/// «Новости», «Попутчики».
 enum PromoPlacement {
   home
   delivery
+  tile_listings
+  tile_order
+  tile_cinema
+  tile_news
+  tile_rides
+}
+
+/// Что делает нажатие на промо-карточку: ничего, открыть заведение, рубрику
+/// главной, внутренний экран приложения или внешнюю ссылку (только https).
+enum PromoActionType {
+  none
+  place
+  rubric
+  screen
+  url
 }
 
 /// Промо-карточка в карусели — на главной или на витрине доставки.
@@ -446,8 +463,18 @@ model PromoBanner {
   /// Картинка карточки. Загружается в панели через обычный модуль медиа.
   imageMediaId String? @map("image_media_id") @db.Uuid
 
-  /// Заведение, куда ведёт нажатие. Пусто — карточка просто информационная.
+  /// Заведение, куда ведёт нажатие (действие place). Хранится связью, чтобы
+  /// удалённое заведение не оставляло карточку с битой ссылкой.
   targetPlaceId String? @map("target_place_id") @db.Uuid
+
+  /// Действие при нажатии и его значение: ключ рубрики, путь экрана или адрес.
+  /// У действия place значение — targetPlaceId.
+  actionType  PromoActionType @default(none) @map("action_type")
+  actionValue String?         @map("action_value") @db.VarChar(500)
+
+  /// Срок показа: пусто — без ограничения с этой стороны.
+  startsAt DateTime? @map("starts_at")
+  endsAt   DateTime? @map("ends_at")
 
   sortOrder Int     @default(0) @map("sort_order")
   isActive  Boolean @default(true) @map("is_active")

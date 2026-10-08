@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "icon": "./assets/images/icon.png",
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "ru.dagestan.app",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true,
@@ -55,6 +55,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8f7bb332-2242-4e74-a118-fb655b450030"
+      }
+    },
+    "owner": "islamrufer"
   }
 }

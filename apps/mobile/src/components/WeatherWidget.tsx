@@ -21,7 +21,11 @@ import { Icon } from './Icon';
 import { WeatherIcon } from './WeatherIcon';
 import { WeatherSkyPhoto } from './WeatherSkyPhoto';
 
-const CARD_HEIGHT = 220;
+/**
+ * Высота карточки. Ниже, чем была (220): под погодой теперь рекламная полоса,
+ * и экран не должен вырасти. Ужаты отступы, а не температура и часы.
+ */
+const CARD_HEIGHT = 186;
 /** Сколько часов показываем в виджете на главной — вкладке погоды нужна вся
  * лента на 48 часов, а тут только «на ближайшее время», чтобы не раздувать
  * главную страницу. */
@@ -34,7 +38,8 @@ const PREVIEW_HOURS = 12;
  * экран, но сразу с выбранным этим часом: подробности часа там уже есть,
  * отдельное всплывающее окно на главной их только дублировало.
  */
-export function WeatherWidget() {
+/** `width` — ширина карточки; без неё — экран минус поля (на планшете главная передаёт свою колонку). */
+export function WeatherWidget({ width: givenWidth }: { width?: number } = {}) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
@@ -43,7 +48,7 @@ export function WeatherWidget() {
 
   const { data, isLoading, isError } = useWeather(cityId);
 
-  const cardWidth = width - spacing.lg * 2;
+  const cardWidth = givenWidth ?? width - spacing.lg * 2;
 
   if (!cityId) return null;
 
@@ -148,10 +153,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.md,
-      padding: spacing.lg,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xs,
     },
     summaryTexts: { flex: 1 },
-    temperature: { fontSize: 40, fontWeight: '700', color: colors.textOnDark, letterSpacing: -1 },
+    temperature: {
+      fontSize: 38,
+      lineHeight: 44,
+      fontWeight: '700',
+      color: colors.textOnDark,
+      letterSpacing: -1,
+    },
     condition: { ...typography.body, color: colors.textOnDark, opacity: 0.9 },
     summaryRight: { alignItems: 'flex-end', gap: spacing.xs },
     feelsLike: {
@@ -162,11 +175,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     pressed: { opacity: 0.85 },
 
-    hourlyRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
+    hourlyRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
     hourTile: {
       alignItems: 'center',
-      gap: spacing.xs,
-      paddingVertical: spacing.sm,
+      gap: 2,
+      paddingVertical: spacing.xs + 2,
       paddingHorizontal: spacing.md,
       minWidth: 60,
     },

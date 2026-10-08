@@ -44,6 +44,7 @@ import type {
   PlaceReviewDto,
   PlaceReviewsDto,
   PromoBannerDto,
+  HomeTilesDto,
   PromoPlacement,
   UpdateMenuItemDto,
   UpsertReviewDto,
@@ -318,6 +319,18 @@ export function usePromoBanners(placement: PromoPlacement) {
       apiFetch<PromoBannerDto[]>(`/places/promo-banners?placement=${placement}`, {
         anonymous: true,
       }),
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/**
+ * Фото плиток главной из панели — одним запросом на все пять плиток. У плитки
+ * без своего фото — null: главная показывает фото по умолчанию (у кино — афишу).
+ */
+export function useHomeTiles() {
+  return useQuery({
+    queryKey: ['home-tiles'],
+    queryFn: () => apiFetch<HomeTilesDto>('/places/home-tiles', { anonymous: true }),
     staleTime: 30 * 60 * 1000,
   });
 }

@@ -213,18 +213,46 @@ export interface PlaceCategoryAdminDto extends PlaceCategoryDto {
 
 // ── Промо-баннеры ────────────────────────────────────────────────────────────
 
-/** Где показывается баннер: на главной странице или на витрине доставки. */
-export type PromoPlacement = 'home' | 'delivery';
+/**
+ * Где показывается баннер: карусель главной, карусель витрины доставки или
+ * фото одной из плиток главной («Объявления», «Заказать», …). Фото плитки —
+ * та же карточка из панели: картинка, порядок, включение. Надпись на плитке
+ * задаёт приложение, заголовок карточки — подпись для панели.
+ */
+export type PromoPlacement =
+  'home' | 'delivery' | 'tile_listings' | 'tile_order' | 'tile_cinema' | 'tile_news' | 'tile_rides';
 
-/** Промо-карточка карусели. Без картинки и без заведения — обычное объявление. */
+/** Плитка главной, у которой фото задаётся из панели. */
+export type HomeTileKey = 'listings' | 'order' | 'cinema' | 'news' | 'rides';
+
+/** Фото плиток главной одним ответом: первая включённая карточка каждой плитки. */
+export type HomeTilesDto = Record<HomeTileKey, PromoBannerDto | null>;
+
+/**
+ * Что делает нажатие на рекламную карточку: ничего, заведение (значение —
+ * id), рубрика главной (ключ плитки), внутренний экран (путь из списка) или
+ * внешняя ссылка https.
+ */
+export type PromoActionType = 'none' | 'place' | 'rubric' | 'screen' | 'url';
+
+/**
+ * Промо-карточка карусели. Описание — `subtitle`, картинка — `image`.
+ * Приложению приходят только включённые карточки, у которых сейчас идёт срок
+ * показа (`startsAt`…`endsAt`, пустая граница — без ограничения).
+ */
 export interface PromoBannerDto {
   id: string;
   placement: PromoPlacement;
   title: string;
   subtitle: string | null;
   image: MediaDto | null;
-  /** Куда ведёт нажатие. Нет заведения — карточка просто информационная */
+  /** Заведение действия place (оставлено для старых клиентов) */
   targetPlaceId: string | null;
+  actionType: PromoActionType;
+  /** id заведения, ключ рубрики, путь экрана или адрес; у none — null */
+  actionValue: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
 }
 
 /** То же плюс поля, которые видит и правит только панель. */

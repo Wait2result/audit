@@ -22,6 +22,7 @@ import { MovieTrailerModal } from '../src/components/MovieTrailerModal';
 import { Screen } from '../src/components/Screen';
 import { useCityStore } from '../src/store/city-store';
 import { radius, spacing, typography, useThemeColors } from '../src/theme';
+import { toIsoDate } from '../src/utils/city-date';
 
 interface DateTab {
   label: string;
@@ -48,20 +49,6 @@ function formatDayLabel(date: Date, timezone: string): string {
     timeZone: timezone,
     day: 'numeric',
     month: 'long',
-  }).format(date);
-}
-
-/**
- * Дата в часовом поясе города, а не телефона: расписание показывается по
- * времени кинотеатра. Иначе у человека в другом часовом поясе «Сегодня»
- * съезжает на соседний день — а ночью это происходит даже дома.
- */
-function toIsoDate(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
   }).format(date);
 }
 

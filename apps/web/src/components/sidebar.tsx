@@ -18,6 +18,8 @@ const NAV: NavItem[] = [
   { href: '/cities', label: 'Города', permission: 'cities:read' },
   { href: '/news', label: 'Новости', permission: 'news:read' },
   { href: '/places', label: 'Заведения', permission: 'places:read' },
+  // Карусели и фото плиток главной — то, что человек видит первым при запуске
+  { href: '/places/promo-banners', label: 'Главная и реклама', permission: 'places:read' },
   { href: '/listings', label: 'Объявления', permission: 'moderation:read' },
   { href: '/orders', label: 'Заказы', permission: 'orders:read' },
   { href: '/reviews', label: 'Отзывы', permission: 'reviews:read' },
@@ -68,7 +70,20 @@ export function Sidebar({
       <nav className="flex-1 px-3 py-2">
         <ul className="space-y-0.5">
           {visible.map((item) => {
-            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            // Подсвечен самый точный раздел: «Главная и реклама» лежит внутри
+            // «Заведений», и без этого горели бы оба пункта сразу
+            const matches = (href: string) =>
+              href === '/'
+                ? pathname === '/'
+                : pathname === href || pathname.startsWith(`${href}/`);
+            const active =
+              matches(item.href) &&
+              !NAV.some(
+                (other) =>
+                  other.href.length > item.href.length &&
+                  other.href.startsWith(item.href) &&
+                  matches(other.href),
+              );
 
             return (
               <li key={item.href}>

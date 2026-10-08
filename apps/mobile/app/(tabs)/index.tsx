@@ -1,114 +1,138 @@
-import type { PromoBannerDto } from '@dagestan/shared';
+import type { HomeTileKey, PromoBannerDto } from '@dagestan/shared';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type ImageSourcePropType,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { usePromoBanners } from '../../src/api/queries';
-import { AdCarousel, type AdSlide } from '../../src/components/AdCarousel';
+import tileFood from '../../assets/images/home/food.jpg';
+import tileListings from '../../assets/images/home/listings.jpg';
+import tileNews from '../../assets/images/home/news.jpg';
+import tileRides from '../../assets/images/home/rides.jpg';
+
+import { useCinemaSchedule, useCities, useHomeTiles, usePromoBanners } from '../../src/api/queries';
+import { AdCarousel } from '../../src/components/AdCarousel';
 import { AppBackground } from '../../src/components/AppBackground';
-import { GlassCard } from '../../src/components/GlassCard';
-import { Icon, type IconName } from '../../src/components/Icon';
+import { HomeTile } from '../../src/components/HomeTile';
+import { Icon } from '../../src/components/Icon';
 import { WeatherWidget } from '../../src/components/WeatherWidget';
+import { HOME_GAP, useHomeLayout } from '../../src/hooks/use-home-layout';
 import { useAuthStore } from '../../src/store/auth-store';
 import { useCityStore } from '../../src/store/city-store';
 import { radius, spacing, typography, useThemeColors } from '../../src/theme';
+import { DEFAULT_CITY_TIMEZONE, toIsoDate } from '../../src/utils/city-date';
+import { openPromoAction, promoSlides, rubricHref } from '../../src/utils/promo';
 
 /**
  * Главная страница (пункт 9 ТЗ).
  *
- * Точка входа во всё приложение: текущий город, рубрики, рекламный блок.
+ * Точка входа во всё приложение: город, погода, рекламная карусель и пять
+ * рубрик плитками с фото — как в референсе главной: «Объявления» и
+ * «Заказать», «Сейчас в кино» и «Новости», широкие «Попутчики».
  *
- * Рубрики намеренно показаны все сразу, включая ещё не сделанные. Так видно
- * будущую форму приложения целиком, а не наполовину собранное меню — и
- * появление каждого раздела не требует переделки главной.
+ * Фото плиток задаёт владелец в панели («Главная и реклама», плитки); пока
+ * своего фото нет — фото по умолчанию из приложения, у кино — афиша фильма
+ * из сегодняшних сеансов. «Недвижимость» плиткой не показывается: это раздел
+ * «Объявлений».
+ *
+ * На планшете — та же колонка по центру (не шире 720): пропорции плиток и
+ * фото те же, ничего не сжимается и не растягивается.
  */
 
 interface Rubric {
-  key: string;
+  key: HomeTileKey;
   title: string;
   subtitle: string;
-  icon: IconName;
-  /** Раздел ещё не реализован — открывается заглушка с пояснением */
-  ready: boolean;
+  /** Фото по умолчанию; у кино своего нет — там афиша сеанса */
+  fallback?: ImageSourcePropType;
 }
 
-const RUBRICS: Rubric[] = [
-  {
-    key: 'cinema',
-    title: 'Сейчас в кино',
-    subtitle: 'Сеансы и билеты',
-    icon: 'cinema',
-    ready: true,
-  },
-  { key: 'order', title: 'Заказать', subtitle: 'Доставка и заведения', icon: 'food', ready: true },
-  { key: 'news', title: 'Новости', subtitle: 'Что происходит', icon: 'news', ready: true },
-  {
+const RUBRICS: Record<HomeTileKey, Rubric> = {
+  listings: {
     key: 'listings',
     title: 'Объявления',
-    subtitle: 'Купить и продать',
-    icon: 'tag',
-    ready: true,
+    subtitle: 'Купить, продать, найти',
+    fallback: tileListings,
   },
-  {
+  order: {
+    key: 'order',
+    title: 'Заказать',
+    subtitle: 'Еда и доставка',
+    fallback: tileFood,
+  },
+  cinema: { key: 'cinema', title: 'Сейчас в кино', subtitle: 'Сеансы и билеты' },
+  news: {
+    key: 'news',
+    title: 'Новости',
+    subtitle: 'Что происходит',
+    fallback: tileNews,
+  },
+  rides: {
     key: 'rides',
     title: 'Попутчики',
     subtitle: 'Поездки между городами',
-    icon: 'rides',
-    ready: false,
+    fallback: tileRides,
   },
-  {
-    key: 'realty',
-    title: 'Недвижимость',
-    subtitle: 'Аренда и продажа',
-    icon: 'realty',
-    ready: true,
-  },
-];
+};
 
-/**
- * Рекламные карточки.
- *
- * Картинку и заведение, куда ведёт нажатие, задаёт владелец в панели
- * («Заведения → Реклама», место показа «Главная»). Пока фотографии нет,
- * вместо неё однотонная подложка одного из фирменных цветов, по кругу.
- */
-const FALLBACK_TINTS = (colors: ReturnType<typeof useThemeColors>) => [
-  colors.ink,
-  colors.primaryDark,
-  colors.accent,
-];
-
-function toSlides(
-  banners: PromoBannerDto[] | undefined,
-  colors: ReturnType<typeof useThemeColors>,
-): AdSlide[] {
-  const tints = FALLBACK_TINTS(colors);
-
-  return (banners ?? []).map((banner, index) => ({
-    id: banner.id,
-    title: banner.title,
-    subtitle: banner.subtitle ?? '',
-    imageUrl: banner.image?.url ?? banner.image?.thumbnailUrl ?? null,
-    tint: tints[index % tints.length]!,
-    targetPlaceId: banner.targetPlaceId,
-    isOwn: true,
-  }));
-}
+/** Фото плитки из панели: крупный вариант — плитка на планшете шире 300 px. */
+const tileImage = (banner: PromoBannerDto | null | undefined) =>
+  banner?.image?.url ?? banner?.image?.thumbnailUrl ?? null;
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const promoBanners = usePromoBanners('home');
-  const homeSlides = useMemo(
-    () => toSlides(promoBanners.data, colors),
-    [promoBanners.data, colors],
-  );
+  const layout = useHomeLayout();
 
+  const cityId = useCityStore((s) => s.cityId);
   const cityName = useCityStore((s) => s.cityName);
   const user = useAuthStore((s) => s.user);
+
+  // Рекламная карусель: карточки панели («Главная и реклама» → «Главная») —
+  // только включённые и в своём сроке показа, это отбирает сервер
+  const promoBanners = usePromoBanners('home');
+  const homeSlides = useMemo(
+    () => promoSlides(promoBanners.data, colors),
+    [promoBanners.data, colors],
+  );
+  const tiles = useHomeTiles();
+
+  // Афиша для «Сейчас в кино» — первый фильм сегодняшних сеансов города.
+  // «Сегодня» — по поясу города, как на экране кино: тот же запрос, тот же кеш
+  const { data: cities } = useCities();
+  const timezone = cities?.find((city) => city.id === cityId)?.timezone ?? DEFAULT_CITY_TIMEZONE;
+  const today = useMemo(() => toIsoDate(new Date(), timezone), [timezone]);
+  const schedule = useCinemaSchedule(cityId, today);
+  const poster = schedule.data?.find((item) => item.movie.posterUrl)?.movie.posterUrl ?? null;
+
+  // Фото «Заказать» может быть рекламой кафе, но плитка — вход во всю доставку
+  const open = (key: HomeTileKey) => router.push(rubricHref(key));
+
+  const tile = (key: HomeTileKey, width: number, height: number) => {
+    const rubric = RUBRICS[key];
+    const own = tileImage(tiles.data?.[key]);
+    return (
+      <HomeTile
+        key={key}
+        title={rubric.title}
+        subtitle={rubric.subtitle}
+        width={width}
+        height={height}
+        titleSize={layout.titleSize}
+        imageUrl={own ?? (key === 'cinema' ? poster : null)}
+        {...(rubric.fallback ? { fallback: rubric.fallback } : {})}
+        onPress={() => open(key)}
+      />
+    );
+  };
 
   return (
     <View style={styles.root}>
@@ -118,91 +142,70 @@ export default function HomeScreen() {
         contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Шапка: город можно сменить нажатием на его название (пункт 7 ТЗ) */}
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.push('/city-picker')}
-            accessibilityRole="button"
-            accessibilityLabel={`Текущий город: ${cityName ?? 'не выбран'}. Нажмите, чтобы сменить`}
-            style={({ pressed }) => [styles.cityButton, pressed && styles.pressed]}
-          >
-            <Icon name="location" size={20} color={colors.primary} />
-            <Text style={styles.cityName}>{cityName ?? 'Выбрать город'}</Text>
-            <Text style={styles.cityChevron}>⌄</Text>
-          </Pressable>
-        </View>
-
-        {homeSlides.length > 0 && (
-          <View style={styles.section}>
-            <AdCarousel
-              slides={homeSlides}
-              onPressSlide={(slide) => {
-                if (slide.targetPlaceId) {
-                  router.push({ pathname: '/places/[id]', params: { id: slide.targetPlaceId } });
-                }
-              }}
-            />
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <WeatherWidget />
-        </View>
-
-        <View style={[styles.section, styles.padded]}>
-          <View style={styles.grid}>
-            {RUBRICS.map((rubric) => (
-              <Pressable
-                key={rubric.key}
-                onPress={() => {
-                  if (rubric.key === 'cinema') router.push('/cinema');
-                  else if (rubric.key === 'news') router.push('/news');
-                  else if (rubric.key === 'order') router.push('/places');
-                  else if (rubric.key === 'listings') router.push('/listings');
-                  // «Недвижимость» — это раздел доски объявлений, а не
-                  // отдельная рубрика: открываем доску с выбранным разделом
-                  else if (rubric.key === 'realty')
-                    router.push({ pathname: '/listings/category', params: { slug: 'realty' } });
-                  else router.push(`/coming-soon?title=${encodeURIComponent(rubric.title)}`);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`${rubric.title}. ${rubric.subtitle}`}
-                style={({ pressed }) => [styles.tileWrapper, pressed && styles.pressed]}
-              >
-                <GlassCard style={styles.tile} shadow>
-                  <View style={styles.tileIcon}>
-                    <Icon name={rubric.icon} size={26} color={colors.primary} />
-                  </View>
-
-                  <View style={styles.tileTexts}>
-                    <Text style={styles.tileTitle}>{rubric.title}</Text>
-                    <Text style={styles.tileSubtitle} numberOfLines={2}>
-                      {rubric.subtitle}
-                    </Text>
-                  </View>
-                </GlassCard>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        {!user && (
-          <View style={[styles.section, styles.padded]}>
+        {/* Колонка: на телефоне — весь экран, на планшете — по центру */}
+        <View style={{ width: layout.outer, alignSelf: 'center' }}>
+          {/* Шапка: город можно сменить нажатием на его название (пункт 7 ТЗ) */}
+          <View style={styles.header}>
             <Pressable
-              onPress={() => router.push('/auth/phone')}
+              onPress={() => router.push('/city-picker')}
               accessibilityRole="button"
-              style={({ pressed }) => [styles.signInCard, pressed && styles.pressed]}
+              accessibilityLabel={`Текущий город: ${cityName ?? 'не выбран'}. Нажмите, чтобы сменить`}
+              style={({ pressed }) => [styles.cityButton, pressed && styles.pressed]}
             >
-              <View style={styles.signInTexts}>
-                <Text style={styles.signInTitle}>Создайте аккаунт</Text>
-                <Text style={styles.signInSubtitle}>
-                  Чтобы заказывать, публиковать объявления и сохранять избранное
-                </Text>
-              </View>
-              <Icon name="chevron-right" size={22} color={colors.primary} />
+              <Icon name="location" size={20} color={colors.primary} />
+              <Text style={styles.cityName}>{cityName ?? 'Выбрать город'}</Text>
+              <Text style={styles.cityChevron}>⌄</Text>
             </Pressable>
           </View>
-        )}
+
+          <View style={styles.section}>
+            <WeatherWidget width={layout.inner} />
+          </View>
+
+          {homeSlides.length > 0 && (
+            <View style={styles.section}>
+              <AdCarousel
+                slides={homeSlides}
+                width={layout.outer}
+                height={layout.banner}
+                textAlign="center"
+                // Края соседних карточек видны — сразу понятно, что полосу листают
+                peek={12}
+                onPressSlide={(slide) => openPromoAction(router, slide)}
+              />
+            </View>
+          )}
+
+          <View style={[styles.section, styles.padded, styles.grid]}>
+            <View style={styles.row}>
+              {tile('listings', layout.half, layout.rowOne)}
+              {tile('order', layout.half, layout.rowOne)}
+            </View>
+            <View style={styles.row}>
+              {tile('cinema', layout.half, layout.rowTwo)}
+              {tile('news', layout.half, layout.rowTwo)}
+            </View>
+            {tile('rides', layout.inner, layout.wide)}
+          </View>
+
+          {!user && (
+            <View style={[styles.section, styles.padded]}>
+              <Pressable
+                onPress={() => router.push('/auth/phone')}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.signInCard, pressed && styles.pressed]}
+              >
+                <View style={styles.signInTexts}>
+                  <Text style={styles.signInTitle}>Создайте аккаунт</Text>
+                  <Text style={styles.signInSubtitle}>
+                    Чтобы заказывать, публиковать объявления и сохранять избранное
+                  </Text>
+                </View>
+                <Icon name="chevron-right" size={22} color={colors.primary} />
+              </Pressable>
+            </View>
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -214,7 +217,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     content: { paddingBottom: spacing.xxxl },
     padded: { paddingHorizontal: spacing.lg },
 
-    header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
+    header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
     cityButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -225,28 +228,10 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     cityName: { ...typography.title, color: colors.text },
     cityChevron: { fontSize: 18, color: colors.textMuted, marginTop: -6 },
 
-    section: { gap: spacing.md, marginBottom: spacing.xl },
+    section: { marginBottom: spacing.lg },
 
-    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-    // Две колонки: половина ширины минус половина промежутка
-    tileWrapper: { width: '48%', flexGrow: 1 },
-    // Тень рисует сам GlassCard (shadow) — на внешнем слое, чтобы её не
-    // обрезало скругление размытия.
-    tile: {
-      gap: spacing.md,
-      padding: spacing.lg,
-    },
-    tileIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: radius.md,
-      backgroundColor: colors.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    tileTexts: { gap: 2 },
-    tileTitle: { ...typography.subheading, color: colors.text },
-    tileSubtitle: { ...typography.caption, color: colors.textFaint, lineHeight: 17 },
+    grid: { gap: HOME_GAP },
+    row: { flexDirection: 'row', gap: HOME_GAP },
 
     signInCard: {
       flexDirection: 'row',

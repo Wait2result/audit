@@ -26,6 +26,32 @@ async function readImage(formData: FormData, name: string): Promise<string | und
   return media.id;
 }
 
+/**
+ * Дата из поля формы («2026-10-20T09:00») — московское время: Дагестан живёт
+ * по Москве, а сервер панели может стоять в другом поясе. Пусто — null.
+ */
+function readMoscowDate(formData: FormData, name: string): string | null {
+  const raw = readOptionalField(formData, name);
+  if (!raw) return null;
+  return new Date(`${raw}:00+03:00`).toISOString();
+}
+
+/**
+ * Действие и срок показа. Поля действия есть только у карусели: у плитки
+ * нажатие открывает её рубрику, и форма их не присылает — тогда действие не
+ * трогаем. Срок показа есть у обеих.
+ */
+function readActionAndSchedule(formData: FormData) {
+  const actionType = readOptionalField(formData, 'actionType');
+  return {
+    ...(actionType
+      ? { actionType, actionValue: readOptionalField(formData, 'actionValue') ?? null }
+      : {}),
+    startsAt: readMoscowDate(formData, 'startsAt'),
+    endsAt: readMoscowDate(formData, 'endsAt'),
+  };
+}
+
 export async function createPromoBanner(
   _prev: BannerActionState,
   formData: FormData,
@@ -34,7 +60,6 @@ export async function createPromoBanner(
 
   try {
     const imageMediaId = await readImage(formData, 'image');
-    const targetPlaceId = readOptionalField(formData, 'targetPlaceId');
 
     await apiFetch('/places/admin/promo-banners', {
       method: 'POST',
@@ -43,7 +68,7 @@ export async function createPromoBanner(
         title: readField(formData, 'title'),
         subtitle: readOptionalField(formData, 'subtitle'),
         ...(imageMediaId ? { imageMediaId } : {}),
-        ...(targetPlaceId ? { targetPlaceId } : {}),
+        ...readActionAndSchedule(formData),
       },
     });
   } catch (err) {
@@ -51,7 +76,7 @@ export async function createPromoBanner(
   }
 
   revalidatePath('/places/promo-banners');
-  return { success: 'Баннер создан' };
+  return { success: placement.startsWith('tile_') ? 'Фото плитки добавлено' : 'Баннер создан' };
 }
 
 export async function updatePromoBanner(
@@ -59,7 +84,6 @@ export async function updatePromoBanner(
   formData: FormData,
 ): Promise<BannerActionState> {
   const id = readField(formData, 'id');
-  const targetPlaceId = readOptionalField(formData, 'targetPlaceId');
 
   try {
     const imageMediaId = await readImage(formData, 'image');
@@ -69,9 +93,9 @@ export async function updatePromoBanner(
       body: {
         title: readField(formData, 'title'),
         subtitle: readOptionalField(formData, 'subtitle') ?? null,
-        // Пустой выбор в списке — «без заведения», а не «оставить как было»:
-        // иначе отвязать баннер от заведения было бы нечем
-        targetPlaceId: targetPlaceId ?? null,
+        // Действие — как выбрано в форме («Ничего» тоже выбор: так карточку
+        // отвязывают от заведения); пустые даты — срок снят
+        ...readActionAndSchedule(formData),
         isActive: formData.get('isActive') === 'on',
         // Картинку меняем только когда выбрали новый файл: иначе правка
         // заголовка стирала бы существующее фото

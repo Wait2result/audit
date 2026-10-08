@@ -313,26 +313,128 @@ export type ReorderCategoriesDto = z.infer<typeof reorderCategoriesSchema>;
 
 // ── Промо-баннеры ────────────────────────────────────────────────────────────
 
-export const promoPlacementSchema = z.enum(['home', 'delivery']);
+/** Плитки главной, у которых фото задаётся из панели (по порядку на экране). */
+export const HOME_TILE_KEYS = ['listings', 'order', 'cinema', 'news', 'rides'] as const;
+
+/** Место показа фото плитки главной: «listings» → `tile_listings`. */
+export function homeTilePlacement<K extends (typeof HOME_TILE_KEYS)[number]>(key: K): `tile_${K}` {
+  return `tile_${key}`;
+}
+
+export const promoPlacementSchema = z.enum([
+  'home',
+  'delivery',
+  'tile_listings',
+  'tile_order',
+  'tile_cinema',
+  'tile_news',
+  'tile_rides',
+]);
+
+/** Что делает нажатие на рекламную карточку. */
+export const promoActionTypeSchema = z.enum(['none', 'place', 'rubric', 'screen', 'url']);
+
+/** Рубрики главной, в которые может вести реклама — те же, что плитки. */
+export const PROMO_RUBRICS: Readonly<Record<(typeof HOME_TILE_KEYS)[number], string>> = {
+  listings: 'Объявления',
+  order: 'Заказать (доставка)',
+  cinema: 'Сейчас в кино',
+  news: 'Новости',
+  rides: 'Попутчики',
+};
+
+/**
+ * Внутренние экраны, в которые может вести реклама. Список закрыт: путь из
+ * панели не должен открывать в приложении что угодно, а несуществующий
+ * экран — падать.
+ */
+export const PROMO_SCREENS = [
+  { value: '/listings/new', label: 'Подать объявление' },
+  { value: '/weather', label: 'Погода' },
+  { value: '/favorites', label: 'Избранное' },
+  { value: '/my-listings', label: 'Мои объявления' },
+  { value: '/orders', label: 'Мои заказы' },
+] as const;
 
 const promoBannerFields = {
   placement: promoPlacementSchema,
   title: z.string().trim().min(2, 'Укажите заголовок').max(120, 'Слишком длинный заголовок'),
   subtitle: z.string().trim().max(200, 'Слишком длинный подзаголовок').nullish(),
   imageMediaId: uuidSchema.nullish(),
+  /** Заведение для действия place. Старые клиенты присылают только его */
   targetPlaceId: uuidSchema.nullish(),
+  actionType: promoActionTypeSchema,
+  actionValue: z.string().trim().max(500).nullish(),
+  /** Срок показа; пусто — без ограничения с этой стороны */
+  startsAt: z.coerce.date().nullish(),
+  endsAt: z.coerce.date().nullish(),
   sortOrder: z.number().int().min(0).max(9999),
   isActive: z.boolean(),
 };
 
-export const createPromoBannerSchema = z.object(promoBannerFields).extend({
-  sortOrder: promoBannerFields.sortOrder.default(0),
-  isActive: z.boolean().default(true),
-});
+/**
+ * Значение действия соответствует его типу: заведение — id, рубрика — ключ
+ * плитки, экран — путь из списка, ссылка — только https. И срок показа не
+ * заканчивается раньше, чем начинается.
+ */
+function checkPromoBanner(
+  value: {
+    actionType?: z.infer<typeof promoActionTypeSchema> | undefined;
+    actionValue?: string | null | undefined;
+    targetPlaceId?: string | null | undefined;
+    startsAt?: Date | null | undefined;
+    endsAt?: Date | null | undefined;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  const action = value.actionValue ?? '';
+  const issue = (message: string, path: string) =>
+    ctx.addIssue({ code: 'custom', message, path: [path] });
+
+  switch (value.actionType) {
+    case 'place':
+      if (!value.targetPlaceId && !uuidSchema.safeParse(action).success) {
+        issue('Выберите заведение', 'targetPlaceId');
+      }
+      break;
+    case 'rubric':
+      if (!(HOME_TILE_KEYS as readonly string[]).includes(action))
+        issue('Выберите рубрику', 'actionValue');
+      break;
+    case 'screen':
+      if (!PROMO_SCREENS.some((screen) => screen.value === action))
+        issue('Выберите экран', 'actionValue');
+      break;
+    case 'url':
+      if (!action.startsWith('https://') || !z.url().safeParse(action).success) {
+        issue('Ссылка должна начинаться с https://', 'actionValue');
+      }
+      break;
+    default:
+      break;
+  }
+
+  if (value.startsAt && value.endsAt && value.endsAt <= value.startsAt) {
+    issue('Окончание показа должно быть позже начала', 'endsAt');
+  }
+}
+
+export const createPromoBannerSchema = z
+  .object(promoBannerFields)
+  .extend({
+    // Старый клиент без действия, но с заведением — это «открыть заведение»
+    actionType: promoActionTypeSchema.optional(),
+    sortOrder: promoBannerFields.sortOrder.default(0),
+    isActive: z.boolean().default(true),
+  })
+  .superRefine(checkPromoBanner);
 
 export type CreatePromoBannerDto = z.infer<typeof createPromoBannerSchema>;
 
-export const updatePromoBannerSchema = z.object(promoBannerFields).partial();
+export const updatePromoBannerSchema = z
+  .object(promoBannerFields)
+  .partial()
+  .superRefine(checkPromoBanner);
 export type UpdatePromoBannerDto = z.infer<typeof updatePromoBannerSchema>;
 
 /** Порядок карточек задаётся одним списком, отдельно для каждого места показа. */

@@ -1,9 +1,4 @@
-import {
-  pluralize,
-  type PlaceCategoryDto,
-  type PlaceDto,
-  type PromoBannerDto,
-} from '@dagestan/shared';
+import { pluralize, type PlaceCategoryDto, type PlaceDto } from '@dagestan/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -25,7 +20,7 @@ import {
   usePromoBanners,
   type PlaceFilters,
 } from '../src/api/queries';
-import { AdCarousel, type AdSlide } from '../src/components/AdCarousel';
+import { AdCarousel } from '../src/components/AdCarousel';
 import { CartButton } from '../src/components/CartButton';
 import { CATEGORY_GAP, CategoryTile, categoryTileWidth } from '../src/components/CategoryTile';
 import { FilterChip } from '../src/components/FilterChip';
@@ -36,6 +31,7 @@ import { Screen } from '../src/components/Screen';
 import { useFavoriteActions } from '../src/hooks/use-favorite-actions';
 import { useCityStore } from '../src/store/city-store';
 import { MIN_TOUCH_SIZE, radius, spacing, typography, useThemeColors } from '../src/theme';
+import { openPromoAction, promoSlides } from '../src/utils/promo';
 
 type Sort = NonNullable<PlaceFilters['sort']>;
 
@@ -48,39 +44,6 @@ const SORT_LABELS: Record<Sort, string> = {
 
 /** «До 30 мин» — граница, дальше которой человек уже не ждёт, а выбирает заново. */
 const FAST_MINUTES = 30;
-
-/**
- * Подборки витрины из промо-баннеров панели («Заведения → Реклама»).
- *
- * Картинку и заведение, куда ведёт нажатие, задаёт владелец — карточка сама
- * не решает, что показать. Пока фотографии нет, вместо неё однотонная
- * подложка одного из фирменных цветов, по кругу — так карточки без фото
- * не сливаются друг с другом.
- */
-const FALLBACK_TINTS = (colors: ReturnType<typeof useThemeColors>) => [
-  colors.ink,
-  colors.primaryDark,
-  colors.accent,
-];
-
-function toSlides(
-  banners: PromoBannerDto[] | undefined,
-  colors: ReturnType<typeof useThemeColors>,
-): AdSlide[] {
-  const tints = FALLBACK_TINTS(colors);
-
-  return (banners ?? []).map((banner, index) => ({
-    id: banner.id,
-    title: banner.title,
-    subtitle: banner.subtitle ?? '',
-    imageUrl: banner.image?.url ?? banner.image?.thumbnailUrl ?? null,
-    tint: tints[index % tints.length]!,
-    targetPlaceId: banner.targetPlaceId,
-    // Это подборка владельца, а не сторонняя реклама — метки «Реклама» нет.
-    // Появится настоящая рекламная система — здесь будет реальный признак
-    isOwn: true,
-  }));
-}
 
 /**
  * Витрина доставки (Этап 6).
@@ -100,7 +63,7 @@ export default function PlacesScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const promoBanners = usePromoBanners('delivery');
   const foodSlides = useMemo(
-    () => toSlides(promoBanners.data, colors),
+    () => promoSlides(promoBanners.data, colors),
     [promoBanners.data, colors],
   );
   // Условия от умного поиска: что искать, с доставкой ли, город запроса.
@@ -361,14 +324,7 @@ export default function PlacesScreen() {
               <View style={styles.carousel}>
                 <AdCarousel
                   slides={foodSlides}
-                  onPressSlide={(slide) => {
-                    if (slide.targetPlaceId) {
-                      router.push({
-                        pathname: '/places/[id]',
-                        params: { id: slide.targetPlaceId },
-                      });
-                    }
-                  }}
+                  onPressSlide={(slide) => openPromoAction(router, slide)}
                 />
               </View>
             )}

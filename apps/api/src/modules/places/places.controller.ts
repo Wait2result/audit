@@ -7,6 +7,7 @@ import {
   reviewListQuerySchema,
   upsertReviewSchema,
   uuidSchema,
+  type HomeTilesDto,
   type PaginatedResponse,
   type PlaceDetailsDto,
   type PlaceDto,
@@ -97,6 +98,19 @@ export class PlacesController {
   })
   listPromoBanners(@Query('placement') placement: unknown): Promise<PromoBannerDto[]> {
     return this.promoBanners.list(promoPlacementSchema.parse(placement));
+  }
+
+  @Public()
+  @Get('home-tiles')
+  @ApiOperation({
+    summary: 'Фото плиток главной',
+    description:
+      'Первая включённая карточка каждой плитки («Объявления», «Заказать», «Сейчас в ' +
+      'кино», «Новости», «Попутчики») одним ответом. Нет карточки — null: приложение ' +
+      'показывает своё фото по умолчанию, у кино — афишу сеанса.',
+  })
+  homeTiles(): Promise<HomeTilesDto> {
+    return this.promoBanners.homeTiles();
   }
 
   @Public()

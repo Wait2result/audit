@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import {
   ErrorCode,
+  HOME_TILE_KEYS,
+  homeTilePlacement,
   type CreatePromoBannerDto,
+  type HomeTilesDto,
   type MediaDto,
+  type PromoActionType,
   type PromoBannerAdminDto,
   type PromoBannerDto,
   type PromoPlacement,
@@ -27,9 +31,48 @@ type BannerRow = {
   subtitle: string | null;
   imageMediaId: string | null;
   targetPlaceId: string | null;
+  actionType: string;
+  actionValue: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
   sortOrder: number;
   isActive: boolean;
 };
+
+/**
+ * Срок показа идёт сейчас: начало не в будущем, окончание не в прошлом.
+ * Пустая граница — без ограничения с этой стороны.
+ */
+function showingNow(now = new Date()) {
+  return {
+    AND: [
+      { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+      { OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+    ],
+  };
+}
+
+/** Действие карточки из запроса панели: тип, значение и заведение для place. */
+function resolveAction(dto: {
+  actionType?: PromoActionType | undefined;
+  actionValue?: string | null | undefined;
+  targetPlaceId?: string | null | undefined;
+}): { actionType: PromoActionType; actionValue: string | null; targetPlaceId: string | null } {
+  // Старый клиент присылает только заведение: есть оно — «открыть заведение»
+  const type: PromoActionType = dto.actionType ?? (dto.targetPlaceId ? 'place' : 'none');
+  if (type === 'place') {
+    return {
+      actionType: type,
+      actionValue: null,
+      targetPlaceId: dto.targetPlaceId ?? dto.actionValue ?? null,
+    };
+  }
+  return {
+    actionType: type,
+    actionValue: type === 'none' ? null : (dto.actionValue ?? null),
+    targetPlaceId: null,
+  };
+}
 
 /**
  * Промо-баннеры карусели — на главной странице и на витрине доставки
@@ -48,16 +91,47 @@ export class PromoBannersService {
     private readonly media: MediaService,
   ) {}
 
-  /** Карточки для карусели: только включённые, в заданном владельцем порядке. */
+  /**
+   * Карточки для карусели: только включённые и в своём сроке показа, в
+   * заданном владельцем порядке.
+   */
   async list(placement: PromoPlacement): Promise<PromoBannerDto[]> {
     const rows = await this.prisma.promoBanner.findMany({
-      where: { placement, deletedAt: null, isActive: true },
+      where: { placement, deletedAt: null, isActive: true, ...showingNow() },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
     const images = await this.imageMap(rows);
 
     return rows.map((row) => toDto(row, images.get(row.imageMediaId ?? '') ?? null));
+  }
+
+  /**
+   * Фото плиток главной: по одной карточке на плитку — первой включённой в
+   * порядке панели. Одним запросом к базе, а не пятью: главная открывается
+   * чаще всего остального.
+   */
+  async homeTiles(): Promise<HomeTilesDto> {
+    const rows = await this.prisma.promoBanner.findMany({
+      where: {
+        placement: { in: HOME_TILE_KEYS.map(homeTilePlacement) },
+        deletedAt: null,
+        isActive: true,
+        ...showingNow(),
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    const first = HOME_TILE_KEYS.map(
+      (key) => [key, rows.find((row) => row.placement === homeTilePlacement(key)) ?? null] as const,
+    );
+    const images = await this.imageMap(first.flatMap(([, row]) => (row ? [row] : [])));
+
+    return Object.fromEntries(
+      first.map(([key, row]) => [
+        key,
+        row ? toDto(row, images.get(row.imageMediaId ?? '') ?? null) : null,
+      ]),
+    ) as HomeTilesDto;
   }
 
   // ── Панель ────────────────────────────────────────────────────────────────
@@ -85,7 +159,8 @@ export class PromoBannersService {
     actorId: string,
     context: AuditContext,
   ): Promise<PromoBannerAdminDto> {
-    if (dto.targetPlaceId) await this.requirePlace(dto.targetPlaceId);
+    const action = resolveAction(dto);
+    if (action.targetPlaceId) await this.requirePlace(action.targetPlaceId);
 
     // Новая карточка встаёт в конец своего места показа, а не в начало:
     // порядок карусели — решение владельца, и добавление не должно молча
@@ -102,7 +177,9 @@ export class PromoBannersService {
         title: dto.title,
         subtitle: dto.subtitle ?? null,
         imageMediaId: dto.imageMediaId ?? null,
-        targetPlaceId: dto.targetPlaceId ?? null,
+        ...action,
+        startsAt: dto.startsAt ?? null,
+        endsAt: dto.endsAt ?? null,
         sortOrder: dto.sortOrder > 0 ? dto.sortOrder : (last?.sortOrder ?? -1) + 1,
         isActive: dto.isActive,
       },
@@ -129,7 +206,10 @@ export class PromoBannersService {
   ): Promise<PromoBannerAdminDto> {
     const before = await this.requireOne(id);
 
-    if (dto.targetPlaceId) await this.requirePlace(dto.targetPlaceId);
+    // Действие меняется, только если панель его прислала (или старый клиент — заведение)
+    const action =
+      dto.actionType !== undefined || dto.targetPlaceId !== undefined ? resolveAction(dto) : null;
+    if (action?.targetPlaceId) await this.requirePlace(action.targetPlaceId);
 
     const updated = await this.prisma.promoBanner.update({
       where: { id },
@@ -138,7 +218,9 @@ export class PromoBannersService {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.subtitle !== undefined ? { subtitle: dto.subtitle ?? null } : {}),
         ...(dto.imageMediaId !== undefined ? { imageMediaId: dto.imageMediaId ?? null } : {}),
-        ...(dto.targetPlaceId !== undefined ? { targetPlaceId: dto.targetPlaceId ?? null } : {}),
+        ...(action ?? {}),
+        ...(dto.startsAt !== undefined ? { startsAt: dto.startsAt ?? null } : {}),
+        ...(dto.endsAt !== undefined ? { endsAt: dto.endsAt ?? null } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
@@ -277,5 +359,10 @@ function toDto(row: BannerRow, image: MediaDto | null): PromoBannerDto {
     subtitle: row.subtitle,
     image,
     targetPlaceId: row.targetPlaceId,
+    actionType: row.actionType as PromoActionType,
+    // У «открыть заведение» значение — само заведение: приложению не нужно знать про связь
+    actionValue: row.actionType === 'place' ? row.targetPlaceId : row.actionValue,
+    startsAt: row.startsAt?.toISOString() ?? null,
+    endsAt: row.endsAt?.toISOString() ?? null,
   };
 }

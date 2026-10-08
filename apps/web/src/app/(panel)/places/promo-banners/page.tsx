@@ -5,6 +5,8 @@ import type {
   PromoPlacement,
 } from '@dagestan/shared';
 
+import { PROMO_RUBRICS, PROMO_SCREENS } from '@dagestan/shared';
+
 import { Badge, Card, EmptyState, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/api';
 import { mediaUrl } from '@/lib/media';
@@ -15,11 +17,7 @@ import {
   MovePromoBannerForm,
   type PlaceOption,
 } from './banner-forms';
-
-const TABS: { value: PromoPlacement; label: string }[] = [
-  { value: 'home', label: 'Главная' },
-  { value: 'delivery', label: 'Доставка' },
-];
+import { PLACEMENTS, placementInfo } from './placements';
 
 /**
  * Промо-баннеры карусели — на главной странице и на витрине доставки.
@@ -34,7 +32,8 @@ export default async function PromoBannersPage({
   searchParams: Promise<{ placement?: string }>;
 }) {
   const params = await searchParams;
-  const placement: PromoPlacement = params.placement === 'delivery' ? 'delivery' : 'home';
+  const info = placementInfo(params.placement);
+  const placement: PromoPlacement = info.value;
 
   const [banners, placesPage] = await Promise.all([
     apiFetch<PromoBannerAdminDto[]>(`/places/admin/promo-banners?placement=${placement}`),
@@ -50,8 +49,8 @@ export default async function PromoBannersPage({
   return (
     <>
       <PageHeader
-        title="Реклама"
-        description="Карточки карусели на главной странице и на витрине доставки. Фотография и заведение, куда ведёт нажатие, — на ваше усмотрение; без картинки карточка выходит однотонной, без заведения — просто информационной."
+        title="Главная и реклама"
+        description="Карусели на главной и на витрине доставки и фото плиток главной. Порядок карточек здесь — порядок в приложении."
       />
 
       <div className="mb-5">
@@ -63,31 +62,52 @@ export default async function PromoBannersPage({
         </a>
       </div>
 
-      <div className="mb-5 flex gap-2">
-        {TABS.map((tab) => (
-          <a
-            key={tab.value}
-            href={`/places/promo-banners?placement=${tab.value}`}
-            className={
-              tab.value === placement
-                ? 'rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-ink-950'
-                : 'rounded-lg border border-ink-700 px-4 py-2 text-sm text-ink-300 transition hover:border-brand-500 hover:text-brand-300'
-            }
-          >
-            {tab.label}
-          </a>
-        ))}
-      </div>
+      {(['carousel', 'tile'] as const).map((kind) => (
+        <div key={kind} className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="w-28 shrink-0 text-xs text-ink-500">
+            {kind === 'carousel' ? 'Карусели' : 'Плитки главной'}
+          </span>
+          {PLACEMENTS.filter((tab) => tab.kind === kind).map((tab) => (
+            <a
+              key={tab.value}
+              href={`/places/promo-banners?placement=${tab.value}`}
+              className={
+                tab.value === placement
+                  ? 'rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-ink-950'
+                  : 'rounded-lg border border-ink-700 px-4 py-2 text-sm text-ink-300 transition hover:border-brand-500 hover:text-brand-300'
+              }
+            >
+              {tab.label}
+            </a>
+          ))}
+        </div>
+      ))}
+
+      <Card className="mb-5 mt-5">
+        <p className="text-sm text-ink-200">{info.description}</p>
+        <p className="mt-2 text-xs text-ink-400">Картинка: {info.imageHint}</p>
+        {info.kind === 'tile' && (
+          <p className="mt-1 text-xs text-ink-500">
+            На плитке — первая включённая карточка. Чтобы сменить фото, поднимите другую карточку
+            выше или скройте текущую.
+          </p>
+        )}
+      </Card>
 
       <Card className="mb-5">
-        <CreatePromoBannerForm placement={placement} places={places} />
+        <CreatePromoBannerForm
+          placement={placement}
+          places={places}
+          kind={info.kind}
+          imageHint={info.imageHint}
+        />
       </Card>
 
       {banners.length === 0 ? (
         <Card>
           <EmptyState
-            title="Баннеров пока нет"
-            description="Добавьте первый — он сразу появится в карусели."
+            title={info.kind === 'tile' ? 'Своего фото нет' : 'Баннеров пока нет'}
+            description={info.emptyHint}
           />
         </Card>
       ) : (
@@ -101,9 +121,16 @@ export default async function PromoBannersPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-medium text-ink-100">{banner.title}</h2>
                     {!banner.isActive && <Badge tone="neutral">Скрыт</Badge>}
-                    <Badge tone={banner.targetPlaceName ? 'success' : 'warning'}>
-                      {banner.targetPlaceName ? `→ ${banner.targetPlaceName}` : 'без заведения'}
-                    </Badge>
+                    {info.kind === 'tile' ? (
+                      banner.id === banners.find((item) => item.isActive)?.id && (
+                        <Badge tone="success">Сейчас на плитке</Badge>
+                      )
+                    ) : (
+                      <Badge tone={banner.actionType === 'none' ? 'warning' : 'success'}>
+                        {actionLabel(banner)}
+                      </Badge>
+                    )}
+                    {scheduleLabel(banner) && <Badge tone="neutral">{scheduleLabel(banner)}</Badge>}
                   </div>
 
                   {banner.subtitle && (
@@ -137,7 +164,12 @@ export default async function PromoBannersPage({
                   Изменить
                 </summary>
                 <div className="mt-4">
-                  <EditPromoBannerForm banner={banner} places={places} />
+                  <EditPromoBannerForm
+                    banner={banner}
+                    places={places}
+                    kind={info.kind}
+                    imageHint={info.imageHint}
+                  />
                 </div>
               </details>
             </Card>
@@ -146,6 +178,42 @@ export default async function PromoBannersPage({
       )}
     </>
   );
+}
+
+/** Куда ведёт нажатие — коротко, для списка. */
+function actionLabel(banner: PromoBannerAdminDto): string {
+  switch (banner.actionType) {
+    case 'place':
+      return `→ ${banner.targetPlaceName ?? 'заведение'}`;
+    case 'rubric':
+      return `→ ${PROMO_RUBRICS[banner.actionValue as keyof typeof PROMO_RUBRICS] ?? banner.actionValue}`;
+    case 'screen':
+      return `→ ${PROMO_SCREENS.find((screen) => screen.value === banner.actionValue)?.label ?? banner.actionValue}`;
+    case 'url':
+      // Только адрес сайта: «burgerhouse.ru», без https:// и пути
+      return `→ ${(banner.actionValue ?? '').slice('https://'.length).split('/')[0]}`;
+    default:
+      return 'без перехода';
+  }
+}
+
+/** Срок показа: ещё не начался, уже закончился или идёт до даты. */
+function scheduleLabel(banner: PromoBannerAdminDto): string | null {
+  const now = Date.now();
+  const date = (iso: string) =>
+    new Date(iso).toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow',
+      day: 'numeric',
+      month: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  if (banner.startsAt && new Date(banner.startsAt).getTime() > now) {
+    return `Запланирован с ${date(banner.startsAt)}`;
+  }
+  if (banner.endsAt && new Date(banner.endsAt).getTime() <= now) return 'Срок показа вышел';
+  if (banner.endsAt) return `До ${date(banner.endsAt)}`;
+  return null;
 }
 
 function Thumb({ banner }: { banner: PromoBannerAdminDto }) {
